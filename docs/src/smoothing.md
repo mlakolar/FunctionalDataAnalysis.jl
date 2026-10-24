@@ -44,7 +44,7 @@ within-curve error correlation.
 
 Pointwise confidence bands for the pooled mean are outside this API. They
 require cluster-robust variances, which KernelSmoothing.jl does not yet provide.
-Covariance and noise variance are scheduled for the next milestone 2 task.
+Covariance and noise variance are estimated as described below.
 
 KernelSmoothing.jl is currently unregistered. On Julia 1.10, install it before
 instantiating this project (newer Julia versions use the root `[sources]`):
@@ -101,13 +101,139 @@ fold count, and all smoothing settings; `show` displays them.
 The fixed-bandwidth mean is checked against fdapace 0.6.0 `Lwls1D`, using
 Epanechnikov local linear fits without binning, for both weighting schemes.
 The reference script is `test/reference/fdapace_m2.R`. Run it from the repository
-root to recreate the version-labelled CSVs. The covariance fixture is reserved
-for task 3: it uses ordered within-curve off-diagonal residual products, centered
+root to recreate the version-labelled CSVs. The covariance fixture uses ordered within-curve off-diagonal residual products, centered
 at direct mean estimates at observation times, and `Lwls2D(method="plain")`.
-Its subject weights are `1/(N_i*(N_i-1))`. No covariance comparison is claimed
-by the mean tests.
+Its subject weights are `1/(N_i*(N_i-1))`. The covariance tests compare this quantity to relative error below `1e-8`.
+The mean is stored at all input times for this comparison, so centering agrees
+with the direct fdapace mean rather than a coarser interpolated mean.
 
 ```@docs
 SmoothedMean
 CurveCV
 ```
+
+## Covariance and noise variance
+
+`StatsAPI.fit(SmoothedCovariance, fd, mean_fit; grid, bandwidth, diagonal_bandwidth)` smooths all
+ordered within-curve residual products with distinct observation indices.
+This excludes measurement noise on the raw diagonal. The product kernel uses
+the same scalar bandwidth in both coordinates. Local linear fits solve a
+three-coefficient weighted least-squares system; singular windows throw and
+name the query point. The final surface is symmetrized exactly. It is not
+projected onto the positive-semidefinite cone.
+
+`:obs` assigns weight one to each pair. `:subj` assigns
+`1/(N_i*(N_i-1))` so each curve has total pair weight one. Each curve must have
+at least two observations; empty and singleton curves raise errors.
+The supplied mean is linearly interpolated at the original observation times.
+Its stored grid must cover all those times. Stored data weights are unused.
+
+A `CurveCV` selector leaves entire curves out of the covariance smoother and
+predicts their raw products, minimizing weighted squared prediction error.
+The supplied mean remains fixed across folds; CV is conditional on that mean.
+This does not refit the mean within each training fold. Split rules, tie rules,
+and errors for undefined candidates follow the pooled-mean conventions above.
+
+`binning=n` snaps original times onto the nearest of `n` equally spaced
+points spanning the observed domain. Midpoint ties go upward. Residuals are
+computed at the original times before snapping. Pair multiplicities and
+original observation-index diagonal exclusions are preserved, including
+products whose two distinct observations snap to the same bin. No observations
+are discarded. Within each curve and bin cell, pair weights are summed and
+products are replaced by their weighted mean. This preserves the fixed-bandwidth
+fit at snapped times. Within-cell squared errors are retained, so CV still
+scores the original raw products. Default `binning=nothing` disables snapping
+and aggregation.
+
+Forming products takes `O(P)` work, where `P = sum(N_i*(N_i-1))`.
+Without binning, covariance CV takes `O(P^2)` work per candidate bandwidth.
+With binning, pair storage and CV use `Q = sum(min(N_i*(N_i-1), n^2))` as an upper
+bound on the number of occupied curve/bin cells, reducing these costs to
+`O(Q)` storage and `O(Q^2)` CV work. Binning helps when many pairs share cells;
+it does not remove the cost of initially forming the products.
+
+The noise estimator smooths raw residual squares by a univariate local linear
+fit with `minobs=0`. By default it uses the covariance bandwidth (after any
+CV selection), as fdapace does; theory only requires the diagonal bandwidth to
+be of no larger order than the covariance bandwidth, so this default is
+consistent (Li and Hsing, 2010, Corollary 3.5). Pass `diagonal_bandwidth` to
+choose it separately: a positive number, a `CurveCV`, or a KernelSmoothing
+regression rule (see below). `noise_details.diagonal_source` records
+`:covariance` or `:user`. Diagonal CV predicts the raw squared residuals of held-out
+curves at their original observation times, using the pooled-mean weighting
+and fold rules. The supplied mean remains fixed. When binning is enabled,
+training times are snapped as in the final diagonal smoother; held-out query
+times remain original. Its weights are one
+for `:obs` and `1/N_i` for `:subj`. If this fit is `V(t)` and the covariance is
+`G(s,t)`, the raw noise estimate is
+`(2/(b-a)) * integral(V(t)-G(t,t), t=a+(b-a)/4..b-(b-a)/4)`.
+Here `[a,b]` is the work-grid range. Trapezoidal quadrature includes the exact
+middle-half boundaries, interpolating `V-G` linearly when needed. Negative
+estimates are truncated to zero. `noise_details` records the untruncated value,
+truncation flag, diagonal bandwidth, fold count, selection candidates, errors
+and assignments, fitted squares, and integration settings.
+`diagonal_bandwidth` also appears directly on the fit.
+The stored `weights` integrate over the full covariance work grid.
+
+```@example smoothing
+using Random
+sparse = simulate_kl(MersenneTwister(42), 80; mean=t -> 1 + t,
+    eigenfunctions=[t -> 1.0], eigenvalues=[0.5], noise_sd=0.2,
+    sampling=SparseSampling((0.0, 1.0), 6:9)).data
+workgrid = collect(range(0.0, 1.0; length=11))
+pooled = StatsAPI.fit(SmoothedMean, sparse; grid=workgrid, bandwidth=0.8)
+covariance = StatsAPI.fit(SmoothedCovariance, sparse, pooled;
+    grid=workgrid, bandwidth=0.8, diagonal_bandwidth=0.6, weighting=:subj)
+(size(covariance.surface), covariance.noise_variance, evaluate(covariance, 0.3, 0.6))
+```
+
+`evaluate(covariance, s, t)` uses bilinear interpolation within the stored grid.
+Nonfinite queries and extrapolation raise errors. All tuning settings, the
+sampling design, CV results, and noise details appear in `show`.
+
+```@docs
+SmoothedCovariance
+```
+
+## Automatic univariate pilots
+
+Bandwidth keywords remain required. The pooled mean's `bandwidth` and the
+noise diagonal's `diagonal_bandwidth` also accept regression rules from
+KernelSmoothing, such as `KernelSmoothing.RuleOfThumb()` or
+`KernelSmoothing.IMSEOptimal()`. Each rule receives the smoother's pooled
+responses, times, observation weights, kernel, and degree. For the diagonal,
+responses are raw squared residuals and times are snapped when binning is used.
+The mean stores `selection=(rule, bandwidth, details)`; the diagonal stores it
+in `noise_details.selection`. Density-only rules and rules returning pointwise
+vectors (currently `MSEOptimal()`) raise `ArgumentError`.
+
+These rules assume independent observations. For sparse designs that is
+asymptotically adequate, because each curve contributes about one point to a
+smoothing window and the leading variance matches the independent case (Zhang
+and Wang, 2016, Corollaries 3.1 and 3.2). For dense designs they ignore the
+within-curve correlation term. Li and Hsing (2010, Section 4.1) also found
+IMSE-optimal bandwidths worked less well for ``\sigma^2`` than slightly smaller
+ones. Treat these rules as pilots and use `CurveCV`, which leaves out whole
+curves and does not depend on the within-curve correlation, for the final
+choice. Theory requires only that the diagonal bandwidth be of no larger order
+than the covariance bandwidth (Li and Hsing, 2010, Corollary 3.5), so
+undersmoothing the diagonal is allowed.
+
+```julia
+pilot = KernelSmoothing.RuleOfThumb()
+automatic = StatsAPI.fit(SmoothedMean, fd; grid=t, bandwidth=pilot)
+cv = CurveCV(; pilot, folds=nobs(fd))
+selected = StatsAPI.fit(SmoothedMean, fd; grid=t, bandwidth=cv)
+```
+
+Pilot-based `CurveCV` computes `h_pilot` on the full pooled data at fit time,
+then evaluates `multipliers .* h_pilot` with the existing curve-level CV.
+Defaults are `multipliers=2.0 .^ range(-1, 2; length=10)`, `folds=10`, and
+`rng=nothing`; supply an RNG unless leaving one curve out. Selection retains
+`pilot`, `h_pilot`, `pilot_details`, copied `multipliers`, candidate `bandwidths`,
+CV `errors`, and fold `assignments`. Explicit `CurveCV(bandwidths; ...)` keeps
+its existing behavior. Both forms work for the mean and noise diagonal.
+
+The covariance surface uses a bivariate smoother. KernelSmoothing rules are
+univariate, so covariance `bandwidth` rejects rules and pilot-based `CurveCV`.
+Use `CurveCV` with explicit candidates for that bandwidth.

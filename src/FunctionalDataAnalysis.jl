@@ -14,7 +14,7 @@ export nbasis, basismatrix, gram, penalty, BSplineBasis, FourierBasis,
 export GridFunctionalData, IrregularFunctionalData, BasisFunctionalData,
     MultivariateFunctionalData, PiecewiseLinear, NoInterpolation, nobs_per_curve,
     ncomponents, component, to_array, to_irregular, to_grid, to_basis
-export SmoothedMean, CurveCV
+export SmoothedMean, SmoothedCovariance, CurveCV
 export LocalPolynomial, PenalizedSpline, GCV, smooth_curves
 export ids, RegularSampling, SparseSampling, simulate_kl,
     fourier_eigenfunctions, legendre_eigenfunctions
@@ -31,5 +31,7 @@ include("tables.jl")
 include("simulation.jl")
 include("smoothing.jl")
 include("mean.jl")
+include("smoothing2d.jl")
+include("covariance.jl")
 
 end

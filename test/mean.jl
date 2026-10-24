@@ -128,3 +128,65 @@ using DelimitedFiles
         @test norm(actual.values - expected) / norm(expected) < 1e-8
     end
 end
+
+@testset "Pooled mean bandwidth rules and pilots" begin
+    times = [collect(range(0., 1.; length=n)) for n in (21, 25, 29, 33)]
+    ys = [sin.(4t) .+ .15i .* cos.(17t) for (i, t) in enumerate(times)]
+    fd = IrregularFunctionalData(times, ys)
+    grid = collect(0.:.1:1.)
+    kernel = KernelSmoothing.GaussianKernel()
+    x, y = vcat(times...), vcat(ys...)
+    for weighting in (:obs, :subj)
+        w = vcat([fill(weighting == :obs ? 1. : 1/length(t), length(t)) for t in times]...)
+        for rule in (KernelSmoothing.RuleOfThumb(), KernelSmoothing.IMSEOptimal())
+            direct = KernelSmoothing.selectbandwidth(rule,
+                KernelSmoothing.SmoothingData(x, y; weights=w), kernel; degree=1)
+            # KernelSmoothing selectors' `details` types depend on the data (and on
+            # the KernelSmoothing version), so selector fits are not inferred.
+            m = StatsAPI.fit(SmoothedMean, fd; grid, bandwidth=rule, kernel, weighting)
+            @test m.bandwidth == m.selection.bandwidth == direct.h
+            @test m.selection.rule == rule
+            @test m.selection.details == direct.details
+            @test m.folds == 0
+            @test occursin(string(nameof(typeof(rule))), sprint(show, m))
+        end
+        multipliers = [1., 2., 4.]
+        pilot = KernelSmoothing.RuleOfThumb()
+        cv = @inferred CurveCV(; pilot, multipliers, folds=2, rng=MersenneTwister(52))
+        @test_throws ArgumentError("CurveCV multipliers must be nonempty") CurveCV(; pilot, multipliers=Float64[])
+        @test_throws ArgumentError("CurveCV multipliers must be finite and positive") CurveCV(; pilot, multipliers=[1., -2.])
+        multipliers[1] = 10.
+        m = StatsAPI.fit(SmoothedMean, fd; grid, bandwidth=cv, kernel, weighting)
+        h = KernelSmoothing.selectbandwidth(pilot,
+            KernelSmoothing.SmoothingData(x, y; weights=w), kernel; degree=1).h
+        candidates = [1., 2., 4.] .* h
+        explicit = StatsAPI.fit(SmoothedMean, fd; grid, kernel, weighting,
+            bandwidth=CurveCV(candidates; folds=2, rng=MersenneTwister(52)))
+        @test m.selection.h_pilot == h
+        @test m.selection.pilot == pilot
+        @test m.selection.multipliers == [1., 2., 4.]
+        @test m.selection.bandwidths == candidates
+        @test m.selection.errors == explicit.selection.errors
+        @test m.selection.assignments == explicit.selection.assignments
+        @test m.bandwidth == explicit.bandwidth
+        @test m.values == explicit.values
+        @test occursin("pilot=", sprint(show, cv))
+    end
+    for rule in (KernelSmoothing.NormalReference(), KernelSmoothing.SilvermanRule(),
+                 KernelSmoothing.SheatherJones(), KernelSmoothing.LSCV(), KernelSmoothing.MSEOptimal())
+        err = try
+            StatsAPI.fit(SmoothedMean, fd; grid, kernel, bandwidth=rule)
+        catch e
+            e
+        end
+        @test err isa ArgumentError
+        @test occursin(rule isa KernelSmoothing.MSEOptimal ? "pointwise" : "density-only", sprint(showerror, err))
+        @test_throws ArgumentError StatsAPI.fit(SmoothedMean, fd; grid, kernel,
+            bandwidth=CurveCV(; pilot=rule, folds=4))
+    end
+    @test CurveCV(; pilot=KernelSmoothing.RuleOfThumb()).multipliers == 2.0 .^ range(-1, 2; length=10)
+    @test_throws ArgumentError CurveCV(; pilot=1.)
+    for multipliers in (Float64[], [0.], [-1.], [NaN], [Inf], [1., 1.])
+        @test_throws ArgumentError CurveCV(; pilot=KernelSmoothing.RuleOfThumb(), multipliers)
+    end
+end
