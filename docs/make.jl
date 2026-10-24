@@ -1,6 +1,8 @@
 using Documenter
 using FunctionalDataAnalysis
+using LinearAlgebra
 using Tables
+import StatsAPI
 
 makedocs(;
     sitename = "FunctionalDataAnalysis.jl",
@@ -13,6 +15,8 @@ makedocs(;
         "Data types" => "data.md",
         "Table input and simulation" => "io.md",
         "Smoothing" => "smoothing.md",
+        "FPCA" => "fpca.md",
+        "Comparison with fdapace" => "fdapace.md",
         "Roadmap" => "roadmap.md",
     ],
 )

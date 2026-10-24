@@ -1,7 +1,7 @@
 module FunctionalDataAnalysis
 
 using LinearAlgebra
-import StatsAPI: nobs, fit
+import StatsAPI: nobs, fit, predict
 import KernelSmoothing
 import BSplineKit
 import Tables
@@ -15,6 +15,8 @@ export GridFunctionalData, IrregularFunctionalData, BasisFunctionalData,
     MultivariateFunctionalData, PiecewiseLinear, NoInterpolation, nobs_per_curve,
     ncomponents, component, to_array, to_irregular, to_grid, to_basis
 export SmoothedMean, SmoothedCovariance, CurveCV
+export FPCA, FPCBasis, FVE, AIC, BIC, eigenfunctions, eigvals, scores,
+    score_covariances, fve, noise_variance, reconstruct, predict
 export LocalPolynomial, PenalizedSpline, GCV, smooth_curves
 export ids, RegularSampling, SparseSampling, simulate_kl,
     fourier_eigenfunctions, legendre_eigenfunctions
@@ -33,5 +35,7 @@ include("smoothing.jl")
 include("mean.jl")
 include("smoothing2d.jl")
 include("covariance.jl")
+include("fpcbasis.jl")
+include("fpca.jl")
 
 end

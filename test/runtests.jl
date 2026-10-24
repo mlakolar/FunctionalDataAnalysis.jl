@@ -15,4 +15,6 @@ using Test
     include("smoothing.jl")
     include("mean.jl")
     include("covariance.jl")
+    include("fpcbasis.jl")
+    include("fpca.jl")
 end

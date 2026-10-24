@@ -18,6 +18,7 @@ using DelimitedFiles
         expected = reshape(Float64.(golden[rows,5]), length(grid), length(grid))
         @test norm(c.surface - expected)/norm(expected) < 1e-8
         @test c.surface == transpose(c.surface)
+        @test (@inferred noise_variance(c)) == c.noise_variance
         @test c.weights == quadrature_weights(grid)
         @test c.grid !== grid
         @test (@inferred evaluate(c, .125, .25)) == c.surface[2,3]
