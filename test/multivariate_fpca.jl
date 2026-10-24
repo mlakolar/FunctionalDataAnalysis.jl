@@ -284,6 +284,14 @@ end
         selected = StatsAPI.fit(FPCA, data; basis=:pooled, ncomponents=FVE(0.85), maxK=2)
         @test ncomponents(selected) == [1, 1]
         capped = StatsAPI.fit(FPCA, data; basis=:pooled, maxK=1)
+        # Pooled rank is nodes*(n-1), so maxK may exceed n-1 when the grid allows.
+        tgrid = collect(range(0, 1; length=12))
+        few = MultivariateFunctionalData([GridFunctionalData(
+            permutedims(reduce(hcat, [sin.(k * (j + 1) .* tgrid) for k in 1:3])), tgrid) for j in 1:3])
+        wide = StatsAPI.fit(FPCA, few; basis=:pooled)
+        @test wide.settings.maxK == min(12 - 2, 3 * 2 - 1)
+        @test StatsAPI.fit(FPCA, few; basis=:pooled, maxK=6).settings.maxK == 6
+        @test_throws ArgumentError StatsAPI.fit(FPCA, few; basis=:pooled, maxK=7)
         @test ncomponents(capped) == [1, 1]
         error = try
             component(model, 1)
