@@ -41,8 +41,8 @@ Evaluate each curve in `fd` at the points in `t`. Return an
 columns.
 
 Basis data evaluate exactly and accept `derivative=0`. Grid and irregular
-data require an explicit `Linear()` or `NoInterpolation()` evaluator.
-Linear evaluation returns `NaN` outside a curve's observed range; exact
+data require an explicit `PiecewiseLinear()` or `NoInterpolation()` evaluator.
+Piecewise-linear evaluation returns `NaN` outside a curve's observed range; exact
 lookup throws at any unobserved time. Query points must be finite.
 
 Multivariate evaluation on a common point vector returns an

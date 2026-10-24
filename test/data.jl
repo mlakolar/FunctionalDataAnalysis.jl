@@ -105,8 +105,9 @@ FunctionalDataAnalysis.penalty(b::TestLinearBasis, order) =
         @test (@inferred BasisFunctionalData(Float32[1 2], MonomialBasis((0.0f0, 1.0f0), 1))) isa BasisFunctionalData{Float32}
         spline = BSplineBasis(3, [0.0, 0.5, 1.0])
         sf = BasisFunctionalData(ones(1, nbasis(spline)), spline)
-        spline.breakpoints[2] = 0.2
-        @test sf.basis.breakpoints[2] == 0.5
+        @test sf.basis === spline
+        @test sf[1].basis === spline
+        @test first(collect(sf)).basis === spline
         @test_throws DimensionMismatch BasisFunctionalData(ones(2, 2), b)
         @test_throws ArgumentError BasisFunctionalData(zeros(0, 3), b)
         @test_throws ArgumentError BasisFunctionalData(fill(NaN, 1, 3), b)
@@ -121,16 +122,18 @@ FunctionalDataAnalysis.penalty(b::TestLinearBasis, order) =
         values = [2 .* t .+ 1 for t in times]
         ir = IrregularFunctionalData(times, values; domain=(0, 1))
         t = [0.0, 0.25, 0.5, 0.75, 1.0]
-        y = @inferred evaluate(ir, t, Linear())
+        y = @inferred evaluate(ir, t, PiecewiseLinear())
         @test y[1, :] == 2t .+ 1
         @test y[2, 2:4] == 2t[2:4] .+ 1
         @test isnan(y[2, 1]) && isnan(y[2, end])
         @test (@inferred evaluate(ir, [0.25], NoInterpolation())) == reshape([1.5, 1.5], 2, 1)
         @test_throws ArgumentError evaluate(ir, [0.5], NoInterpolation())
         @test_throws ArgumentError evaluate(ir, t)
-        @test_throws ArgumentError evaluate(ir, [NaN], Linear())
+        @test_throws ArgumentError evaluate(ir, [NaN], PiecewiseLinear())
         @test_throws ArgumentError evaluate(ir, [Inf], NoInterpolation())
-        gr = @inferred to_grid(ir, t, Linear())
+        gap = GridFunctionalData([1 missing 5], [0.0, 0.5, 1.0])
+        @test evaluate(gap, [0.5], PiecewiseLinear()) == reshape([3.0], 1, 1)
+        gr = @inferred to_grid(ir, t, PiecewiseLinear())
         @test gr.observed == Bool[1 1 1 1 1; 0 1 1 1 0]
         @test all(isfinite, gr.values)
         exact = @inferred to_grid(ir, t, NoInterpolation())
@@ -144,13 +147,13 @@ FunctionalDataAnalysis.penalty(b::TestLinearBasis, order) =
             @test roundtrip.grid == fd.grid
             @test roundtrip.values == fd.values
             @test roundtrip.observed == fd.observed
-            @test evaluate(fd, [0.5], Linear()) isa Matrix{Float64}
+            @test evaluate(fd, [0.5], PiecewiseLinear()) isa Matrix{Float64}
         end
         emptycurve = GridFunctionalData(fill(missing, 1, 2), [0, 1])
         @test_throws ArgumentError to_irregular(emptycurve)
-        @test all(isnan, evaluate(emptycurve, [0.0], Linear()))
+        @test all(isnan, evaluate(emptycurve, [0.0], PiecewiseLinear()))
         singleton = IrregularFunctionalData([[0.5]], [[2.0]])
-        @test isequal(evaluate(singleton, [0.0, 0.5, 1.0], Linear()), [NaN 2.0 NaN])
+        @test isequal(evaluate(singleton, [0.0, 0.5, 1.0], PiecewiseLinear()), [NaN 2.0 NaN])
         bfd = BasisFunctionalData([1 2], MonomialBasis((0, 1), 1))
         bg = @inferred to_grid(bfd, t)
         @test bg.values == reshape(2t .+ 1, 1, :)
@@ -158,8 +161,8 @@ FunctionalDataAnalysis.penalty(b::TestLinearBasis, order) =
         @test bi[1] == (t, vec(bg.values))
         @test domain(to_irregular(bfd; grid=[0.25, 0.5, 0.75])) == domain(bfd)
         @test (@inferred to_irregular(ir)).values == ir.values
-        @test_throws ArgumentError to_grid(ir, [0.5], Linear())
-        @test (@inferred evaluate(GridFunctionalData(Float32[1 2], Float32[0, 1]), Float32[0.5], Linear())) isa Matrix{Float32}
+        @test_throws ArgumentError to_grid(ir, [0.5], PiecewiseLinear())
+        @test (@inferred evaluate(GridFunctionalData(Float32[1 2], Float32[0, 1]), Float32[0.5], PiecewiseLinear())) isa Matrix{Float32}
         @test (@inferred evaluate(IrregularFunctionalData([Float32[0, 1]], [Float32[1, 2]]), Float32[0], NoInterpolation())) isa Matrix{Float32}
     end
 
@@ -264,7 +267,7 @@ end
     a.values[1] = -1
     @test to_array(fd)[1] == 1
     @test (@inferred evaluate(fd, grid, NoInterpolation())) == to_array(fd)
-    @test (@inferred evaluate(fd, [0.25], Linear()))[:, 1, :] == reshape([1.5, 4.5], 2, 1)
+    @test (@inferred evaluate(fd, [0.25], PiecewiseLinear()))[:, 1, :] == reshape([1.5, 4.5], 2, 1)
     @test (@inferred fd[1])[1] == component(fd, 1)[1]
     @test (@inferred fd[Bool[0, 1]]) isa MultivariateFunctionalData
     @test (@inferred fd[[2, 1]]) isa MultivariateFunctionalData
@@ -273,7 +276,7 @@ end
     @test nobs(vcat(fd[1:1], fd[2:2])) == 2
     @test !occursin('\n', sprint(show, fd))
     @test_throws ArgumentError evaluate(fd, grid)
-    @test_throws ArgumentError evaluate(fd, [-0.1], Linear())
+    @test_throws ArgumentError evaluate(fd, [-0.1], PiecewiseLinear())
     @test_throws ArgumentError MultivariateFunctionalData(GridFunctionalData{Float64}[])
     @test_throws DimensionMismatch MultivariateFunctionalData([a, b[1:1]])
     @test_throws BoundsError component(fd, 3)
@@ -284,14 +287,14 @@ end
     @test nobs_per_curve(mixed) == [[3, 3], [2, 2], [2, 2]]
     @test mixed[1][3] isa BasisFunctionalData
     @test_throws ArgumentError to_array(mixed)
-    @test_throws ArgumentError evaluate(mixed, [1.5], Linear())
+    @test_throws ArgumentError evaluate(mixed, [1.5], PiecewiseLinear())
     points = [[0.0, 0.5, 1.0], [0.25, 0.5, 0.75], [0.0, 1.0, 2.0]]
-    outputs = @inferred evaluate(mixed, points, Linear())
-    @test outputs[1] == evaluate(a, points[1], Linear())
-    @test outputs[2] == evaluate(ir, points[2], Linear())
+    outputs = @inferred evaluate(mixed, points, PiecewiseLinear())
+    @test outputs[1] == evaluate(a, points[1], PiecewiseLinear())
+    @test outputs[2] == evaluate(ir, points[2], PiecewiseLinear())
     @test outputs[3] == evaluate(bf, points[3])
-    @test_throws DimensionMismatch evaluate(mixed, points[1:2], Linear())
-    @test_throws ArgumentError evaluate(mixed, [[0.0], [1.1], [0.0]], Linear())
+    @test_throws DimensionMismatch evaluate(mixed, points[1:2], PiecewiseLinear())
+    @test_throws ArgumentError evaluate(mixed, [[0.0], [1.1], [0.0]], PiecewiseLinear())
     basesonly = MultivariateFunctionalData([bf, bf])
     @test (@inferred evaluate(basesonly, [0.5]))[:, 1, :] == evaluate(bf, [0.5])
     @test (@inferred evaluate(basesonly, [[0.0], [2.0]]))[2] == evaluate(bf, [2.0])

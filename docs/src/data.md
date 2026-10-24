@@ -1,7 +1,8 @@
 # Data types
 
 Univariate data store complete or masked common grids, curve-specific
-observations, or exact basis coefficients. Constructors copy inputs.
+observations, or exact basis coefficients. Constructors copy observation and
+coefficient arrays. Basis objects are shared and treated as immutable.
 `eltype(fd)` is the numerical scalar type, while iteration yields curves.
 
 ```jldoctest
@@ -12,7 +13,7 @@ julia> fd = GridFunctionalData([1 2 3], [0.0, 0.5, 1.0]);
 julia> fd[1]
 ([0.0, 0.5, 1.0], [1.0, 2.0, 3.0])
 
-julia> evaluate(fd, [0.25], Linear())
+julia> evaluate(fd, [0.25], PiecewiseLinear())
 1×1 Matrix{Float64}:
  1.5
 
@@ -20,7 +21,7 @@ julia> to_grid(to_irregular(fd), fd.grid, NoInterpolation()).values == fd.values
 true
 ```
 
-Raw data require an explicit evaluator. `Linear()` returns `NaN` outside a
+Raw data require an explicit evaluator. `PiecewiseLinear()` returns `NaN` outside a
 curve's observed range; `to_grid` records those results as missing instead.
 `NoInterpolation()` requires exact `==` matches, without a tolerance.
 During grid conversion it preserves absent observations in the mask and
@@ -54,7 +55,7 @@ GridFunctionalData
 IrregularFunctionalData
 BasisFunctionalData
 MultivariateFunctionalData
-Linear
+PiecewiseLinear
 NoInterpolation
 nobs_per_curve
 ncomponents

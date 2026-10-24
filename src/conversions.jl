@@ -25,7 +25,7 @@ end
     to_grid(fd::BasisFunctionalData, grid)
 
 Copy raw data to a supplied finite increasing grid, using an explicit
-`Linear()` or `NoInterpolation()` evaluator. Linear interpolation marks
+`PiecewiseLinear()` or `NoInterpolation()` evaluator. Piecewise-linear interpolation marks
 target points outside each curve's observed range as missing, never `NaN`.
 Exact conversion marks absent observations missing and requires every source
 time to appear in the target grid using `==`, with no tolerance. Thus a
@@ -52,7 +52,7 @@ function to_grid(fd::Union{GridFunctionalData,IrregularFunctionalData},
 end
 
 function to_grid(fd::Union{GridFunctionalData,IrregularFunctionalData},
-        grid::AbstractVector{<:Real}, evaluator::Linear)
+        grid::AbstractVector{<:Real}, evaluator::PiecewiseLinear)
     x = _evaluation_points(fd, grid)
     quadrature_weights(x)
     values = evaluate(fd, x, evaluator)

@@ -70,7 +70,7 @@ function _component_evaluate(fd::BasisFunctionalData, t, evaluator)
     evaluate(fd, t)
 end
 _component_evaluate(fd::Union{GridFunctionalData,IrregularFunctionalData}, t, ::Nothing) =
-    throw(ArgumentError("raw multivariate components require Linear() or NoInterpolation()"))
+    throw(ArgumentError("raw multivariate components require PiecewiseLinear() or NoInterpolation()"))
 _component_evaluate(fd::Union{GridFunctionalData,IrregularFunctionalData}, t, evaluator) =
     evaluate(fd, t, evaluator)
 
@@ -92,7 +92,7 @@ function _evaluate_multivariate(fd::MultivariateFunctionalData, t::AbstractVecto
 end
 evaluate(fd::MultivariateFunctionalData, t::AbstractVector{<:Real}) =
     _evaluate_multivariate(fd, t, nothing)
-evaluate(fd::MultivariateFunctionalData, t::AbstractVector{<:Real}, e::Union{Linear,NoInterpolation}) =
+evaluate(fd::MultivariateFunctionalData, t::AbstractVector{<:Real}, e::Union{PiecewiseLinear,NoInterpolation}) =
     _evaluate_multivariate(fd, t, e)
 
 function _evaluate_multivariate(fd::MultivariateFunctionalData{T},
@@ -111,7 +111,7 @@ end
 evaluate(fd::MultivariateFunctionalData, ts::AbstractVector{<:AbstractVector{<:Real}}) =
     _evaluate_multivariate(fd, ts, nothing)
 evaluate(fd::MultivariateFunctionalData, ts::AbstractVector{<:AbstractVector{<:Real}},
-        e::Union{Linear,NoInterpolation}) = _evaluate_multivariate(fd, ts, e)
+        e::Union{PiecewiseLinear,NoInterpolation}) = _evaluate_multivariate(fd, ts, e)
 
 """
     to_array(mfd)

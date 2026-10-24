@@ -1,11 +1,13 @@
 """
-    Linear()
+    PiecewiseLinear()
 
-Explicit piecewise-linear interpolation of raw curve observations. Values
-outside each curve's observed range are `NaN` during evaluation and missing
+Explicit piecewise-linear interpolation of raw curve observations. Masked
+grid points are unobserved; interpolation bridges them using the nearest
+observed points on either side. Values outside each curve's observed range
+are `NaN` during evaluation and missing
 during conversion to a grid. A one-point curve is defined only at that point.
 """
-struct Linear end
+struct PiecewiseLinear end
 
 """
     NoInterpolation()
@@ -30,7 +32,7 @@ end
 (fd::BasisFunctionalData)(t::AbstractVector{<:Real}; derivative=0) = evaluate(fd, t; derivative)
 
 evaluate(::Union{GridFunctionalData,IrregularFunctionalData}, ::AbstractVector{<:Real}) =
-    throw(ArgumentError("raw data evaluation requires Linear() or NoInterpolation()"))
+    throw(ArgumentError("raw data evaluation requires PiecewiseLinear() or NoInterpolation()"))
 
 function _evaluate_curve!(out, times, values, points, ::NoInterpolation)
     for (j, t) in enumerate(points)
@@ -42,7 +44,7 @@ function _evaluate_curve!(out, times, values, points, ::NoInterpolation)
     out
 end
 
-function _evaluate_curve!(out, times, values, points, ::Linear)
+function _evaluate_curve!(out, times, values, points, ::PiecewiseLinear)
     for (j, t) in enumerate(points)
         if isempty(times) || t < first(times) || t > last(times)
             out[j] = NaN
@@ -61,7 +63,7 @@ function _evaluate_curve!(out, times, values, points, ::Linear)
 end
 
 function evaluate(fd::Union{GridFunctionalData,IrregularFunctionalData},
-        t::AbstractVector{<:Real}, evaluator::Union{Linear,NoInterpolation})
+        t::AbstractVector{<:Real}, evaluator::Union{PiecewiseLinear,NoInterpolation})
     points = _evaluation_points(fd, t)
     out = Matrix{eltype(points)}(undef, nobs(fd), length(points))
     for i in 1:nobs(fd)

@@ -9,7 +9,7 @@ export AbstractFunctionalData, AbstractBasis, nobs, domain, evaluate,
 export nbasis, basismatrix, gram, penalty, BSplineBasis, FourierBasis,
     MonomialBasis
 export GridFunctionalData, IrregularFunctionalData, BasisFunctionalData,
-    MultivariateFunctionalData, Linear, NoInterpolation, nobs_per_curve,
+    MultivariateFunctionalData, PiecewiseLinear, NoInterpolation, nobs_per_curve,
     ncomponents, component, to_array, to_irregular, to_grid, to_basis
 
 include("interface.jl")

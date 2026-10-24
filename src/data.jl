@@ -141,7 +141,8 @@ end
 
 Exact functional representations with one coefficient row per curve and
 `nbasis(basis)` columns. Coefficients must be finite and at least one curve
-is required. Coefficients and the basis are copied. Scalar indexing and
+is required. Coefficients are copied; the basis is shared as an immutable
+object. Scalar indexing and
 iteration retain exact one-curve basis objects; they never choose a grid.
 The object is callable: `fd(t) == evaluate(fd, t)`.
 """
@@ -156,7 +157,7 @@ struct BasisFunctionalData{T<:AbstractFloat,B<:AbstractBasis} <: AbstractFunctio
         T = promote_type(_floattype(S), _basis_eltype(basis))
         c = Matrix{T}(coefs)
         all(isfinite, c) || throw(ArgumentError("basis coefficients must be finite"))
-        new{T,B}(c, deepcopy(basis))
+        new{T,B}(c, basis)
     end
 end
 
