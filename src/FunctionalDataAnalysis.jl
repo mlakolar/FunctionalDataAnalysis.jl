@@ -16,7 +16,7 @@ export GridFunctionalData, IrregularFunctionalData, BasisFunctionalData,
     ncomponents, component, to_array, to_irregular, to_grid, to_basis
 export SmoothedMean, SmoothedCovariance, CurveCV
 export FPCA, FPCBasis, FVE, AIC, BIC, eigenfunctions, eigvals, scores,
-    score_covariances, fve, noise_variance, reconstruct, predict
+    score_covariances, fve, noise_variance, reconstruct, predict, pace_bandwidth_candidates
 export LocalPolynomial, PenalizedSpline, GCV, smooth_curves
 export ids, RegularSampling, SparseSampling, simulate_kl,
     fourier_eigenfunctions, legendre_eigenfunctions
@@ -37,6 +37,7 @@ include("smoothing2d.jl")
 include("covariance.jl")
 include("fpcbasis.jl")
 include("fpca.jl")
+include("pace_defaults.jl")
 include("pace.jl")
 
 end

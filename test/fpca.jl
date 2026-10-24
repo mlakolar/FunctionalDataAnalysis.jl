@@ -55,7 +55,8 @@ using DelimitedFiles
         values = transpose(meanvalues) .+ true_scores * transpose(truebasis)
         labels = ["subject-$i" for i in 1:6]
         fd = GridFunctionalData(values, grid; ids=labels)
-        model = @inferred StatsAPI.fit(FPCA, fd; ncomponents=2, maxK=3)
+        model = @inferred (data -> StatsAPI.fit(FPCA, data;
+            method=:dense, ncomponents=2, maxK=3))(fd)
         @test model.method == :dense
         @test model.design == :regular
         @test model.grid == grid
@@ -293,7 +294,8 @@ using DelimitedFiles
             tunedfit.mean.values) * (tunedfit.weights .* eigenfunctions(tunedfit).values)
         @test norm(independently_projected - expected_projection) > 1e-5
         f32 = GridFunctionalData(Float32[1 2 3 4; 2 3 4 5; 3 4 5 6], Float32[0, 1, 2, 3])
-        model32 = @inferred StatsAPI.fit(FPCA, f32; ncomponents=1)
+        model32 = @inferred (data -> StatsAPI.fit(FPCA, data;
+            method=:dense, ncomponents=1))(f32)
         @test eigvals(model32) isa Vector{Float32}
         @test scores(model32) isa Matrix{Float32}
         @test (@inferred StatsAPI.predict(model32, f32)) isa Matrix{Float32}
@@ -335,10 +337,12 @@ using DelimitedFiles
         masked = GridFunctionalData([1.0 missing 3.0; 2.0 3.0 4.0], [0.0, 0.5, 1.0])
         irregular = to_irregular(fd)
         for data in (fd, masked, irregular)
-            @test_throws r"grid" StatsAPI.fit(FPCA, data; method=:pace)
+            @test StatsAPI.fit(FPCA, data; method=:pace, mean_bandwidth=0.5,
+                covariance_bandwidth=0.5, noise_variance=0.1).method == :pace
         end
         for data in (masked, irregular)
-            @test_throws r"grid" StatsAPI.fit(FPCA, data)
+            @test StatsAPI.fit(FPCA, data; mean_bandwidth=0.5,
+                covariance_bandwidth=0.5, noise_variance=0.1).method == :pace
             @test_throws ArgumentError StatsAPI.fit(FPCA, data; method=:dense)
         end
         model = StatsAPI.fit(FPCA, fd; ncomponents=1)

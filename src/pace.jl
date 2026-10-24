@@ -86,18 +86,27 @@ function _pace_validate_covariance(covariance, workgrid)
 end
 
 function _pace_covariance(fd, mean::SmoothedMean, ::Nothing, grid,
-        bandwidth, kernel, weighting, binning)
+        bandwidth, diagonal_bandwidth, kernel, weighting, binning)
     bandwidth === nothing && throw(ArgumentError(
         "covariance_bandwidth is required when estimating the PACE covariance"))
-    fit(SmoothedCovariance, fd, mean; grid, bandwidth, kernel, weighting, binning), :estimated
+    fitted = fit(SmoothedCovariance, fd, mean; grid, bandwidth, diagonal_bandwidth, kernel, weighting, binning)
+    _pace_covariance_storage(fitted), :estimated
 end
 
-function _pace_covariance(fd, mean, ::Nothing, grid, bandwidth, kernel, weighting, binning)
+# Automatic binning is data-dependent; retain a fixed optional field type so
+# its decision does not make the public FPCA result type depend on the data.
+function _pace_covariance_storage(c::SmoothedCovariance{T,H,D,K,S,N}) where {T,H,D,K,S,N}
+    SmoothedCovariance{T,H,D,K,S,N,Union{Nothing,Int}}(c.grid, c.surface, c.weights,
+        c.bandwidth, c.diagonal_bandwidth, c.kernel, c.weighting, c.binning,
+        c.degree, c.design, c.folds, c.selection, c.noise_variance, c.noise_details)
+end
+
+function _pace_covariance(fd, mean, ::Nothing, grid, bandwidth, diagonal_bandwidth, kernel, weighting, binning)
     throw(ArgumentError("estimating the PACE covariance requires an estimated mean or a SmoothedMean; a user-supplied mean named tuple cannot be used by SmoothedCovariance"))
 end
 
 function _pace_covariance(fd, mean, covariance::SmoothedCovariance, grid,
-        bandwidth, kernel, weighting, binning)
+        bandwidth, diagonal_bandwidth, kernel, weighting, binning)
     _pace_validate_covariance(covariance, grid)
     c = deepcopy(covariance)
     c.surface .= (covariance.surface .+ transpose(covariance.surface)) ./ 2
@@ -105,7 +114,7 @@ function _pace_covariance(fd, mean, covariance::SmoothedCovariance, grid,
 end
 
 function _pace_covariance(fd, mean, covariance::NamedTuple, grid,
-        bandwidth, kernel, weighting, binning)
+        bandwidth, diagonal_bandwidth, kernel, weighting, binning)
     haskey(covariance, :grid) && haskey(covariance, :surface) ||
         throw(ArgumentError("supplied covariance must be a named tuple with grid and surface"))
     _pace_validate_covariance(covariance, grid)
@@ -113,7 +122,7 @@ function _pace_covariance(fd, mean, covariance::NamedTuple, grid,
     (; grid=copy(covariance.grid), surface), :supplied
 end
 
-_pace_covariance(fd, mean, covariance, grid, bandwidth, kernel, weighting, binning) =
+_pace_covariance(fd, mean, covariance, grid, bandwidth, diagonal_bandwidth, kernel, weighting, binning) =
     throw(ArgumentError("covariance must be nothing, SmoothedCovariance, or a named tuple with grid and surface"))
 
 function _pace_bilinear(grid, surface, s, t)
@@ -247,29 +256,54 @@ _pace_mean_settings(mean::SmoothedMean) = (; bandwidth=mean.bandwidth,
 _pace_mean_settings(mean::NamedTuple) = (; interpolation=:piecewise_linear, grid=copy(mean.grid))
 
 _pace_covariance_settings(covariance::SmoothedCovariance) =
-    (; bandwidth=covariance.bandwidth, diagonal_bandwidth=covariance.diagonal_bandwidth,
+    merge((; bandwidth=covariance.bandwidth, diagonal_bandwidth=covariance.diagonal_bandwidth,
         kernel=deepcopy(covariance.kernel), weighting=covariance.weighting,
-        binning=covariance.binning, degree=covariance.degree, design=covariance.design,
+        degree=covariance.degree, design=covariance.design,
         folds=covariance.folds, selection=deepcopy(covariance.selection),
-        noise_details=deepcopy(covariance.noise_details), grid=copy(covariance.grid))
+        noise_details=deepcopy(covariance.noise_details), grid=copy(covariance.grid)),
+        NamedTuple{(:binning,),Tuple{Union{Nothing,Int}}}((covariance.binning,)))
 _pace_covariance_settings(covariance::NamedTuple) =
     (; interpolation=:bilinear, grid=copy(covariance.grid))
 
 function _fit_pace(fd; method=:auto, grid=nothing, ncomponents=FVE(0.99), maxK=nothing,
         mean=nothing, covariance=nothing, noise_variance=nothing, mean_bandwidth=nothing,
-        covariance_bandwidth=nothing, kernel=KernelSmoothing.EpanechnikovKernel(),
-        weighting=:obs, binning=nothing, eigen_tol=1e-10, sign_tol=1e-12)
+        covariance_bandwidth=nothing, diagonal_bandwidth=nothing, kernel=nothing,
+        weighting=:obs, binning=:auto, eigen_tol=1e-10, sign_tol=1e-12)
     nobs(fd) >= 2 || throw(ArgumentError("PACE FPCA requires at least two curves"))
-    grid === nothing && throw(ArgumentError("grid is required for PACE FPCA"))
+    mean === nothing || mean_bandwidth === nothing || throw(ArgumentError(
+        "mean_bandwidth cannot be used with a supplied mean; supply a fitted SmoothedMean or let FPCA estimate the mean"))
+    covariance === nothing || (covariance_bandwidth === nothing && diagonal_bandwidth === nothing) ||
+        throw(ArgumentError("covariance_bandwidth and diagonal_bandwidth cannot be used with a supplied covariance; let FPCA estimate the covariance to tune its bandwidths"))
+    covariance === nothing || binning === :auto || throw(ArgumentError(
+        "binning cannot be used with a supplied covariance; binning only affects covariance estimation"))
+    smoothing = mean === nothing || covariance === nothing
+    if !smoothing
+        kernel === nothing || throw(ArgumentError(
+            "kernel cannot be used with a supplied mean and covariance; no smoother is estimated"))
+        weighting == :obs || throw(ArgumentError(
+            "weighting cannot be used with a supplied mean and covariance; no smoother is estimated"))
+    end
+    grid_source = grid === nothing ? :observed_range_51 : :supplied
+    grid = grid === nothing ? _pace_default_grid(fd) : grid
     _pace_input_grid(grid, "PACE work")
     workgrid = _evaluation_points(fd, grid)
     weights = quadrature_weights(workgrid)
     _pace_observations(fd, workgrid)
     weighting in (:obs, :subj) || throw(ArgumentError("weighting must be :obs or :subj"))
+    requested_kernel = deepcopy(kernel)
+    kernel = kernel === nothing ? KernelSmoothing.GaussianKernel() : kernel
     kernel isa KernelSmoothing.AbstractKernel ||
         throw(ArgumentError("kernel must be a KernelSmoothing.AbstractKernel"))
-    binning === nothing || (binning isa Integer && 2 <= binning <= typemax(Int)) ||
-        throw(ArgumentError("binning must be nothing or an integer of at least two"))
+    requested_binning = binning
+    binning, binning_rule = covariance === nothing ? _pace_binning(fd, binning) :
+        (nothing, :not_applicable)
+    a, b = _pace_observed_range(fd)
+    mean_bandwidth_source = mean === nothing ? (mean_bandwidth === nothing ? :default_fraction : :supplied) : :mean_input
+    covariance_bandwidth_source = covariance === nothing ? (covariance_bandwidth === nothing ? :default_fraction : :supplied) : :covariance_input
+    requested_mean_bandwidth = deepcopy(mean_bandwidth)
+    requested_covariance_bandwidth = deepcopy(covariance_bandwidth)
+    mean === nothing && mean_bandwidth === nothing && (mean_bandwidth = 0.05*(b-a))
+    covariance === nothing && covariance_bandwidth === nothing && (covariance_bandwidth = 0.10*(b-a))
     _fpca_tolerance(eigen_tol, "eigen_tol")
     _fpca_tolerance(sign_tol, "sign_tol")
     requested_maxK = maxK
@@ -278,7 +312,7 @@ function _fit_pace(fd; method=:auto, grid=nothing, ncomponents=FVE(0.99), maxK=n
         throw(ArgumentError("PACE maxK must be between 1 and the work-grid length"))
     resolved_mean, mean_source = _pace_mean(fd, mean, workgrid, mean_bandwidth, kernel, weighting)
     resolved_covariance, covariance_source = _pace_covariance(fd, resolved_mean,
-        covariance, workgrid, covariance_bandwidth, kernel, weighting, binning)
+        covariance, workgrid, covariance_bandwidth, diagonal_bandwidth, kernel, weighting, binning)
     sigma2, noise_source = _pace_noise(resolved_covariance, noise_variance)
     mean_values = _pace_mean_values(resolved_mean, workgrid)
     surface = _pace_surface(resolved_covariance, workgrid)
@@ -295,19 +329,26 @@ function _fit_pace(fd; method=:auto, grid=nothing, ncomponents=FVE(0.99), maxK=n
     projected = (projected + transpose(projected))/2
     basis = FPCBasis(workgrid, system.eigenfunctions[:, 1:k]; weights)
     predicted = _pace_ce(fd, workgrid, mu, basis.values, system.eigenvalues[1:k], projected, sigma2)
-    settings = (; requested_method=method, requested_maxK, maxK=Int(maxK),
+    settings = merge((; requested_method=method, grid_source, requested_maxK, maxK=Int(maxK),
+        ncomponents=deepcopy(ncomponents), observed_range=(a, b),
         eigen_tol, sign_tol, quadrature=:work_grid_trapezoidal,
         mean_source, covariance_source, noise_variance_source=noise_source,
         mean_input=resolved_mean, covariance_input=resolved_covariance,
         mean_settings=_pace_mean_settings(resolved_mean),
         covariance_settings=_pace_covariance_settings(resolved_covariance),
         mean_bandwidth=deepcopy(mean_bandwidth), covariance_bandwidth=deepcopy(covariance_bandwidth),
-        kernel=deepcopy(kernel), weighting, binning,
+        requested_mean_bandwidth, requested_covariance_bandwidth, mean_bandwidth_source, covariance_bandwidth_source,
+        diagonal_bandwidth=deepcopy(diagonal_bandwidth),
+        requested_kernel, kernel=smoothing ? deepcopy(kernel) : nothing,
+        weighting=smoothing ? weighting : nothing, requested_binning, binning_rule,
         mean_interpolation=:piecewise_linear, eigenfunction_interpolation=:piecewise_linear,
         covariance_interpolation=:bilinear, score_method=:conditional_expectation,
         covariance_components=length(system.eigenvalues), full_projected_covariance=projected,
         likelihood=:gaussian, likelihood_constant=:included,
-        noise_floor=nothing, regularization=nothing)
+        noise_floor=nothing, regularization=nothing),
+        # The automatic decision is data-dependent. Declare the union field
+        # explicitly so the result type does not depend on which count wins.
+        NamedTuple{(:binning,),Tuple{Union{Nothing,Int}}}((binning,)))
     sign_rule = (; method=:mean_alignment, fallback=:largest_absolute_entry, tolerance=sign_tol)
     FPCA(:pace, sampling_design(fd), workgrid, weights,
         GridFunctionalData(reshape(mu, 1, :), workgrid), surface, sigma2,

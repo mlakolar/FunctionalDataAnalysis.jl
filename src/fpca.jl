@@ -47,8 +47,8 @@ Base.show(io::IO, rule::FVE) = print(io, "FVE(", rule.threshold, ")")
     fit(FPCA, fd; method=:auto, grid=nothing, ncomponents=FVE(0.99),
         maxK=nothing, presmooth=nothing, mean=nothing, covariance=nothing,
         noise_variance=nothing, mean_bandwidth=nothing,
-        covariance_bandwidth=nothing, kernel=KernelSmoothing.EpanechnikovKernel(),
-        weighting=:obs, binning=nothing, eigen_tol=1e-10, sign_tol=1e-12)
+        covariance_bandwidth=nothing, diagonal_bandwidth=nothing, kernel=nothing,
+        weighting=:obs, binning=:auto, eigen_tol=1e-10, sign_tol=1e-12)
 
 Univariate functional principal component analysis. Complete grid data use the
 dense route: cross-sectional mean and sample covariance with denominator `n-1`
@@ -59,21 +59,55 @@ PACE. `method=:pace` forces PACE on either data representation, while
 keywords are accepted only on the PACE route.
 
 PACE implements the conditional-expectation method of Yao, Müller, and Wang
-(2005). Its work `grid` is required and must cover every observation time.
-A missing `mean` estimates [`SmoothedMean`](@ref), requiring `mean_bandwidth`;
+(2005). Its work `grid` defaults to 51 equally spaced points over the observed
+time range (fdapace 0.6.0 `nRegGrid`, `SetOptions.R`). An override must cover
+every observation time. A missing `mean` estimates [`SmoothedMean`](@ref);
 a supplied `SmoothedMean` is copied and used as given, or supply
 `(; grid, values)` for a linearly interpolated mean. Its grid must cover the
 work grid and every observation. A missing `covariance` estimates
-[`SmoothedCovariance`](@ref), requiring `covariance_bandwidth` and an estimated
+[`SmoothedCovariance`](@ref), using an estimated
 or supplied `SmoothedMean`. Alternatively supply that fitted type or a
 symmetric `(; grid, surface)` for bilinear interpolation.
 `noise_variance=nothing` uses the covariance smoother's stored nonnegative
 estimate; a supplied surface requires a finite nonnegative override.
+Supplying a fitted mean together with `mean_bandwidth`, or a covariance with
+`covariance_bandwidth` or `diagonal_bandwidth`, throws rather than ignoring
+the requested tuning of an input that is not refitted.
+With a supplied covariance, `binning` must remain `:auto`; the fit records
+`binning=nothing` and `binning_rule=:not_applicable`. When both inputs are
+supplied, `kernel` must remain `nothing` and `weighting` must remain `:obs`;
+their active settings are recorded as `nothing` because no smoother runs.
+Supplied fitted inputs retain their original smoothing settings.
 
-PACE smoother defaults reuse milestone 2: Epanechnikov `kernel`, local linear
-degree one, observation weighting `weighting=:obs`, and `binning=nothing`.
-These are explicit package smoothing conventions; fdapace's sparse default
-kernel is Gaussian. No bandwidth or grid is silently selected.
+PACE uses local linear degree one (Yao, Müller, and Wang, 2005). `kernel=nothing`
+resolves to Gaussian, and `weighting=:obs` follows fdapace 0.6.0 `SetOptions.R`;
+`:subj` is also available (neither scheme uniformly dominates: Zhang and Wang,
+2016, doi:10.1214/16-AOS1446). The standalone smoothers retain Epanechnikov.
+`mean_bandwidth=nothing` and `covariance_bandwidth=nothing` resolve respectively
+to 0.05 and 0.10 times the observed time range (fdapace `methodBwMu="Default"`,
+`methodBwCov="Default"`). Explicit numbers, [`CurveCV`](@ref), and mean
+KernelSmoothing selectors pass unchanged to the existing smoothers.
+`diagonal_bandwidth=nothing` uses the selected covariance bandwidth, following
+fdapace and milestone 2; override it with a number or univariate selector.
+[`pace_bandwidth_candidates`](@ref) supplies fdapace's optional candidate grids.
+
+`binning=:auto` follows fdapace `GetBinNum`: use the median curve count for
+fdapace's Sparse classification and the maximum otherwise. Classification
+uses `IsRegular`'s pooled observed-time coverage, as described in
+[`pace_bandwidth_candidates`](@ref), independently of the FPCA route.
+Counts at most 20 never bin;
+counts above 400 initially use 400 bins. If `n>5000`, set
+`mstar=max(20,400+19*(5000-n)/2250)` and use `ceil(mstar)` bins only when
+the unrounded `mstar` is below the count.
+Otherwise no bins are selected. Override with `nothing` or an integer >=2.
+The selected count is passed to the existing covariance smoother, which
+preserves raw pair weights and snaps covariance/diagonal training times;
+the mean and output grid are unchanged. This differs from fdapace's raw-curve
+averaging and possible output-grid reduction. Both the request and resolved
+count are stored. With `P=sum(N_i*(N_i-1))` pairs and `M=length(grid)`, fixed
+covariance smoothing costs `O(M^2*P)` time. A 2D `CurveCV` with `H` candidates
+costs `O(H*P^2 + H*F*P)` for `F` folds, before the final fit; binning reduces
+`P` to the number of occupied per-curve cells (at most `n*binning^2`).
 `maxK=nothing` resolves to `max(1,min(20,length(grid)-2,nobs(fd)-2))` for
 PACE, following fdapace 0.6.0's smoothed route. An explicit PACE cap may be
 at most `length(grid)`.
@@ -234,25 +268,25 @@ end
 _fpca_preprocess(fd, method) =
     throw(ArgumentError("presmooth must be nothing, LocalPolynomial, or PenalizedSpline"))
 
-function fit(::Type{FPCA}, fd::GridFunctionalData; method=:auto, grid=nothing,
+Base.@constprop :aggressive function fit(::Type{FPCA}, fd::GridFunctionalData; method=:auto, grid=nothing,
         ncomponents=FVE(0.99), maxK=nothing, presmooth=nothing,
         mean=nothing, covariance=nothing, noise_variance=nothing,
-        mean_bandwidth=nothing, covariance_bandwidth=nothing,
-        kernel=KernelSmoothing.EpanechnikovKernel(), weighting=:obs, binning=nothing,
+        mean_bandwidth=nothing, covariance_bandwidth=nothing, diagonal_bandwidth=nothing,
+        kernel=nothing, weighting=:obs, binning=:auto,
         eigen_tol=1e-10, sign_tol=1e-12)
     method in (:auto, :dense, :pace) || throw(ArgumentError("FPCA method must be :auto, :dense, or :pace"))
     design = sampling_design(fd)
     if method == :pace || (method == :auto && design != :regular)
         presmooth === nothing || throw(ArgumentError("presmooth is only supported by dense FPCA; PACE smooths the pooled mean and covariance"))
         return _fit_pace(fd; method, grid, ncomponents, maxK, mean, covariance,
-            noise_variance, mean_bandwidth, covariance_bandwidth, kernel,
+            noise_variance, mean_bandwidth, covariance_bandwidth, diagonal_bandwidth, kernel,
             weighting, binning, eigen_tol, sign_tol)
     end
     fd.observed === nothing || throw(ArgumentError("dense FPCA requires complete grid data; use method=:pace"))
     (grid === nothing && mean === nothing && covariance === nothing &&
         noise_variance === nothing && mean_bandwidth === nothing &&
-        covariance_bandwidth === nothing && binning === nothing &&
-        weighting == :obs && kernel == KernelSmoothing.EpanechnikovKernel()) ||
+        covariance_bandwidth === nothing && diagonal_bandwidth === nothing &&
+        binning === :auto && weighting == :obs && kernel === nothing) ||
         throw(ArgumentError("grid, mean, covariance, noise_variance and pooled smoothing options require method=:pace"))
     n, m = size(fd.values)
     n >= 2 || throw(ArgumentError("dense FPCA requires at least two curves"))
@@ -275,7 +309,8 @@ function fit(::Type{FPCA}, fd::GridFunctionalData; method=:auto, grid=nothing,
     basis = FPCBasis(grid, system.eigenfunctions[:, 1:k]; weights)
     projected = residuals * (weights .* basis.values)
     all(isfinite, projected) || throw(ArgumentError("dense FPCA scores must be finite; rescale the observations"))
-    settings = (; requested_method=method, eigen_tol, sign_tol,
+    settings = (; requested_method=method, grid_source=:data, ncomponents=deepcopy(ncomponents),
+        maxK=Int(maxK), eigen_tol, sign_tol,
         covariance_denominator=n-1, quadrature=:stored_trapezoidal,
         preprocessing)
     sign_rule = (; method=:mean_alignment, fallback=:largest_absolute_entry, tolerance=sign_tol)
@@ -288,14 +323,14 @@ end
 function fit(::Type{FPCA}, fd::IrregularFunctionalData; method=:auto, grid=nothing,
         ncomponents=FVE(0.99), maxK=nothing, presmooth=nothing,
         mean=nothing, covariance=nothing, noise_variance=nothing,
-        mean_bandwidth=nothing, covariance_bandwidth=nothing,
-        kernel=KernelSmoothing.EpanechnikovKernel(), weighting=:obs, binning=nothing,
+        mean_bandwidth=nothing, covariance_bandwidth=nothing, diagonal_bandwidth=nothing,
+        kernel=nothing, weighting=:obs, binning=:auto,
         eigen_tol=1e-10, sign_tol=1e-12)
     method in (:auto, :dense, :pace) || throw(ArgumentError("FPCA method must be :auto, :dense, or :pace"))
     method == :dense && throw(ArgumentError("dense FPCA requires complete GridFunctionalData"))
     presmooth === nothing || throw(ArgumentError("presmooth is only supported by dense FPCA; PACE smooths the pooled mean and covariance"))
     _fit_pace(fd; method, grid, ncomponents, maxK, mean, covariance,
-        noise_variance, mean_bandwidth, covariance_bandwidth, kernel,
+        noise_variance, mean_bandwidth, covariance_bandwidth, diagonal_bandwidth, kernel,
         weighting, binning, eigen_tol, sign_tol)
 end
 

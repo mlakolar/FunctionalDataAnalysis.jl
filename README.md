@@ -12,9 +12,9 @@ package is pre-release. Milestone 0 provides the package skeleton, documented
 interface contracts and trapezoidal quadrature weights. Milestone 1 adds
 bases, functional data containers, explicit conversions, table input and
 simulation generators. Per-curve smoothing, pooled mean and covariance
-estimation, and dense and sparse PACE FPCA are implemented. PACE currently
-requires an explicit work grid and smoothing bandwidths when estimating its
-mean and covariance. FunctionalGraphicalModels.jl
+estimation, and dense and sparse PACE FPCA are implemented. `fit(FPCA, data)`
+chooses documented defaults and records every resolved choice on the fit.
+FunctionalGraphicalModels.jl
 will later depend on this package.
 
 ## Installation
@@ -33,7 +33,8 @@ Pkg.add(url = "https://github.com/mlakolar/FunctionalDataAnalysis.jl")
   Tables.jl input, simulation generators.
 - Milestone 2: smoothing (curve smoothing, pooled mean, covariance surface,
   noise variance, curve-level bandwidth selection) on KernelSmoothing.jl.
-- Milestone 3: FPCA, dense and sparse (PACE), validated against fdapace.
+- Milestone 3 (done): FPCA, dense and sparse (PACE), with automatic defaults
+  and fdapace reference validation.
 - Milestone 4: multivariate FPCA; FunctionalGraphicalModels.jl migrates.
 - Milestone 5: registration, functional regression, depth and outliers,
   plotting recipes.

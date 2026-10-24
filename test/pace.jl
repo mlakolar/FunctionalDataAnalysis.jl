@@ -156,10 +156,10 @@ import StatsAPI
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd; method=:dense, options...)
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd; method=:invalid, options...)
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd[1:1]; options...)
-        @test_throws ArgumentError StatsAPI.fit(FPCA, fd; mean=mu, covariance,
-            noise_variance=0.2, maxK=1)
-        @test_throws ArgumentError StatsAPI.fit(FPCA, fd; grid, covariance,
-            noise_variance=0.2, maxK=1)
+        @test StatsAPI.fit(FPCA, fd; mean=mu, covariance,
+            noise_variance=0.2, maxK=1).settings.grid_source == :observed_range_51
+        @test StatsAPI.fit(FPCA, fd; grid, covariance,
+            noise_variance=0.2, maxK=1).settings.mean_bandwidth_source == :default_fraction
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd; grid, mean=mu,
             noise_variance=0.2, maxK=1)
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd; grid, mean=mu,
@@ -250,6 +250,7 @@ import StatsAPI
         # smoothers from invertibility of their estimated latent covariance.
         estimated = @inferred StatsAPI.fit(FPCA, fd; grid, ncomponents=1, maxK=2,
             mean_bandwidth=1.2, covariance_bandwidth=1.2,
+            kernel=KernelSmoothing.EpanechnikovKernel(),
             noise_variance=0.2, weighting=:subj, binning=5)
         supplied = @inferred StatsAPI.fit(FPCA, fd; grid, ncomponents=1, maxK=2,
             mean, covariance, noise_variance=0.2)
@@ -268,7 +269,8 @@ import StatsAPI
         @test noise_variance(inherited) == covariance.noise_variance
         @test inherited.settings.noise_variance_source == :estimated
         estimated_noise = StatsAPI.fit(FPCA, fd; grid, ncomponents=1, maxK=2,
-            mean_bandwidth=1.2, covariance_bandwidth=1.2, weighting=:subj, binning=5)
+            mean_bandwidth=1.2, covariance_bandwidth=1.2,
+            kernel=KernelSmoothing.EpanechnikovKernel(), weighting=:subj, binning=5)
         @test noise_variance(estimated_noise) == covariance.noise_variance
         @test estimated_noise.settings.noise_variance_source == :estimated
     end

@@ -1,16 +1,18 @@
 # FunctionalDataAnalysis.jl
 
-FunctionalDataAnalysis.jl will provide functional data analysis in Julia for
-dense, irregular and sparse observations. Planned methods include smoothing
-built on KernelSmoothing.jl and BSplineKit.jl, and dense and sparse (PACE)
-functional principal component analysis. FunctionalGraphicalModels.jl will
+FunctionalDataAnalysis.jl provides functional data analysis in Julia for
+dense, irregular and sparse observations. Smoothing uses KernelSmoothing.jl
+and BSplineKit.jl. Univariate functional principal component analysis supports
+dense data and sparse observations through PACE. FunctionalGraphicalModels.jl will
 later depend on this package.
 
 The package is **pre-release**. Milestone 0 provides documented interface
 contracts and trapezoidal integration weights. Milestone 1 adds bases,
 functional data containers, explicit conversions, table input, and simulation.
-Milestone 2 adds per-curve smoothing; pooled smoothing and FPCA are planned
-for subsequent tasks.
+Milestone 2 adds per-curve and pooled smoothing, covariance estimation,
+noise variance, and whole-curve bandwidth selection. Milestone 3 adds dense
+and sparse PACE FPCA, with documented automatic defaults and fdapace
+reference validation. See [FPCA](fpca.md) for a no-keyword example.
 
 ## Installation
 
