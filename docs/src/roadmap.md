@@ -15,8 +15,8 @@
   Covariances use `StatsAPI.fit(SmoothedCovariance, fd, mean; ...)`, with
   off-diagonal product-kernel local linear smoothing, optional time binning,
   curve-level CV conditional on the supplied mean, bilinear evaluation, and
-  middle-half integrated noise variance (diagonal bandwidth equals the selected
-  covariance bandwidth). Both weighting schemes match fixed-bandwidth fdapace
+  middle-half integrated noise variance. The required `diagonal_bandwidth` is
+  chosen by the user as a positive number or a separate `CurveCV` selector. Both weighting schemes match fixed-bandwidth fdapace
   covariance fixtures. Full cross-version tests and docs remain controller gates.
   Pointwise mean bands await cluster-robust variance support in KernelSmoothing.jl.
 - Milestone 3: FPCA, dense and sparse (PACE), validated against fdapace.

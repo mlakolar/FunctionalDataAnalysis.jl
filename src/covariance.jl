@@ -1,5 +1,5 @@
 """
-    fit(SmoothedCovariance, fd, mean::SmoothedMean; grid, bandwidth,
+    fit(SmoothedCovariance, fd, mean::SmoothedMean; grid, bandwidth, diagonal_bandwidth,
         kernel=KernelSmoothing.EpanechnikovKernel(), weighting=:obs, binning=nothing)
 
 Smooth all ordered within-curve off-diagonal residual products by bivariate
@@ -20,17 +20,23 @@ errors are retained for raw-product CV scores. Residuals are computed before sna
 weights. `noise_variance` estimates measurement error by integrating the
 smoothed raw squares minus the surface diagonal over the middle half of the
 work-grid domain, multiplying by `2/domain_length`, and truncating at zero.
-The diagonal uses the selected covariance bandwidth, local linear degree one,
-and observation weights one or `1/N_i`. `noise_details` records its bandwidth,
+The required `diagonal_bandwidth` is a positive number or a `CurveCV`, selected
+independently of the covariance bandwidth. Diagonal CV predicts held-out raw
+squared residuals at their original times, leaving whole curves out with the
+mean CV fold and weighting rules. With binning, diagonal training times are
+snapped but held-out queries stay at original times. The supplied mean stays
+fixed. The diagonal uses local linear degree one and observation weights one or `1/N_i`.
+`noise_details` records its bandwidth, fold count, selection scores and assignments,
 raw estimate, truncation flag, integration bounds and grid, and fitted squares.
 Boundary values for integration are linearly interpolated. All settings and
 CV scores are retained and shown. No positive-semidefinite projection is made.
 """
-struct SmoothedCovariance{T<:AbstractFloat,H,K,S,N,B}
+struct SmoothedCovariance{T<:AbstractFloat,H,D,K,S,N,B}
     grid::Vector{T}
     surface::Matrix{T}
     weights::Vector{T}
     bandwidth::H
+    diagonal_bandwidth::D
     kernel::K
     weighting::Symbol
     binning::B
@@ -46,6 +52,7 @@ function _covariance_pool(fd, mean, weighting, binning)
     t, y, w, subjects = _mean_pool(fd, weighting)
     residual = y - evaluate(mean, t)
     all(isfinite, residual) || throw(ArgumentError("covariance residuals must be finite"))
+    original_times = t
     if binning !== nothing
         a, b = extrema(t)
         b > a || throw(ArgumentError("binning requires a nondegenerate observed domain"))
@@ -85,7 +92,8 @@ function _covariance_pool(fd, mean, weighting, binning)
     squares = residual.^2
     all(isfinite, z) && all(isfinite, scatter) && all(isfinite, squares) ||
         throw(ArgumentError("covariance raw products must be finite; rescale the observations"))
-    (; x, y=yy, z, weights=pw, scatter, subjects=ps, times=t, squares, diagonal_weights=w)
+    (; x, y=yy, z, weights=pw, scatter, subjects=ps, times=t, original_times,
+        squares, diagonal_weights=w, diagonal_subjects=subjects)
 end
 
 function _covariance_selection(selector::CurveCV, fd, pool, kernel)
@@ -116,7 +124,7 @@ function _covariance_selection(selector::CurveCV, fd, pool, kernel)
 end
 
 function fit(::Type{SmoothedCovariance}, fd::Union{GridFunctionalData,IrregularFunctionalData},
-        mean::SmoothedMean; grid::AbstractVector{<:Real}, bandwidth,
+        mean::SmoothedMean; grid::AbstractVector{<:Real}, bandwidth, diagonal_bandwidth,
         kernel=KernelSmoothing.EpanechnikovKernel(), weighting=:obs, binning=nothing)
     weighting in (:obs, :subj) || throw(ArgumentError("weighting must be :obs or :subj"))
     binning === nothing || (binning isa Integer && 2 <= binning <= typemax(Int)) ||
@@ -125,14 +133,22 @@ function fit(::Type{SmoothedCovariance}, fd::Union{GridFunctionalData,IrregularF
     grid = _evaluation_points(fd, grid)
     weights = quadrature_weights(grid)
     method = LocalPolynomial(; bandwidth=bandwidth isa CurveCV ? first(bandwidth.bandwidths) : bandwidth, kernel)
+    diagonal_method = LocalPolynomial(; bandwidth=diagonal_bandwidth isa CurveCV ?
+        first(diagonal_bandwidth.bandwidths) : diagonal_bandwidth, kernel=method.kernel)
     pool = _covariance_pool(fd, mean, weighting, binning)
+    diagonal_selection = diagonal_bandwidth isa CurveCV ?
+        _mean_selection(diagonal_bandwidth, fd, pool.times, pool.squares,
+            pool.diagonal_weights, pool.diagonal_subjects, method.kernel, 1;
+            prediction_times=pool.original_times, label="noise variance diagonal smoother") : nothing
+    diagonal_h = diagonal_selection === nothing ? diagonal_method.bandwidth :
+        diagonal_selection.bandwidths[argmin(diagonal_selection.errors)]
     selection = bandwidth isa CurveCV ? _covariance_selection(bandwidth, fd, pool, method.kernel) : nothing
     h = selection === nothing ? method.bandwidth : selection.bandwidths[argmin(selection.errors)]
     T = eltype(grid)
     surface = T[_local_linear2d(pool.x, pool.y, pool.z, pool.weights, s, t, h, method.kernel) for s in grid, t in grid]
     surface = (surface + transpose(surface))/2
     diagonal = T.(_mean_predict(pool.times, pool.squares, pool.diagonal_weights, grid,
-        LocalPolynomial(; bandwidth=h, kernel=method.kernel); label="noise variance diagonal smoother"))
+        LocalPolynomial(; bandwidth=diagonal_h, kernel=method.kernel); label="noise variance diagonal smoother"))
     a, b = first(grid), last(grid)
     lower, upper = a + (b-a)/4, b - (b-a)/4
     integration_grid = vcat(lower, grid[lower .< grid .< upper], upper)
@@ -141,9 +157,11 @@ function fit(::Type{SmoothedCovariance}, fd::Union{GridFunctionalData,IrregularF
     raw = T(2 * dot(quadrature_weights(integration_grid), integrand)/(b-a))
     all(isfinite, surface) && all(isfinite, diagonal) && isfinite(raw) ||
         throw(ArgumentError("covariance and noise variance must remain finite after conversion"))
-    details = (; bandwidth=h, degree=1, minobs=0, raw_variance=raw,
+    details = (; bandwidth=diagonal_h, degree=1, minobs=0,
+        folds=diagonal_bandwidth isa CurveCV ? diagonal_bandwidth.folds : 0,
+        selection=diagonal_selection, raw_variance=raw,
         truncated=raw < 0, bounds=(lower, upper), integration_grid, diagonal)
-    SmoothedCovariance(grid, surface, weights, h, method.kernel, weighting, binning, 1,
+    SmoothedCovariance(grid, surface, weights, h, diagonal_h, method.kernel, weighting, binning, 1,
         sampling_design(fd), bandwidth isa CurveCV ? bandwidth.folds : 0,
         selection, max(zero(T), raw), details)
 end
@@ -166,7 +184,8 @@ end
 
 function Base.show(io::IO, c::SmoothedCovariance)
     print(io, "SmoothedCovariance(grid=", c.grid, ", bandwidth=", c.bandwidth,
-        ", kernel=", c.kernel, ", weighting=", c.weighting, ", binning=", c.binning,
+        ", diagonal_bandwidth=", c.diagonal_bandwidth, ", kernel=", c.kernel,
+        ", weighting=", c.weighting, ", binning=", c.binning,
         ", degree=", c.degree, ", design=", c.design, ", folds=", c.folds,
         ", selection=", c.selection, ", noise_variance=", c.noise_variance,
         ", noise_details=", c.noise_details, ")")

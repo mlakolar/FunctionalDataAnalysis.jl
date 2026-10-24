@@ -1,8 +1,8 @@
 """
     CurveCV(bandwidths; folds=10, rng=nothing)
 
-Select a pooled-mean or covariance bandwidth by leaving out whole curves. Candidates must be
-finite, positive, and distinct. Supply an `AbstractRNG` for shuffled, balanced
+Select a pooled-mean, covariance, or noise-diagonal bandwidth by leaving out
+whole curves. Candidates must be finite, positive, and distinct. Supply an `AbstractRNG` for shuffled, balanced
 K-fold splits; `folds == nobs(fd)` uses deterministic leave-one-curve-out and
 needs no RNG. Inputs, including the RNG state, are copied. Each fit starts from
 that copied state. Exact score ties select the first candidate.
@@ -89,7 +89,8 @@ function _mean_predict(t, y, w, points, method; label="pooled mean")
     values
 end
 
-function _mean_selection(selector::CurveCV, fd, t, y, w, subjects, kernel, degree)
+function _mean_selection(selector::CurveCV, fd, t, y, w, subjects, kernel, degree;
+        prediction_times=t, label="pooled mean")
     n = nobs(fd)
     selector.folds <= n || throw(ArgumentError("CurveCV folds must not exceed the number of curves ($n)"))
     assignments = collect(1:n)
@@ -106,7 +107,7 @@ function _mean_selection(selector::CurveCV, fd, t, y, w, subjects, kernel, degre
         for fold in 1:selector.folds
             held = assignments[subjects] .== fold
             train = .!held
-            predicted = _mean_predict(t[train], y[train], w[train], t[held], method)
+            predicted = _mean_predict(t[train], y[train], w[train], prediction_times[held], method; label)
             score += sum(w[held] .* abs2.(y[held] - predicted))
         end
         score / sum(w)

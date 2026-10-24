@@ -114,7 +114,7 @@ CurveCV
 
 ## Covariance and noise variance
 
-`StatsAPI.fit(SmoothedCovariance, fd, mean_fit; grid, bandwidth)` smooths all
+`StatsAPI.fit(SmoothedCovariance, fd, mean_fit; grid, bandwidth, diagonal_bandwidth)` smooths all
 ordered within-curve residual products with distinct observation indices.
 This excludes measurement noise on the raw diagonal. The product kernel uses
 the same scalar bandwidth in both coordinates. Local linear fits solve a
@@ -153,14 +153,22 @@ bound on the number of occupied curve/bin cells, reducing these costs to
 it does not remove the cost of initially forming the products.
 
 The noise estimator smooths raw residual squares by a univariate local linear
-fit with the selected covariance bandwidth and `minobs=0`. Its weights are one
+fit with the required `diagonal_bandwidth` and `minobs=0`. This bandwidth is
+chosen independently of the covariance bandwidth. Supply a positive number
+or a `CurveCV`. Diagonal CV predicts the raw squared residuals of held-out
+curves at their original observation times, using the pooled-mean weighting
+and fold rules. The supplied mean remains fixed. When binning is enabled,
+training times are snapped as in the final diagonal smoother; held-out query
+times remain original. Its weights are one
 for `:obs` and `1/N_i` for `:subj`. If this fit is `V(t)` and the covariance is
 `G(s,t)`, the raw noise estimate is
 `(2/(b-a)) * integral(V(t)-G(t,t), t=a+(b-a)/4..b-(b-a)/4)`.
 Here `[a,b]` is the work-grid range. Trapezoidal quadrature includes the exact
 middle-half boundaries, interpolating `V-G` linearly when needed. Negative
 estimates are truncated to zero. `noise_details` records the untruncated value,
-truncation flag, diagonal bandwidth, fitted squares, and integration settings.
+truncation flag, diagonal bandwidth, fold count, selection candidates, errors
+and assignments, fitted squares, and integration settings.
+`diagonal_bandwidth` also appears directly on the fit.
 The stored `weights` integrate over the full covariance work grid.
 
 ```@example smoothing
@@ -171,7 +179,7 @@ sparse = simulate_kl(MersenneTwister(42), 80; mean=t -> 1 + t,
 workgrid = collect(range(0.0, 1.0; length=11))
 pooled = StatsAPI.fit(SmoothedMean, sparse; grid=workgrid, bandwidth=0.8)
 covariance = StatsAPI.fit(SmoothedCovariance, sparse, pooled;
-    grid=workgrid, bandwidth=0.8, weighting=:subj)
+    grid=workgrid, bandwidth=0.8, diagonal_bandwidth=0.6, weighting=:subj)
 (size(covariance.surface), covariance.noise_variance, evaluate(covariance, 0.3, 0.6))
 ```
 
