@@ -59,7 +59,16 @@ using DelimitedFiles
         @test selected.selection.assignments == 1:4
     end
     m = StatsAPI.fit(SmoothedMean, fd; grid, bandwidth=.65)
-    @test_throws UndefKeywordError StatsAPI.fit(SmoothedCovariance, fd, m; grid, bandwidth=.65)
+    default = @inferred StatsAPI.fit(SmoothedCovariance, fd, m; grid, bandwidth=.65)
+    explicit = StatsAPI.fit(SmoothedCovariance, fd, m; grid, bandwidth=.65, diagonal_bandwidth=.65)
+    @test default.diagonal_bandwidth == default.noise_details.bandwidth == .65
+    @test default.noise_details.selection === nothing
+    @test default.noise_details.diagonal_source == :covariance
+    @test explicit.noise_details.diagonal_source == :user
+    @test default.noise_variance == explicit.noise_variance
+    @test default.surface == explicit.surface
+    cvdefault = StatsAPI.fit(SmoothedCovariance, fd, m; grid, bandwidth=CurveCV([.5, .65, 1.]; folds=4))
+    @test cvdefault.diagonal_bandwidth == cvdefault.bandwidth
     for h in (0., -1., Inf, NaN, :bad)
         @test_throws ArgumentError StatsAPI.fit(SmoothedCovariance, fd, m;
             grid, bandwidth=.65, diagonal_bandwidth=h)

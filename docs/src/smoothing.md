@@ -153,9 +153,13 @@ bound on the number of occupied curve/bin cells, reducing these costs to
 it does not remove the cost of initially forming the products.
 
 The noise estimator smooths raw residual squares by a univariate local linear
-fit with the required `diagonal_bandwidth` and `minobs=0`. This bandwidth is
-chosen independently of the covariance bandwidth. Supply a positive number
-or a `CurveCV`. Diagonal CV predicts the raw squared residuals of held-out
+fit with `minobs=0`. By default it uses the covariance bandwidth (after any
+CV selection), as fdapace does; theory only requires the diagonal bandwidth to
+be of no larger order than the covariance bandwidth, so this default is
+consistent (Li and Hsing, 2010, Corollary 3.5). Pass `diagonal_bandwidth` to
+choose it separately: a positive number, a `CurveCV`, or a KernelSmoothing
+regression rule (see below). `noise_details.diagonal_source` records
+`:covariance` or `:user`. Diagonal CV predicts the raw squared residuals of held-out
 curves at their original observation times, using the pooled-mean weighting
 and fold rules. The supplied mean remains fixed. When binning is enabled,
 training times are snapped as in the final diagonal smoother; held-out query

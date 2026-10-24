@@ -15,8 +15,8 @@
   Covariances use `StatsAPI.fit(SmoothedCovariance, fd, mean; ...)`, with
   off-diagonal product-kernel local linear smoothing, optional time binning,
   curve-level CV conditional on the supplied mean, bilinear evaluation, and
-  middle-half integrated noise variance. The required `diagonal_bandwidth` is
-  chosen by the user as a positive number or a separate `CurveCV` selector.
+  middle-half integrated noise variance. `diagonal_bandwidth` defaults to the
+  covariance bandwidth and may be set separately as a number or `CurveCV`.
   The mean `bandwidth` and `diagonal_bandwidth` also accept KernelSmoothing
   regression `BandwidthSelector`s and pilot-centred `CurveCV(; pilot, multipliers)`;
   the 2D covariance bandwidth needs a number or explicit `CurveCV` candidates.
