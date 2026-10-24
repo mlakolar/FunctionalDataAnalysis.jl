@@ -7,8 +7,9 @@ functional principal component analysis. FunctionalGraphicalModels.jl will
 later depend on this package.
 
 The package is **pre-release**. Milestone 0 provides documented interface
-contracts and trapezoidal integration weights. Concrete data types, smoothing
-and FPCA are planned for later milestones.
+contracts and trapezoidal integration weights. Milestone 1 adds bases,
+functional data containers, and explicit conversions. Smoothing and FPCA
+are planned for later milestones.
 
 ## Installation
 
