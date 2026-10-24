@@ -17,4 +17,6 @@ using Test
     include("covariance.jl")
     include("fpcbasis.jl")
     include("fpca.jl")
+    include("pace.jl")
+    include("pace_golden.jl")
 end

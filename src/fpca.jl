@@ -22,31 +22,72 @@ end
 """
     AIC()
 
-Akaike information criterion component selector. Reserved for the PACE
-likelihood in task 2; dense FPCA currently throws for this selector.
+Akaike information criterion component selector for PACE. Minimize minus twice
+the Gaussian log likelihood plus `2K`, following Yao, Müller, and Wang (2005),
+section 2.5. Selection stops at the first increase, following fdapace 0.6.0;
+the full criterion curve and global minimizer are also recorded. Dense FPCA
+throws for this selector.
 """
 struct AIC <: _ComponentSelector end
 
 """
     BIC()
 
-Bayesian information criterion component selector. Reserved for the PACE
-likelihood in task 2; dense FPCA currently throws for this selector.
+Bayesian information criterion component selector for PACE. Minimize minus
+twice the Gaussian log likelihood plus `K*log(nobs)`, following Yao, Müller,
+and Wang (2005), section 2.5. Selection stops at the first increase, following
+fdapace 0.6.0; the full criterion curve and global minimizer are also recorded.
+Dense FPCA throws for this selector.
 """
 struct BIC <: _ComponentSelector end
 
 Base.show(io::IO, rule::FVE) = print(io, "FVE(", rule.threshold, ")")
 
 """
-    fit(FPCA, fd; method=:auto, ncomponents=FVE(0.99),
-        maxK=max(1, min(length(fd.grid)-2, nobs(fd)-2)), presmooth=nothing,
-        eigen_tol=1e-10, sign_tol=1e-12)
+    fit(FPCA, fd; method=:auto, grid=nothing, ncomponents=FVE(0.99),
+        maxK=nothing, presmooth=nothing, mean=nothing, covariance=nothing,
+        noise_variance=nothing, mean_bandwidth=nothing,
+        covariance_bandwidth=nothing, kernel=KernelSmoothing.EpanechnikovKernel(),
+        weighting=:obs, binning=nothing, eigen_tol=1e-10, sign_tol=1e-12)
 
 Univariate functional principal component analysis. Complete grid data use the
 dense route: cross-sectional mean and sample covariance with denominator `n-1`
 (R's `cov`, also used by fdapace 0.6.0 `GetCovDense`). `:auto` chooses this
-route for `sampling_design(fd) == :regular`; irregular or masked data and
-`method=:pace` report that PACE is available in task 2.
+route for `sampling_design(fd) == :regular`; irregular or masked data use
+PACE. `method=:pace` forces PACE on either data representation, while
+`method=:dense` requires complete `GridFunctionalData`. Pooled smoothing
+keywords are accepted only on the PACE route.
+
+PACE implements the conditional-expectation method of Yao, Müller, and Wang
+(2005). Its work `grid` is required and must cover every observation time.
+A missing `mean` estimates [`SmoothedMean`](@ref), requiring `mean_bandwidth`;
+a supplied `SmoothedMean` is copied and used as given, or supply
+`(; grid, values)` for a linearly interpolated mean. Its grid must cover the
+work grid and every observation. A missing `covariance` estimates
+[`SmoothedCovariance`](@ref), requiring `covariance_bandwidth` and an estimated
+or supplied `SmoothedMean`. Alternatively supply that fitted type or a
+symmetric `(; grid, surface)` for bilinear interpolation.
+`noise_variance=nothing` uses the covariance smoother's stored nonnegative
+estimate; a supplied surface requires a finite nonnegative override.
+
+PACE smoother defaults reuse milestone 2: Epanechnikov `kernel`, local linear
+degree one, observation weighting `weighting=:obs`, and `binning=nothing`.
+These are explicit package smoothing conventions; fdapace's sparse default
+kernel is Gaussian. No bandwidth or grid is silently selected.
+`maxK=nothing` resolves to `max(1,min(20,length(grid)-2,nobs(fd)-2))` for
+PACE, following fdapace 0.6.0's smoothed route. An explicit PACE cap may be
+at most `length(grid)`.
+
+The full positive-semidefinite covariance projection up to `maxK` is used
+in each curve's Cholesky score solve. The selected eigenvalues and
+eigenfunctions define the score numerator and conditional covariance.
+PACE also supports [`AIC`](@ref) and [`BIC`](@ref). Their criteria use the
+K-component covariance, including the Gaussian normalization constant, for
+every candidate `K=1:maxK`. Beyond the retained positive rank the covariance
+has zero additional variance, while the penalty still increases. Selection
+stops at the first increase as fdapace does; the global minimizer is retained too. No noise
+floor or ridge is added. A non-positive-definite observation covariance
+throws with the curve index and a suggestion to supply `noise_variance`.
 
 The eigensystem of `sqrt(W)*G*sqrt(W)` uses the data's stored trapezoidal weights,
 including on nonuniform grids. Eigenvalues must exceed `eigen_tol` times the
@@ -69,7 +110,7 @@ FunctionalGraphicalModels.jl. Orthonormality is under work-grid weights.
 
 `presmooth=nothing` assumes negligible measurement noise, as in Ramsay and
 Silverman (2005), chapter 8. Noisy dense data should use `presmooth` or
-`method=:pace` (task 2). A [`LocalPolynomial`](@ref) or [`PenalizedSpline`](@ref)
+`method=:pace`. A [`LocalPolynomial`](@ref) or [`PenalizedSpline`](@ref)
 is applied through `smooth_curves`, evaluated on the original data grid, and
 recorded with its selected tuning metadata. Prediction applies the same fitted
 preprocessing; a spline GCV choice is fixed at its training-selected lambda.
@@ -176,9 +217,9 @@ function _fpca_selection(rule::FVE, curve, maxK)
 end
 
 _fpca_selection(::_ComponentSelector, curve, maxK) =
-    throw(ArgumentError("AIC and BIC component selection are available with PACE in task 2"))
+    throw(ArgumentError("AIC and BIC component selection require method=:pace"))
 _fpca_selection(rule, curve, maxK) =
-    throw(ArgumentError("ncomponents must be a positive integer or FVE(threshold)"))
+    throw(ArgumentError("ncomponents must be a positive integer, FVE(threshold), or (for PACE) AIC() or BIC()"))
 
 _fpca_preprocess(fd, ::Nothing) = (copy(fd.values), nothing)
 function _fpca_preprocess(fd, method::LocalPolynomial)
@@ -193,16 +234,29 @@ end
 _fpca_preprocess(fd, method) =
     throw(ArgumentError("presmooth must be nothing, LocalPolynomial, or PenalizedSpline"))
 
-function fit(::Type{FPCA}, fd::GridFunctionalData; method=:auto,
-        ncomponents=FVE(0.99), maxK=max(1, min(length(fd.grid)-2, nobs(fd)-2)),
-        presmooth=nothing, eigen_tol=1e-10, sign_tol=1e-12)
+function fit(::Type{FPCA}, fd::GridFunctionalData; method=:auto, grid=nothing,
+        ncomponents=FVE(0.99), maxK=nothing, presmooth=nothing,
+        mean=nothing, covariance=nothing, noise_variance=nothing,
+        mean_bandwidth=nothing, covariance_bandwidth=nothing,
+        kernel=KernelSmoothing.EpanechnikovKernel(), weighting=:obs, binning=nothing,
+        eigen_tol=1e-10, sign_tol=1e-12)
     method in (:auto, :dense, :pace) || throw(ArgumentError("FPCA method must be :auto, :dense, or :pace"))
     design = sampling_design(fd)
-    (method == :pace || (method == :auto && design != :regular)) &&
-        throw(ArgumentError("PACE FPCA is available in task 2"))
-    fd.observed === nothing || throw(ArgumentError("dense FPCA requires complete grid data; PACE is available in task 2"))
+    if method == :pace || (method == :auto && design != :regular)
+        presmooth === nothing || throw(ArgumentError("presmooth is only supported by dense FPCA; PACE smooths the pooled mean and covariance"))
+        return _fit_pace(fd; method, grid, ncomponents, maxK, mean, covariance,
+            noise_variance, mean_bandwidth, covariance_bandwidth, kernel,
+            weighting, binning, eigen_tol, sign_tol)
+    end
+    fd.observed === nothing || throw(ArgumentError("dense FPCA requires complete grid data; use method=:pace"))
+    (grid === nothing && mean === nothing && covariance === nothing &&
+        noise_variance === nothing && mean_bandwidth === nothing &&
+        covariance_bandwidth === nothing && binning === nothing &&
+        weighting == :obs && kernel == KernelSmoothing.EpanechnikovKernel()) ||
+        throw(ArgumentError("grid, mean, covariance, noise_variance and pooled smoothing options require method=:pace"))
     n, m = size(fd.values)
     n >= 2 || throw(ArgumentError("dense FPCA requires at least two curves"))
+    maxK = maxK === nothing ? max(1, min(m-2, n-2)) : maxK
     maxK isa Integer && 1 <= maxK <= min(m, n-1) || throw(ArgumentError(
         "dense FPCA maxK must be between 1 and min(grid length, nobs-1)"))
     _fpca_tolerance(eigen_tol, "eigen_tol")
@@ -231,10 +285,18 @@ function fit(::Type{FPCA}, fd::GridFunctionalData; method=:auto,
         nothing, deepcopy(fd.ids), deepcopy(presmooth), settings)
 end
 
-function fit(::Type{FPCA}, fd::IrregularFunctionalData; method=:auto, kwargs...)
+function fit(::Type{FPCA}, fd::IrregularFunctionalData; method=:auto, grid=nothing,
+        ncomponents=FVE(0.99), maxK=nothing, presmooth=nothing,
+        mean=nothing, covariance=nothing, noise_variance=nothing,
+        mean_bandwidth=nothing, covariance_bandwidth=nothing,
+        kernel=KernelSmoothing.EpanechnikovKernel(), weighting=:obs, binning=nothing,
+        eigen_tol=1e-10, sign_tol=1e-12)
     method in (:auto, :dense, :pace) || throw(ArgumentError("FPCA method must be :auto, :dense, or :pace"))
     method == :dense && throw(ArgumentError("dense FPCA requires complete GridFunctionalData"))
-    throw(ArgumentError("PACE FPCA is available in task 2"))
+    presmooth === nothing || throw(ArgumentError("presmooth is only supported by dense FPCA; PACE smooths the pooled mean and covariance"))
+    _fit_pace(fd; method, grid, ncomponents, maxK, mean, covariance,
+        noise_variance, mean_bandwidth, covariance_bandwidth, kernel,
+        weighting, binning, eigen_tol, sign_tol)
 end
 
 """
@@ -263,8 +325,10 @@ scores(f::FPCA) = f.scores
 """
     score_covariances(f::FPCA)
 
-Return `nothing` for dense FPCA. PACE will return conditional score covariance
-matrices of size `K × K × n` in task 2.
+Return conditional score covariance matrices of size `K × K × n` for PACE,
+quantifying each curve's remaining score uncertainty given its observations.
+These omit uncertainty from estimating the mean, covariance, or noise.
+Dense FPCA returns `nothing`. Use a copy for independent array storage.
 """
 score_covariances(f::FPCA) = f.score_covariances
 
@@ -279,7 +343,7 @@ fve(f::FPCA) = f.fve
 """
     noise_variance(f::Union{FPCA,SmoothedCovariance})
 
-Return estimated measurement-error variance. Dense FPCA returns `nothing`;
+Return estimated or supplied measurement-error variance. Dense FPCA returns `nothing`;
 `SmoothedCovariance` returns its stored nonnegative variance estimate.
 """
 noise_variance(f::Union{FPCA,SmoothedCovariance}) = f.noise_variance
@@ -302,14 +366,26 @@ function _fpca_prediction_method(f)
 end
 
 """
-    predict(f::FPCA, newdata::GridFunctionalData)
+    predict(f::FPCA, newdata::Union{GridFunctionalData,IrregularFunctionalData})
 
 Project new dense curves using the training mean, basis, weights, and fitted
 preprocessing. Return an `n × K` score matrix. Data must be complete and use
 exactly the training grid. This extends `StatsAPI.predict`, as in
 MultivariateStats.jl's PCA projection interface.
+
+PACE accepts either representation and returns `(scores, covariances)` as a
+named tuple, with an `n × K` matrix and `K × K × n` array. It uses the training
+mean, eigenfunctions, full projected covariance up to `maxK`, and noise
+variance. Every observation time must lie inside the work grid. Predicting
+the training data reproduces [`scores`](@ref) and [`score_covariances`](@ref).
 """
 function predict(f::FPCA, fd::GridFunctionalData)
+    _fpca_predict(f, fd, f.noise_variance)
+end
+
+_fpca_predict(f, fd::GridFunctionalData, ::Real) = _pace_predict(f, fd)
+
+function _fpca_predict(f, fd::GridFunctionalData, ::Nothing)
     length(fd.grid) == length(f.grid) || throw(DimensionMismatch("prediction grid length must match the FPCA training grid"))
     fd.grid == f.grid || throw(ArgumentError("prediction grid must exactly match the FPCA training grid"))
     fd.observed === nothing || throw(ArgumentError("dense FPCA prediction requires complete grid data"))
@@ -319,8 +395,10 @@ function predict(f::FPCA, fd::GridFunctionalData)
     projected
 end
 
-predict(f::FPCA, fd::IrregularFunctionalData) =
-    throw(ArgumentError("irregular FPCA prediction is available with PACE in task 2"))
+function predict(f::FPCA, fd::IrregularFunctionalData)
+    f.noise_variance === nothing && throw(ArgumentError("irregular prediction requires a PACE FPCA fit"))
+    _pace_predict(f, fd)
+end
 
 """
     reconstruct(f::FPCA, scores=scores(f); grid=f.grid)

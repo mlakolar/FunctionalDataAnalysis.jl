@@ -300,7 +300,7 @@ using DelimitedFiles
         @test (@inferred reconstruct(model32)) isa GridFunctionalData{Float32}
     end
 
-    @testset "Validation and unavailable routes" begin
+    @testset "Validation and route requirements" begin
         fd = GridFunctionalData([i * t for i in 1:4, t in 0.0:0.25:1.0], collect(0.0:0.25:1.0))
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd[1:1])
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd; method=:invalid)
@@ -335,10 +335,10 @@ using DelimitedFiles
         masked = GridFunctionalData([1.0 missing 3.0; 2.0 3.0 4.0], [0.0, 0.5, 1.0])
         irregular = to_irregular(fd)
         for data in (fd, masked, irregular)
-            @test_throws r"available in task 2" StatsAPI.fit(FPCA, data; method=:pace)
+            @test_throws r"grid" StatsAPI.fit(FPCA, data; method=:pace)
         end
         for data in (masked, irregular)
-            @test_throws r"available in task 2" StatsAPI.fit(FPCA, data)
+            @test_throws r"grid" StatsAPI.fit(FPCA, data)
             @test_throws ArgumentError StatsAPI.fit(FPCA, data; method=:dense)
         end
         model = StatsAPI.fit(FPCA, fd; ncomponents=1)

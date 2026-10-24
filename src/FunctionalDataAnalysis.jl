@@ -37,5 +37,6 @@ include("smoothing2d.jl")
 include("covariance.jl")
 include("fpcbasis.jl")
 include("fpca.jl")
+include("pace.jl")
 
 end

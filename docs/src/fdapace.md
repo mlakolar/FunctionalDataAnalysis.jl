@@ -16,24 +16,24 @@ executable source; several comments and help-text defaults disagree with it.
 ## Defaults and data routes
 
 Here `n` is the number of curves and `m` is the number of work-grid points.
-The current package implements the dense FPCA route. The PACE defaults remain
-for the next task; the existing smoothers require explicit work grids and
-bandwidths. Listing fdapace's PACE behavior here does not choose those defaults
-for this package.
+The package implements dense and PACE FPCA. PACE currently requires an
+explicit work grid and bandwidths for its estimated smoothers. Automatic
+grid and bandwidth choices remain for the next task. Listing fdapace's
+behavior here does not import its defaults into this package.
 
 | Choice | fdapace 0.6.0: executable source | FunctionalDataAnalysis.jl and reason |
 |:--|:--|:--|
 | Work grid / `nRegGrid` | `R/SetOptions.R`, `SetOptions`: Dense and DenseWithMV use the number of unique pooled times after `signif(t,6)`; Sparse and `p>>n` use 51. `R/FPCA.R`, `FPCA` then creates an equally spaced grid over the observed range. | Dense uses the supplied data grid and its stored weights, without rounding or resampling. It preserves the data representation. PACE grid defaults are deferred. |
-| `maxK` | `SetOptions`: `min(nRegGrid-2,n-2)`, additionally capped at 20 **only for `methodMuCovEst="smooth"`**; values below 1 are reset to 1. An explicit `maxK` above `nRegGrid-2` is reduced with a message. | The dense default is `max(1,min(m-2,n-2))`, matching fdapace's dense cross-sectional default with no cap of 20. An explicit cap may use up to `min(m,n-1)`, the sample covariance rank bound; requested components above the cap throw. |
-| `methodSelectK` | `SetOptions`: `"FVE"`. `R/SelectK.R`, `SelectK` also accepts `"AIC"`, `"BIC"`, or a positive integer. | `ncomponents=FVE(0.99)` or a positive integer. AIC/BIC selection is reserved for the PACE task. |
+| `maxK` | `SetOptions`: `min(nRegGrid-2,n-2)`, additionally capped at 20 **only for `methodMuCovEst="smooth"`**; values below 1 are reset to 1. An explicit `maxK` above `nRegGrid-2` is reduced with a message. | The dense default is `max(1,min(m-2,n-2))`; PACE uses `max(1,min(20,m-2,n-2))`, matching the respective audited routes. An explicit dense cap may use up to `min(m,n-1)` and an explicit PACE cap up to `m`; requested components above the cap or retained positive rank throw. |
+| `methodSelectK` | `SetOptions`: `"FVE"`. `R/SelectK.R`, `SelectK` also accepts `"AIC"`, `"BIC"`, or a positive integer. | `ncomponents=FVE(0.99)` or a positive integer. PACE also accepts `AIC()` and `BIC()`. |
 | `FVEthreshold` | `SetOptions`: 0.99 for `FPCA`. The standalone `SelectK` function separately defaults to 0.95. | `FVE(0.99)` follows the `FPCA` entry point. |
-| Kernel | `SetOptions` initially chooses `"epan"` for Dense and `"gauss"` for every other data type, including DenseWithMV. A later invalid-kernel recovery branch chooses Epanechnikov for DenseWithMV. | The dense sample mean and covariance require no kernel. Optional presmoothing records the supplied smoother and kernel. Existing local-polynomial smoothers default to Epanechnikov; PACE kernel defaults are deferred. |
-| `methodBwMu`, `methodBwCov` | `SetOptions`: both are `"Default"`, with fixed `userBwMu=0.05*range` and `userBwCov=0.10*range`. GCV is an explicit option, **not the current default**. | Dense has no smoothing bandwidth by default. Existing pooled smoothers require an explicit positive bandwidth or selector; PACE defaults are deferred. This avoids pretending that existing `CurveCV` reproduces fdapace's selectors. |
+| Kernel | `SetOptions` initially chooses `"epan"` for Dense and `"gauss"` for every other data type, including DenseWithMV. A later invalid-kernel recovery branch chooses Epanechnikov for DenseWithMV. | The dense sample mean and covariance require no kernel. Optional presmoothing records the supplied smoother and kernel. PACE inherits the milestone's explicit Epanechnikov default from the pooled smoothers; its kernel remains overridable. |
+| `methodBwMu`, `methodBwCov` | `SetOptions`: both are `"Default"`, with fixed `userBwMu=0.05*range` and `userBwCov=0.10*range`. GCV is an explicit option, **not the current default**. | Dense has no smoothing bandwidth by default. PACE requires an explicit bandwidth or selector for each estimated smoother. Defaults are deferred to the next task. Existing `CurveCV` deliberately differs from fdapace's selectors. |
 | `kFoldMuCov` | `SetOptions`: 10. `R/GetSmoothedMeanCurve.R`, `GetSmoothedMeanCurve` passes it to mean CV; `R/GetSmoothedCovarSurface.R`, `GetSmoothedCovarSurface` passes it to covariance CV. | Dense uses no folds. Existing `CurveCV` also defaults to ten folds. It requires an RNG when `folds<nobs(fd)` and uses deterministic leave-one-curve-out when they are equal; folds above the number of curves throw. Holding out entire curves respects subject dependence. |
 | `useBinnedData` | `SetOptions`: `"AUTO"`; the exact rule is below. `useBinnedCov` is a different option: true except when `n<128` and the mean number of observations is below 3. | Dense does not bin. The existing covariance smoother defaults to `binning=nothing`; explicit binning records its grid and preserves pair weights. No automatic binning rule is imported. |
-| `methodMuCovEst` | `SetOptions`: Sparse uses `"smooth"`; Dense, DenseWithMV, and `p>>n` use `"cross-sectional"`. | Regular, completely observed grid data use the cross-sectional sample mean and covariance. Masked or irregular data require the PACE task. |
-| `methodXi` | `SetOptions`: Dense and `p>>n` use `"IN"`; DenseWithMV uses `"CE"`. Sparse normally uses `"CE"`, but uses `"IN"` if every curve has **more than 20** observations and the largest spacing, including either boundary gap to the pooled range, is at most 6% of that range. | Dense scores use the stored quadrature weights. PACE will use conditional-expectation scores; there is no data-driven switch between scoring formulas in the current dense fit. |
-| Measurement error | `SetOptions`: `error=TRUE`, even for Dense. `R/GetCovDense.R`, `GetCovDense` uses a second-difference noise estimate on its cross-sectional route. | Dense stores `noise_variance=nothing` and defaults to `presmooth=nothing`. It assumes negligible measurement error, following Ramsay and Silverman (2005), Chapter 8. Noisy dense curves need explicit presmoothing or the later PACE route. |
+| `methodMuCovEst` | `SetOptions`: Sparse uses `"smooth"`; Dense, DenseWithMV, and `p>>n` use `"cross-sectional"`. | Complete common-grid data use cross-sectional estimates by default. Irregular or masked data use PACE pooled smoothers; `method=:pace` forces this route on regular data too. |
+| `methodXi` | `SetOptions`: Dense and `p>>n` use `"IN"`; DenseWithMV uses `"CE"`. Sparse normally uses `"CE"`, but uses `"IN"` if every curve has **more than 20** observations and the largest spacing, including either boundary gap to the pooled range, is at most 6% of that range. | Dense scores use the stored quadrature weights. PACE always uses conditional-expectation scores. There is no additional data-driven switch between these formulas. |
+| Measurement error | `SetOptions`: `error=TRUE`, even for Dense. `R/GetCovDense.R`, `GetCovDense` uses a second-difference noise estimate on its cross-sectional route. | Dense stores `noise_variance=nothing` and defaults to `presmooth=nothing`. It assumes negligible measurement error, following Ramsay and Silverman (2005), Chapter 8. Noisy dense curves need explicit presmoothing or PACE. |
 | `rho` | `SetOptions`: `methodRho="vanilla"`, `userRho=NULL`. This means no extra regularization; details are below. | `rho` regularization is not implemented. No ridge is silently added. |
 
 The remembered claim that fdapace always uses `maxK=min(20,m-2)` is therefore
@@ -148,6 +148,14 @@ separate user-returned `fittedCovUser`; it does not change this score
 covariance. The numerator of the conditional expectation and its returned
 score covariance use the selected eigenfunctions and eigenvalues.
 
+PACE follows that full-covariance score denominator. It uses a Cholesky
+factorization, rather than fdapace's LDLT solve. A non-positive-definite
+subject system throws and suggests supplying `noise_variance`. It uses the
+nonnegative `SmoothedCovariance` value, including a truncation to zero, or
+the supplied nonnegative number. It does not copy fdapace's absolute `1e-6`
+replacement for a negative variance: that replacement depends on the data's
+units. No noise floor is applied during scoring.
+
 The optional non-vanilla `rho` path in `R/FPCA.R`, `FPCA` **replaces** the
 noise variance passed to `GetCEScores`; it is not an additional diagonal
 term on top of that noise variance. `R/GetRho.R`, `GetRho` first updates a
@@ -209,6 +217,52 @@ which is distinct from the full fitted covariance used by CE scoring.
 When `methodSelectK` is numeric, `SetOptions` first sets `FVEthreshold=1`,
 and `SelectK` then checks the fixed requested K against available components.
 
+PACE stores the criterion for every candidate from 1 through `maxK`, then
+applies the first-increase rule. Beyond the retained positive rank, extra
+zero-variance components leave the likelihood unchanged and increase only
+the penalty. It additionally records the
+global minimizer. Its criterion includes the Gaussian normalization constant
+`sum_i N_i*log(2pi)`, whereas fdapace's `GetLogLik` omits this constant.
+Reference files retain both conventions. The offset changes neither the
+first-increase choice nor the global minimizer.
+
+## PACE supplied-input and prediction reference checks
+
+The same reference script also writes `m3_sparse_input.csv`,
+`m3_sparse_mean.csv` (work grid and mean), `m3_sparse_surface.csv`,
+`m3_sparse_noise.csv`, `m3_sparse_heldout.csv`, and `m3_fdapace_pace.csv`. The sparse fixture
+contains 40 deterministic curves with 2 to 8 observations. Its fixed-K run
+uses `userMu`, `userCov`, `userSigma2`, `error=TRUE`, `methodXi="CE"`,
+`useBinnedData="OFF"`, and `methodRho="vanilla"`. Separate AIC, BIC, and
+FVE runs record selected component counts and the full available criterion
+curves. R and fdapace versions appear in the CSV header comments.
+
+The PACE fixture uses sine eigenfunctions that vanish at both work-grid
+endpoints. Rectangular and trapezoidal quadrature therefore agree for this
+surface. The Julia golden test exercises the public `fit(FPCA, ...)`
+interface directly, comparing eigenvalues, eigenfunctions, training scores,
+conditional score covariances, fitted covariance, prediction, and component
+selection at relative error below `1e-8`. It requires no alternative
+eigen-step convention. Separate analytic tests validate public PACE scores
+and uncertainty for affine eigenfunctions with nonzero boundary values.
+
+Three further source details affect these comparisons:
+
+- `GetUserMeanCurve` interpolates `userMu` with a spline. This package's
+  supplied-mean contract uses linear interpolation. The fixture mean is
+  affine so both conventions agree.
+- `predict.FPCA` first interpolates the covariance onto the union of training
+  observation times. `GetCEScores` then adds the noise diagonal on that
+  union and interpolates the resulting observed covariance to new times.
+  At new times absent from the union, this can interpolate the noise
+  diagonal itself. This package interpolates the latent projected surface
+  and adds `noise_variance*I` at the new subject's actual times. Held-out
+  reference curves therefore use times present in the training union but
+  absent from the work grid, isolating the documented quantity.
+- `SubsetFPCA` truncates `xiEst`, `phi`, and `lambda` to the selected K but
+  leaves `xiVar` at its full retained size. The reference records the selected
+  upper-left block of `xiVar`, matching this package's `K × K × n` contract.
+
 ## Dense denominator and reference checks
 
 `R/GetMeanDense.R`, `GetMeanDense` uses the cross-sectional mean.
@@ -236,6 +290,31 @@ eigenfunctions, FVE, and scores are compared at relative tolerance `1e-8`.
 This validates the documented fdapace quantity. It does not claim that our
 default trapezoidal eigendecomposition equals fdapace on a finite grid.
 Separate grid-refinement checks test convergence of the two conventions.
+
+## Development validation record
+
+The 2026-10-24 development checks used Julia 1.13.2 and a temporary project at
+`/private/tmp/fda-m3-pace-tests`, with this package and the local
+KernelSmoothing.jl checkout developed into that environment. Only the affected
+test files were run:
+
+| Test file | Passing assertions |
+|:--|--:|
+| `test/fpca.jl` | 178 |
+| `test/pace.jl` | 128 |
+| `test/pace_golden.jl` | 68 |
+
+For example, the PACE checks were run with:
+
+```sh
+julia --project=/private/tmp/fda-m3-pace-tests -e 'using FunctionalDataAnalysis, Test, Random, LinearAlgebra; include("test/pace.jl")'
+```
+
+`Rscript test/reference/fdapace_m3.R` regenerated the golden fixtures with
+R 4.5.1 and fdapace 0.6.0. The existing dense CSVs remained byte-for-byte
+unchanged. The controller runs the full test suite on Julia 1.10 and the
+current release, Aqua, and the docs build. Those controller gates were not
+run during this development step.
 
 References: Yao, Müller, and Wang (2005), *Functional Data Analysis for
 Sparse Longitudinal Data*, JASA 100, 577–590;
