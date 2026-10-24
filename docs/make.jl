@@ -4,6 +4,7 @@ using FunctionalDataAnalysis
 makedocs(;
     sitename = "FunctionalDataAnalysis.jl",
     modules = [FunctionalDataAnalysis],
+    format = Documenter.HTML(; edit_link = "main"),
     pages = [
         "Home" => "index.md",
         "Interface" => "interface.md",

@@ -2,6 +2,9 @@
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 FunctionalDataAnalysis = "b0173d16-ca42-4446-bf44-e56735cff075"
 
+[sources]
+FunctionalDataAnalysis = {path = ".."}
+
 [compat]
 Documenter = "1"
 FunctionalDataAnalysis = "0.1"
