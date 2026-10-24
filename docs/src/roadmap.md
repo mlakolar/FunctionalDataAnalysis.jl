@@ -28,7 +28,16 @@
   The dense default component cap is `max(1, min(length(grid)-2, nobs(data)-2))`,
   following the fdapace source audit and replacing the plan's cap of 20.
   Source-audited fdapace fixtures test the documented eigenvalue convention.
-  PACE conditional-expectation scores and AIC/BIC selection are next.
+  PACE now reuses pooled mean and covariance smoothing, accepts supplied
+  means, surfaces, and noise variance, and stores conditional-expectation
+  scores and their conditional covariances. FVE, fixed K, AIC, and BIC are
+  supported; AIC/BIC retain the full criterion curve and global minimizer
+  alongside fdapace's first-increase choice. Sparse prediction reuses the
+  fitted mean, eigenfunctions, full projected covariance, and noise variance.
+  The work grid and bandwidths remain explicit; defaults are the next task.
+  PACE and dense defaults and intentional fdapace differences are documented
+  on the FPCA and audit pages. Roughness-penalized FPCA, FACE, and conditional
+  score `rho` regularization remain outside this milestone's current scope.
   Cross-version tests and the docs build remain controller gates.
 - Milestone 4: multivariate FPCA; FunctionalGraphicalModels.jl migrates.
 - Milestone 5: registration, functional regression, depth and outliers,

@@ -11,8 +11,10 @@ and dense and sparse (PACE) functional principal component analysis. The
 package is pre-release. Milestone 0 provides the package skeleton, documented
 interface contracts and trapezoidal quadrature weights. Milestone 1 adds
 bases, functional data containers, explicit conversions, table input and
-simulation generators. Smoothing and
-FPCA will arrive in later milestones. FunctionalGraphicalModels.jl
+simulation generators. Per-curve smoothing, pooled mean and covariance
+estimation, and dense and sparse PACE FPCA are implemented. PACE currently
+requires an explicit work grid and smoothing bandwidths when estimating its
+mean and covariance. FunctionalGraphicalModels.jl
 will later depend on this package.
 
 ## Installation
