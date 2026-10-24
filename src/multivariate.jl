@@ -16,6 +16,7 @@ struct MultivariateFunctionalData{T<:AbstractFloat} <: AbstractFunctionalData{T}
             throw(ArgumentError("components must be univariate grid, irregular or basis data"))
         all(c -> nobs(c) == nobs(first(components)), components) ||
             throw(DimensionMismatch("all components must have the same number of subjects"))
+        _validate_component_ids(components)
         copied = AbstractFunctionalData{T}[_convert_component(T, c) for c in components]
         new{T}(copied)
     end
@@ -30,13 +31,13 @@ function MultivariateFunctionalData(c::AbstractVector{<:AbstractFunctionalData})
 end
 
 function _convert_component(::Type{T}, fd::GridFunctionalData) where {T}
-    GridFunctionalData(Matrix{Union{Missing,T}}(_grid_matrix(fd)), Vector{T}(fd.grid))
+    GridFunctionalData(Matrix{Union{Missing,T}}(_grid_matrix(fd)), Vector{T}(fd.grid); ids=fd.ids)
 end
 _convert_component(::Type{T}, fd::IrregularFunctionalData) where {T} =
     IrregularFunctionalData(Vector{T}(fd.times), Vector{T}(fd.values), fd.offsets;
-        domain=(T(domain(fd)[1]), T(domain(fd)[2])))
+        domain=(T(domain(fd)[1]), T(domain(fd)[2])), ids=fd.ids)
 _convert_component(::Type{T}, fd::BasisFunctionalData) where {T} =
-    BasisFunctionalData(Matrix{T}(fd.coefs), fd.basis)
+    BasisFunctionalData(Matrix{T}(fd.coefs), fd.basis; ids=fd.ids)
 
 """
     ncomponents(mfd)
@@ -145,7 +146,7 @@ function Base.vcat(a::MultivariateFunctionalData, b::MultivariateFunctionalData)
     end
     T = promote_type(eltype(a), eltype(b))
     MultivariateFunctionalData{T}(AbstractFunctionalData{T}[
-        vcat(component(a, j), component(b, j)) for j in 1:ncomponents(a)])
+        _mfd_concat_component(a, b, j) for j in 1:ncomponents(a)])
 end
 function Base.show(io::IO, fd::MultivariateFunctionalData{T}) where {T}
     print(io, "MultivariateFunctionalData{", T, "}(n=", nobs(fd),

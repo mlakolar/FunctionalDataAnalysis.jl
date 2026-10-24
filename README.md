@@ -10,7 +10,8 @@ and sparse observations, smoothing built on KernelSmoothing.jl and BSplineKit.jl
 and dense and sparse (PACE) functional principal component analysis. The
 package is pre-release. Milestone 0 provides the package skeleton, documented
 interface contracts and trapezoidal quadrature weights. Milestone 1 adds
-bases, functional data containers and explicit conversions. Smoothing and
+bases, functional data containers, explicit conversions, table input and
+simulation generators. Smoothing and
 FPCA will arrive in later milestones. FunctionalGraphicalModels.jl
 will later depend on this package.
 
@@ -26,7 +27,7 @@ Pkg.add(url = "https://github.com/mlakolar/FunctionalDataAnalysis.jl")
 ## Roadmap
 
 - Milestone 0: package skeleton, CI, docs.
-- Milestone 1: data types (grid, irregular, basis, multivariate), conversions,
+- Milestone 1 (done): data types (grid, irregular, basis, multivariate), conversions,
   Tables.jl input, simulation generators.
 - Milestone 2: smoothing (curve smoothing, pooled mean, covariance surface,
   noise variance, curve-level bandwidth selection) on KernelSmoothing.jl.

@@ -8,7 +8,8 @@ later depend on this package.
 
 The package is **pre-release**. Milestone 0 provides documented interface
 contracts and trapezoidal integration weights. Milestone 1 adds bases,
-functional data containers, and explicit conversions. Smoothing and FPCA
+functional data containers, explicit conversions, table input, and simulation.
+Smoothing and FPCA
 are planned for later milestones.
 
 ## Installation

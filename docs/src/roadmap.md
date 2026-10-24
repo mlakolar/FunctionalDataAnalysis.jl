@@ -1,7 +1,7 @@
 # Roadmap
 
 - Milestone 0: package skeleton, CI, docs.
-- Milestone 1: data types (grid, irregular, basis, multivariate), conversions,
+- Milestone 1 (done): data types (grid, irregular, basis, multivariate), conversions,
   Tables.jl input, simulation generators.
 - Milestone 2: smoothing (curve smoothing, pooled mean, covariance surface,
   noise variance, curve-level bandwidth selection) on KernelSmoothing.jl.
