@@ -31,13 +31,14 @@ function MultivariateFunctionalData(c::AbstractVector{<:AbstractFunctionalData})
 end
 
 function _convert_component(::Type{T}, fd::GridFunctionalData) where {T}
-    GridFunctionalData(Matrix{Union{Missing,T}}(_grid_matrix(fd)), Vector{T}(fd.grid); ids=fd.ids)
+    GridFunctionalData(Matrix{Union{Missing,T}}(_grid_matrix(fd)), Vector{T}(fd.grid);
+        ids=fd.ids, metadata=fd.metadata)
 end
 _convert_component(::Type{T}, fd::IrregularFunctionalData) where {T} =
     IrregularFunctionalData(Vector{T}(fd.times), Vector{T}(fd.values), fd.offsets;
         domain=(T(domain(fd)[1]), T(domain(fd)[2])), ids=fd.ids)
 _convert_component(::Type{T}, fd::BasisFunctionalData) where {T} =
-    BasisFunctionalData(Matrix{T}(fd.coefs), fd.basis; ids=fd.ids)
+    BasisFunctionalData(Matrix{T}(fd.coefs), fd.basis; ids=fd.ids, metadata=fd.metadata)
 
 """
     ncomponents(mfd)

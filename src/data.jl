@@ -1,11 +1,17 @@
 """
-    GridFunctionalData(values, grid; ids=nothing)
+    GridFunctionalData(values, grid; ids=nothing, metadata=(;))
 
 Curves in the rows of a copied `n × m` matrix on a common, finite, strictly
 increasing grid with at least two points. At least one curve is required.
 Missing entries are represented by an `observed::Union{Nothing,BitMatrix}`
 mask (true means observed); their stored numerical values are zero.
 Every nonmissing value must be finite. Integer input becomes `Float64`.
+Optional `metadata` is a deep-copied named tuple of provenance or tuning settings.
+Subsetting deep-copies this provenance unchanged: selection scores still refer
+to the original curves and are not recomputed for the subset. Concatenation
+with `vcat` preserves equal metadata (deep-copied) and throws `ArgumentError`
+when metadata differ. Conversions (`to_grid`, `to_irregular`, `to_basis`)
+return objects without metadata.
 Optional `ids` are copied, unique subject labels of length `nobs`.
 """
 struct GridFunctionalData{T<:AbstractFloat} <: AbstractFunctionalData{T}
@@ -14,12 +20,13 @@ struct GridFunctionalData{T<:AbstractFloat} <: AbstractFunctionalData{T}
     weights::Vector{T}
     observed::Union{Nothing,BitMatrix}
     ids::Union{Nothing,Vector{Any}}
-    function GridFunctionalData{T}(::Val{:validated}, values, grid, weights, observed, ids) where {T<:AbstractFloat}
-        new{T}(values, grid, weights, observed, ids)
+    metadata::NamedTuple
+    function GridFunctionalData{T}(::Val{:validated}, values, grid, weights, observed, ids, metadata) where {T<:AbstractFloat}
+        new{T}(values, grid, weights, observed, ids, metadata)
     end
 end
 
-function GridFunctionalData(values::AbstractMatrix{V}, grid::AbstractVector{G}; ids=nothing) where
+function GridFunctionalData(values::AbstractMatrix{V}, grid::AbstractVector{G}; ids=nothing, metadata::NamedTuple=(;)) where
         {V<:Union{Missing,Real},G<:Real}
     Base.require_one_based_indexing(values, grid)
     size(values, 1) >= 1 || throw(ArgumentError("at least one curve is required"))
@@ -40,7 +47,7 @@ function GridFunctionalData(values::AbstractMatrix{V}, grid::AbstractVector{G}; 
         end
     end
     GridFunctionalData{T}(Val(:validated), y, x, w, all(observed) ? nothing : observed,
-        _validate_ids(ids, size(y, 1)))
+        _validate_ids(ids, size(y, 1)), deepcopy(metadata))
 end
 
 """
@@ -143,7 +150,7 @@ function IrregularFunctionalData(times::AbstractVector{<:AbstractVector{S}},
 end
 
 """
-    BasisFunctionalData(coefs, basis; ids=nothing)
+    BasisFunctionalData(coefs, basis; ids=nothing, metadata=(;))
 
 Exact functional representations with one coefficient row per curve and
 `nbasis(basis)` columns. Coefficients must be finite and at least one curve
@@ -151,6 +158,12 @@ is required. Coefficients are copied; the basis is shared as an immutable
 object. Scalar indexing and
 iteration retain exact one-curve basis objects; they never choose a grid.
 The object is callable: `fd(t) == evaluate(fd, t)`.
+Optional `metadata` is a deep-copied named tuple of provenance or tuning settings.
+Subsetting deep-copies this provenance unchanged: selection scores still refer
+to the original curves and are not recomputed for the subset. Concatenation
+with `vcat` preserves equal metadata (deep-copied) and throws `ArgumentError`
+when metadata differ. Conversions (`to_grid`, `to_irregular`, `to_basis`)
+return objects without metadata.
 Optional `ids` are copied, unique subject labels of length `nobs` and are
 retained through subsetting and conversions.
 """
@@ -158,7 +171,8 @@ struct BasisFunctionalData{T<:AbstractFloat,B<:AbstractBasis} <: AbstractFunctio
     coefs::Matrix{T}
     basis::B
     ids::Union{Nothing,Vector{Any}}
-    function BasisFunctionalData(coefs::AbstractMatrix{S}, basis::B; ids=nothing) where {S<:Real,B<:AbstractBasis}
+    metadata::NamedTuple
+    function BasisFunctionalData(coefs::AbstractMatrix{S}, basis::B; ids=nothing, metadata::NamedTuple=(;)) where {S<:Real,B<:AbstractBasis}
         Base.require_one_based_indexing(coefs)
         size(coefs, 1) >= 1 || throw(ArgumentError("at least one curve is required"))
         size(coefs, 2) == nbasis(basis) ||
@@ -166,7 +180,7 @@ struct BasisFunctionalData{T<:AbstractFloat,B<:AbstractBasis} <: AbstractFunctio
         T = promote_type(_floattype(S), _basis_eltype(basis))
         c = Matrix{T}(coefs)
         all(isfinite, c) || throw(ArgumentError("basis coefficients must be finite"))
-        new{T,B}(c, basis, _validate_ids(ids, size(c, 1)))
+        new{T,B}(c, basis, _validate_ids(ids, size(c, 1)), deepcopy(metadata))
     end
 end
 

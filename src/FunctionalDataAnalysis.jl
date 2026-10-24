@@ -1,7 +1,8 @@
 module FunctionalDataAnalysis
 
 using LinearAlgebra
-import StatsAPI: nobs
+import StatsAPI: nobs, fit
+import KernelSmoothing
 import BSplineKit
 import Tables
 using Random: AbstractRNG, rand, randn
@@ -13,6 +14,7 @@ export nbasis, basismatrix, gram, penalty, BSplineBasis, FourierBasis,
 export GridFunctionalData, IrregularFunctionalData, BasisFunctionalData,
     MultivariateFunctionalData, PiecewiseLinear, NoInterpolation, nobs_per_curve,
     ncomponents, component, to_array, to_irregular, to_grid, to_basis
+export LocalPolynomial, PenalizedSpline, GCV, smooth_curves
 export ids, RegularSampling, SparseSampling, simulate_kl,
     fourier_eigenfunctions, legendre_eigenfunctions
 
@@ -26,5 +28,6 @@ include("conversions.jl")
 include("multivariate.jl")
 include("tables.jl")
 include("simulation.jl")
+include("smoothing.jl")
 
 end
