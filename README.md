@@ -6,7 +6,7 @@
 [![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
 
 Functional data analysis in Julia, with planned support for dense, irregular
-and sparse observations, smoothing built on KernelSmoothing.jl and BSpline.jl,
+and sparse observations, smoothing built on KernelSmoothing.jl and BSplineKit.jl,
 and dense and sparse (PACE) functional principal component analysis. The
 package is pre-release. Milestone 0 provides the package skeleton, documented
 interface contracts and trapezoidal quadrature weights. Concrete data types,

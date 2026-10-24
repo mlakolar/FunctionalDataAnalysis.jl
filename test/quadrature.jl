@@ -33,16 +33,18 @@
         @test (@inferred quadrature_weights(Float32[0, 0.25, 1])) isa Vector{Float32}
         @test (@inferred quadrature_weights(Float64[0, 0.25, 1])) isa Vector{Float64}
         @test (@inferred quadrature_weights([0, 1, 4])) isa Vector{Float64}
+        @test (@inferred quadrature_weights(UInt8[0, 1, 4])) isa Vector{Float64}
         @test quadrature_weights(Float32[0, 0.25, 1]) == Float32[0.125, 0.5, 0.375]
         @test quadrature_weights(Float64[0, 0.25, 1]) == [0.125, 0.5, 0.375]
         @test quadrature_weights([0, 1, 4]) == [0.5, 2.0, 1.5]
+        @test quadrature_weights(UInt8[0, 1, 4]) == [0.5, 2.0, 1.5]
     end
 
     @testset "Invalid grids" begin
         for grid in (Float64[], [0.0])
             @test_throws ArgumentError("the grid needs at least two points") quadrature_weights(grid)
         end
-        for grid in ([0.0, 0.0, 1.0], [1.0, 0.0], [0.0, 1.0, 0.5])
+        for grid in ([0.0, 0.0, 1.0], [1.0, 0.0], [0.0, 1.0, 0.5], UInt8[1, 0])
             @test_throws ArgumentError("the grid must be strictly increasing") quadrature_weights(grid)
         end
         for grid in ([0.0, Inf], [-Inf, 0.0], [0.0, NaN], [NaN, 1.0])

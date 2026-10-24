@@ -2,7 +2,7 @@
 
 FunctionalDataAnalysis.jl will provide functional data analysis in Julia for
 dense, irregular and sparse observations. Planned methods include smoothing
-built on KernelSmoothing.jl and BSpline.jl, and dense and sparse (PACE)
+built on KernelSmoothing.jl and BSplineKit.jl, and dense and sparse (PACE)
 functional principal component analysis. FunctionalGraphicalModels.jl will
 later depend on this package.
 
