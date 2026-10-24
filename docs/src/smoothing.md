@@ -203,9 +203,17 @@ The mean stores `selection=(rule, bandwidth, details)`; the diagonal stores it
 in `noise_details.selection`. Density-only rules and rules returning pointwise
 vectors (currently `MSEOptimal()`) raise `ArgumentError`.
 
-These rules assume independent observations. They ignore within-curve
-correlation and therefore tend to undersmooth repeated-measures data.
-Use `CurveCV` for the final choice.
+These rules assume independent observations. For sparse designs that is
+asymptotically adequate, because each curve contributes about one point to a
+smoothing window and the leading variance matches the independent case (Zhang
+and Wang, 2016, Corollaries 3.1 and 3.2). For dense designs they ignore the
+within-curve correlation term. Li and Hsing (2010, Section 4.1) also found
+IMSE-optimal bandwidths worked less well for ``\sigma^2`` than slightly smaller
+ones. Treat these rules as pilots and use `CurveCV`, which leaves out whole
+curves and does not depend on the within-curve correlation, for the final
+choice. Theory requires only that the diagonal bandwidth be of no larger order
+than the covariance bandwidth (Li and Hsing, 2010, Corollary 3.5), so
+undersmoothing the diagonal is allowed.
 
 ```julia
 pilot = KernelSmoothing.RuleOfThumb()

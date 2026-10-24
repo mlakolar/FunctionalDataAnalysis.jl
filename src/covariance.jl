@@ -31,9 +31,9 @@ mean CV fold and weighting rules. With binning, diagonal training times are
 snapped but held-out queries stay at original times. The supplied mean stays
 fixed. The diagonal uses local linear degree one and observation weights one or `1/N_i`.
 Rules use pooled raw squared residuals, training times (snapped with binning),
-and the same observation weights. They assume independent observations, ignore
-within-curve correlation, and therefore tend to undersmooth repeated-measures
-data; use `CurveCV` for the final choice. Density-only and pointwise rules throw.
+and the same observation weights. They assume independent observations, which is
+asymptotically adequate for sparse designs but ignores within-curve correlation
+in dense ones; use `CurveCV` for the final choice. Density-only and pointwise rules throw.
 `noise_details.selection` stores the rule, bandwidth, and selector details,
 or the CV candidates, errors, assignments, and pilot information when used.
 `noise_details` records its bandwidth, fold count, selection scores and assignments,

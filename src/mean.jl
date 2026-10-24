@@ -14,9 +14,9 @@ For the mean or noise diagonal, `pilot` is a regression
 0.5 to 4 on a logarithmic grid. The pilot uses all pooled observations
 and the fit's weights. Selection records `pilot`, `h_pilot`, `pilot_details`,
 `multipliers`, `bandwidths`, `errors`, and `assignments`. The 2D covariance
-requires explicit candidates. Pilot rules assume independent observations,
-ignore within-curve correlation, and tend to undersmooth repeated-measures
-data; use `CurveCV` for the final choice.
+requires explicit candidates. Pilot rules assume independent observations.
+That is asymptotically adequate for sparse designs but ignores within-curve
+correlation in dense ones; use `CurveCV` for the final choice.
 """
 struct CurveCV{T<:AbstractFloat,R,P}
     bandwidths::Vector{T}
@@ -103,8 +103,9 @@ The explicit work grid must be finite and strictly increasing with at least
 two points. The required `bandwidth` is a positive number, [`CurveCV`](@ref),
 or a regression `KernelSmoothing.BandwidthSelector` returning one global
 bandwidth. Selectors use the pooled observations and the chosen weights.
-They assume independent observations, ignore within-curve correlation, and
-therefore tend to undersmooth repeated-measures data. Use `CurveCV` for the
+They assume independent observations: asymptotically adequate for sparse
+designs, where each curve contributes about one point per window, but they
+ignore within-curve correlation in dense designs. Use `CurveCV` for the
 final choice. Density-only and pointwise bandwidth rules raise `ArgumentError`.
 
 The fit stores grid, values, selected bandwidth, kernel, degree, weighting,
