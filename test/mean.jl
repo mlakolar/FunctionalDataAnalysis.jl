@@ -157,6 +157,8 @@ end
         multipliers = [1., 2., 4.]
         pilot = KernelSmoothing.RuleOfThumb()
         cv = @inferred CurveCV(; pilot, multipliers, folds=2, rng=MersenneTwister(52))
+        @test_throws ArgumentError("CurveCV multipliers must be nonempty") CurveCV(; pilot, multipliers=Float64[])
+        @test_throws ArgumentError("CurveCV multipliers must be finite and positive") CurveCV(; pilot, multipliers=[1., -2.])
         multipliers[1] = 10.
         m = @inferred StatsAPI.fit(SmoothedMean, fd; grid, bandwidth=cv, kernel, weighting)
         h = KernelSmoothing.selectbandwidth(pilot,

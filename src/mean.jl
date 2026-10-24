@@ -43,7 +43,12 @@ struct CurveCV{T<:AbstractFloat,R,P}
             folds=10, rng=nothing)
         pilot isa KernelSmoothing.BandwidthSelector ||
             throw(ArgumentError("CurveCV pilot must be a KernelSmoothing.BandwidthSelector"))
-        validated = CurveCV(multipliers; folds, rng)
+        validated = try
+            CurveCV(multipliers; folds, rng)
+        catch err
+            err isa ArgumentError || rethrow()
+            throw(ArgumentError(replace(err.msg, "bandwidths" => "multipliers")))
+        end
         T = eltype(validated.bandwidths)
         new{T,typeof(validated.rng),typeof(pilot)}(T[], validated.folds,
             validated.rng, deepcopy(pilot), validated.bandwidths)
