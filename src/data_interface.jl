@@ -55,7 +55,7 @@ end
 
 Base.getindex(fd::BasisFunctionalData, i::Integer) =
     BasisFunctionalData(fd.coefs[_subject_index(fd, i):i, :], fd.basis;
-        ids=fd.ids === nothing ? nothing : fd.ids[i:i])
+        ids=fd.ids === nothing ? nothing : fd.ids[i:i], metadata=fd.metadata)
 
 Base.getindex(fd::AbstractFunctionalData, idx::AbstractVector{<:Integer}) =
     _subset(fd, _subject_indices(fd, idx))
@@ -69,9 +69,9 @@ function _grid_matrix(fd::GridFunctionalData{T}) where {T}
 end
 
 _subset(fd::GridFunctionalData, idx) = GridFunctionalData(_grid_matrix(fd)[idx, :], fd.grid;
-    ids=fd.ids === nothing ? nothing : fd.ids[idx])
+    ids=fd.ids === nothing ? nothing : fd.ids[idx], metadata=fd.metadata)
 _subset(fd::BasisFunctionalData, idx) = BasisFunctionalData(fd.coefs[idx, :], fd.basis;
-    ids=fd.ids === nothing ? nothing : fd.ids[idx])
+    ids=fd.ids === nothing ? nothing : fd.ids[idx], metadata=fd.metadata)
 _subset(fd::IrregularFunctionalData{T}, idx) where {T} =
     IrregularFunctionalData(Vector{T}[fd[i][1] for i in idx],
         Vector{T}[fd[i][2] for i in idx]; domain=domain(fd),
@@ -134,6 +134,7 @@ end
 function Base.show(io::IO, fd::GridFunctionalData{T}) where {T}
     print(io, "GridFunctionalData{", T, "}(n=", nobs(fd), ", grid=",
         length(fd.grid), " points, missing=", fd.observed === nothing ? 0 : count(!, fd.observed), ")")
+    isempty(fd.metadata) || print(io, " metadata=", fd.metadata)
 end
 function Base.show(io::IO, fd::IrregularFunctionalData{T}) where {T}
     counts = nobs_per_curve(fd)
@@ -142,5 +143,6 @@ function Base.show(io::IO, fd::IrregularFunctionalData{T}) where {T}
 end
 function Base.show(io::IO, fd::BasisFunctionalData{T}) where {T}
     print(io, "BasisFunctionalData{", T, "}(n=", nobs(fd), ", nbasis=", nbasis(fd.basis), ")")
+    isempty(fd.metadata) || print(io, " metadata=", fd.metadata)
 end
 Base.show(io::IO, ::MIME"text/plain", fd::AbstractFunctionalData) = show(io, fd)

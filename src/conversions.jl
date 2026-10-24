@@ -118,8 +118,9 @@ to_basis(::BasisFunctionalData, ::AbstractBasis; kwargs...) =
 
 function Base.vcat(a::GridFunctionalData, b::GridFunctionalData)
     a.grid == b.grid || throw(ArgumentError("grid data must share the same grid for vcat"))
+    a.metadata == b.metadata || throw(ArgumentError("grid data must share equal metadata for vcat"))
     GridFunctionalData(vcat(_grid_matrix(a), _grid_matrix(b)), a.grid;
-        ids=_concatenated_ids(a, b))
+        ids=_concatenated_ids(a, b), metadata=a.metadata)
 end
 function Base.vcat(a::IrregularFunctionalData, b::IrregularFunctionalData)
     domain(a) == domain(b) || throw(ArgumentError("irregular data must share the same domain for vcat"))
@@ -129,5 +130,7 @@ function Base.vcat(a::IrregularFunctionalData, b::IrregularFunctionalData)
 end
 function Base.vcat(a::BasisFunctionalData, b::BasisFunctionalData)
     a.basis == b.basis || throw(ArgumentError("basis data must share the same basis for vcat"))
-    BasisFunctionalData(vcat(a.coefs, b.coefs), a.basis; ids=_concatenated_ids(a, b))
+    a.metadata == b.metadata || throw(ArgumentError("basis data must share equal metadata for vcat"))
+    BasisFunctionalData(vcat(a.coefs, b.coefs), a.basis;
+        ids=_concatenated_ids(a, b), metadata=a.metadata)
 end

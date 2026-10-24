@@ -9,8 +9,8 @@ later depend on this package.
 The package is **pre-release**. Milestone 0 provides documented interface
 contracts and trapezoidal integration weights. Milestone 1 adds bases,
 functional data containers, explicit conversions, table input, and simulation.
-Smoothing and FPCA
-are planned for later milestones.
+Milestone 2 adds per-curve smoothing; pooled smoothing and FPCA are planned
+for subsequent tasks.
 
 ## Installation
 
@@ -18,6 +18,7 @@ Julia 1.10 or later is required. Install from GitHub:
 
 ```julia
 using Pkg
+Pkg.add(url = "https://github.com/mlakolar/KernelSmoothing.jl") # required on Julia 1.10
 Pkg.add(url = "https://github.com/mlakolar/FunctionalDataAnalysis.jl")
 ```
 

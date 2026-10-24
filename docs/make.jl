@@ -12,6 +12,7 @@ makedocs(;
         "Bases" => "bases.md",
         "Data types" => "data.md",
         "Table input and simulation" => "io.md",
+        "Smoothing" => "smoothing.md",
         "Roadmap" => "roadmap.md",
     ],
 )

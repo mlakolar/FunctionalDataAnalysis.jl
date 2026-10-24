@@ -151,10 +151,12 @@ function _grid_from_columns(labels, times::AbstractVector{S}, values::AbstractVe
     GridFunctionalData(out, grid; ids=labels)
 end
 
-_with_ids(fd::GridFunctionalData, labels) = GridFunctionalData(_grid_matrix(fd), fd.grid; ids=labels)
+_with_ids(fd::GridFunctionalData, labels) =
+    GridFunctionalData(_grid_matrix(fd), fd.grid; ids=labels, metadata=fd.metadata)
 _with_ids(fd::IrregularFunctionalData, labels) =
     IrregularFunctionalData(fd.times, fd.values, fd.offsets; domain=domain(fd), ids=labels)
-_with_ids(fd::BasisFunctionalData, labels) = BasisFunctionalData(fd.coefs, fd.basis; ids=labels)
+_with_ids(fd::BasisFunctionalData, labels) =
+    BasisFunctionalData(fd.coefs, fd.basis; ids=labels, metadata=fd.metadata)
 
 function _mfd_concat_component(a, b, j)
     left, right = ids(a), ids(b)
