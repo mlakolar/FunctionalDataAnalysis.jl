@@ -20,7 +20,7 @@
   The mean `bandwidth` and `diagonal_bandwidth` also accept KernelSmoothing
   regression `BandwidthSelector`s and pilot-centred `CurveCV(; pilot, multipliers)`;
   the 2D covariance bandwidth needs a number or explicit `CurveCV` candidates.
-  Both weighting schemes match fixed-bandwidth fdapace covariance fixtures. Full cross-version tests and docs remain controller gates.
+  Both weighting schemes match fixed-bandwidth fdapace covariance fixtures.
   Pointwise mean bands await cluster-robust variance support in KernelSmoothing.jl.
 - Milestone 3 (done): dense univariate FPCA is implemented, with a
   stored weighted eigenbasis, quadrature scores, FVE or fixed component
@@ -45,8 +45,7 @@
   milestone validation. Intentional fdapace differences are documented on
   the FPCA and audit pages. Roughness-penalized FPCA, FACE, and conditional
   score `rho` regularization remain outside this milestone's current scope.
-  Cross-version tests and the docs build remain controller gates.
-- Milestone 4 (tasks 1 and 3 implemented): marginal multivariate FPCA delegates to
+- Milestone 4 (done in FDA): marginal multivariate FPCA delegates to
   dense or PACE fits per node. Pooled complete-grid FPCA uses the average node
   sample covariance, a shared weighted eigenbasis, and node-specific means
   and score variances. `score_array` provides subject × node × component
@@ -55,9 +54,13 @@
   linear smoother with scalar or separate axis bandwidths and subject CV.
   `cross_covariances` returns diagonal covariance and transposed cross blocks,
   optionally using task 1 FPCA means. Same-time pairs are kept under independent
-  cross-node noise, or explicitly excluded. FGM migration and Happ--Greven
-  multivariate FPCA remain separate tasks.
+  cross-node noise, or explicitly excluded. Happ--Greven `MFPCA` combines the
+  marginal scores through a weighted joint eigenproblem, with prediction,
+  reconstruction, unequal domains/designs, and R MFPCA 1.3-11 validation.
+  FGM estimator migration is maintained in the FGM repository.
   See [Multivariate FPCA validation](m4_report.md) for defaults and checks.
   See [Cross-covariance validation](m4_cross_report.md) for task 3.
+  See [Multivariate FPCA (MFPCA)](mfpca.md) for task 4, its source audit,
+  defaults, and validation.
 - Milestone 5: registration, functional regression, depth and outliers,
   plotting recipes.
