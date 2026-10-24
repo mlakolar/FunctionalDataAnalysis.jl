@@ -8,4 +8,5 @@ using Test
     include("aqua.jl")
     include("quadrature.jl")
     include("bases.jl")
+    include("data.jl")
 end

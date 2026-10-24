@@ -9,8 +9,9 @@ Functional data analysis in Julia, with planned support for dense, irregular
 and sparse observations, smoothing built on KernelSmoothing.jl and BSplineKit.jl,
 and dense and sparse (PACE) functional principal component analysis. The
 package is pre-release. Milestone 0 provides the package skeleton, documented
-interface contracts and trapezoidal quadrature weights. Concrete data types,
-smoothing and FPCA will arrive in later milestones. FunctionalGraphicalModels.jl
+interface contracts and trapezoidal quadrature weights. Milestone 1 adds
+bases, functional data containers and explicit conversions. Smoothing and
+FPCA will arrive in later milestones. FunctionalGraphicalModels.jl
 will later depend on this package.
 
 ## Installation

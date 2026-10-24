@@ -9,6 +9,7 @@ makedocs(;
         "Home" => "index.md",
         "Interface" => "interface.md",
         "Bases" => "bases.md",
+        "Data types" => "data.md",
         "Roadmap" => "roadmap.md",
     ],
 )
