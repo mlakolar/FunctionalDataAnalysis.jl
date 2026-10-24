@@ -44,8 +44,7 @@ within-curve error correlation.
 
 Pointwise confidence bands for the pooled mean are outside this API. They
 require cluster-robust variances, which KernelSmoothing.jl does not yet provide.
-Pooled mean, covariance, noise variance, and curve-level bandwidth selection
-are scheduled for the remaining milestone 2 tasks.
+Covariance and noise variance are scheduled for the next milestone 2 task.
 
 KernelSmoothing.jl is currently unregistered. On Julia 1.10, install it before
 instantiating this project (newer Julia versions use the root `[sources]`):
@@ -62,4 +61,53 @@ LocalPolynomial
 PenalizedSpline
 GCV
 smooth_curves
+```
+
+## Pooled means and curve-level CV
+
+`StatsAPI.fit(SmoothedMean, fd; grid, bandwidth, weighting=:obs)` pools all
+observed values. `:obs` weights each observation equally. `:subj` uses `1/N_i`
+per observation so each curve has total weight one. Data-object observation
+and curve weights are not used by this API. Empty curves raise an error.
+The work grid is explicit; there is no binning or nearest-neighbour bandwidth
+floor. The sampling design is retained as `design`.
+
+```@example smoothing
+mean_fit = StatsAPI.fit(SmoothedMean, fd; grid=t, bandwidth=0.3)
+evaluate(mean_fit, [0.25, 0.75])
+cv_mean = StatsAPI.fit(SmoothedMean, fd; grid=t,
+    bandwidth=CurveCV([0.2, 0.3, 0.5]; folds=nobs(fd)), weighting=:subj)
+cv_mean.selection
+```
+
+`evaluate` returns linear interpolation on the stored grid, including its
+endpoints. It throws outside that range or for nonfinite queries. The pooled
+smoother itself can estimate beyond observed times when the kernel window has
+enough distinct times; undefined local fits raise an error naming the point.
+
+`CurveCV` predicts held-out curves at their actual observation times, leaving
+out whole curves. Its error is the total weighted squared error divided by
+the total observation weight, using the same `:obs` or `:subj` scheme as the
+fit. Every candidate must yield finite predictions in every fold; otherwise
+selection throws and suggests a larger bandwidth. Ties select the first
+candidate. For K-fold selection, supply `rng`, for example
+`CurveCV([0.3, 0.5]; folds=2, rng=MersenneTwister(42))` after `using Random`.
+Folds are shuffled and balanced in curve counts. The RNG state is copied, so
+reusing a selector repeats its split without advancing the caller's RNG.
+Leave-one-curve-out (`folds=nobs(fd)`) is deterministic and requires no RNG.
+The result stores candidate bandwidths, errors, per-curve fold assignments,
+fold count, and all smoothing settings; `show` displays them.
+
+The fixed-bandwidth mean is checked against fdapace 0.6.0 `Lwls1D`, using
+Epanechnikov local linear fits without binning, for both weighting schemes.
+The reference script is `test/reference/fdapace_m2.R`. Run it from the repository
+root to recreate the version-labelled CSVs. The covariance fixture is reserved
+for task 3: it uses ordered within-curve off-diagonal residual products, centered
+at direct mean estimates at observation times, and `Lwls2D(method="plain")`.
+Its subject weights are `1/(N_i*(N_i-1))`. No covariance comparison is claimed
+by the mean tests.
+
+```@docs
+SmoothedMean
+CurveCV
 ```

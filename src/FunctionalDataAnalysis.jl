@@ -5,7 +5,7 @@ import StatsAPI: nobs, fit
 import KernelSmoothing
 import BSplineKit
 import Tables
-using Random: AbstractRNG, rand, randn
+using Random: AbstractRNG, rand, randn, randperm
 
 export AbstractFunctionalData, AbstractBasis, nobs, domain, evaluate,
     sampling_design, quadrature_weights
@@ -14,6 +14,7 @@ export nbasis, basismatrix, gram, penalty, BSplineBasis, FourierBasis,
 export GridFunctionalData, IrregularFunctionalData, BasisFunctionalData,
     MultivariateFunctionalData, PiecewiseLinear, NoInterpolation, nobs_per_curve,
     ncomponents, component, to_array, to_irregular, to_grid, to_basis
+export SmoothedMean, CurveCV
 export LocalPolynomial, PenalizedSpline, GCV, smooth_curves
 export ids, RegularSampling, SparseSampling, simulate_kl,
     fourier_eigenfunctions, legendre_eigenfunctions
@@ -29,5 +30,6 @@ include("multivariate.jl")
 include("tables.jl")
 include("simulation.jl")
 include("smoothing.jl")
+include("mean.jl")
 
 end

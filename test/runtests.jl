@@ -13,4 +13,5 @@ using Test
     include("tables.jl")
     include("simulation.jl")
     include("smoothing.jl")
+    include("mean.jl")
 end
