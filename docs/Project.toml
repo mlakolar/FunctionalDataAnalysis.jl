@@ -1,6 +1,8 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 FunctionalDataAnalysis = "b0173d16-ca42-4446-bf44-e56735cff075"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Tables = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
 
 [sources]
 FunctionalDataAnalysis = {path = ".."}
@@ -8,3 +10,5 @@ FunctionalDataAnalysis = {path = ".."}
 [compat]
 Documenter = "1"
 FunctionalDataAnalysis = "0.1"
+Random = "1"
+Tables = "1"

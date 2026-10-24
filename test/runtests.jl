@@ -2,6 +2,7 @@ using Aqua
 using FunctionalDataAnalysis
 using LinearAlgebra
 using Random
+using Tables
 using Test
 
 @testset "FunctionalDataAnalysis" begin
@@ -9,4 +10,6 @@ using Test
     include("quadrature.jl")
     include("bases.jl")
     include("data.jl")
+    include("tables.jl")
+    include("simulation.jl")
 end

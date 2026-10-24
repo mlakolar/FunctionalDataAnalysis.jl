@@ -1,23 +1,25 @@
 """
-    GridFunctionalData(values, grid)
+    GridFunctionalData(values, grid; ids=nothing)
 
 Curves in the rows of a copied `n × m` matrix on a common, finite, strictly
 increasing grid with at least two points. At least one curve is required.
 Missing entries are represented by an `observed::Union{Nothing,BitMatrix}`
 mask (true means observed); their stored numerical values are zero.
 Every nonmissing value must be finite. Integer input becomes `Float64`.
+Optional `ids` are copied, unique subject labels of length `nobs`.
 """
 struct GridFunctionalData{T<:AbstractFloat} <: AbstractFunctionalData{T}
     values::Matrix{T}
     grid::Vector{T}
     weights::Vector{T}
     observed::Union{Nothing,BitMatrix}
-    function GridFunctionalData{T}(::Val{:validated}, values, grid, weights, observed) where {T<:AbstractFloat}
-        new{T}(values, grid, weights, observed)
+    ids::Union{Nothing,Vector{Any}}
+    function GridFunctionalData{T}(::Val{:validated}, values, grid, weights, observed, ids) where {T<:AbstractFloat}
+        new{T}(values, grid, weights, observed, ids)
     end
 end
 
-function GridFunctionalData(values::AbstractMatrix{V}, grid::AbstractVector{G}) where
+function GridFunctionalData(values::AbstractMatrix{V}, grid::AbstractVector{G}; ids=nothing) where
         {V<:Union{Missing,Real},G<:Real}
     Base.require_one_based_indexing(values, grid)
     size(values, 1) >= 1 || throw(ArgumentError("at least one curve is required"))
@@ -37,12 +39,13 @@ function GridFunctionalData(values::AbstractMatrix{V}, grid::AbstractVector{G}) 
             y[k] = value
         end
     end
-    GridFunctionalData{T}(Val(:validated), y, x, w, all(observed) ? nothing : observed)
+    GridFunctionalData{T}(Val(:validated), y, x, w, all(observed) ? nothing : observed,
+        _validate_ids(ids, size(y, 1)))
 end
 
 """
-    IrregularFunctionalData(times, values; domain=nothing, ties=:error)
-    IrregularFunctionalData(times, values, offsets; domain=nothing, ties=:error)
+    IrregularFunctionalData(times, values; domain=nothing, ties=:error, ids=nothing)
+    IrregularFunctionalData(times, values, offsets; domain=nothing, ties=:error, ids=nothing)
 
 Copied observations on curve-specific grids. The first form takes vectors
 of vectors; the second takes concatenated arrays with curve `i` at
@@ -52,14 +55,16 @@ curves. Repeated times throw unless `ties=:mean` averages their values.
 
 The domain defaults to the range of all times. A supplied finite interval
 must contain every time; a singleton domain is allowed for point observations.
+Optional `ids` are copied, unique subject labels of length `nobs`.
 """
 struct IrregularFunctionalData{T<:AbstractFloat} <: AbstractFunctionalData{T}
     times::Vector{T}
     values::Vector{T}
     offsets::Vector{Int}
     domain::Tuple{T,T}
-    function IrregularFunctionalData{T}(::Val{:validated}, times, values, offsets, domain) where {T<:AbstractFloat}
-        new{T}(times, values, offsets, domain)
+    ids::Union{Nothing,Vector{Any}}
+    function IrregularFunctionalData{T}(::Val{:validated}, times, values, offsets, domain, ids) where {T<:AbstractFloat}
+        new{T}(times, values, offsets, domain, ids)
     end
 end
 
@@ -77,7 +82,7 @@ function _data_domain(bounds, times, ::Type{T}) where {T}
 end
 
 function IrregularFunctionalData(times::AbstractVector{S}, values::AbstractVector{V},
-        offsets::AbstractVector{<:Integer}; domain=nothing, ties=:error) where {S<:Real,V<:Real}
+        offsets::AbstractVector{<:Integer}; domain=nothing, ties=:error, ids=nothing) where {S<:Real,V<:Real}
     Base.require_one_based_indexing(times, values, offsets)
     length(times) == length(values) ||
         throw(DimensionMismatch("observation times and values must have equal length"))
@@ -114,11 +119,12 @@ function IrregularFunctionalData(times::AbstractVector{S}, values::AbstractVecto
         end
         push!(outoffsets, length(outtimes) + 1)
     end
-    IrregularFunctionalData{T}(Val(:validated), outtimes, outvalues, outoffsets, bounds)
+    IrregularFunctionalData{T}(Val(:validated), outtimes, outvalues, outoffsets, bounds,
+        _validate_ids(ids, length(outoffsets) - 1))
 end
 
 function IrregularFunctionalData(times::AbstractVector{<:AbstractVector{S}},
-        values::AbstractVector{<:AbstractVector{V}}; domain=nothing, ties=:error) where
+        values::AbstractVector{<:AbstractVector{V}}; domain=nothing, ties=:error, ids=nothing) where
         {S<:Real,V<:Real}
     Base.require_one_based_indexing(times, values)
     length(times) == length(values) ||
@@ -133,11 +139,11 @@ function IrregularFunctionalData(times::AbstractVector{<:AbstractVector{S}},
         append!(y, values[i])
         push!(offsets, length(t) + 1)
     end
-    IrregularFunctionalData(t, y, offsets; domain, ties)
+    IrregularFunctionalData(t, y, offsets; domain, ties, ids)
 end
 
 """
-    BasisFunctionalData(coefs, basis)
+    BasisFunctionalData(coefs, basis; ids=nothing)
 
 Exact functional representations with one coefficient row per curve and
 `nbasis(basis)` columns. Coefficients must be finite and at least one curve
@@ -145,11 +151,14 @@ is required. Coefficients are copied; the basis is shared as an immutable
 object. Scalar indexing and
 iteration retain exact one-curve basis objects; they never choose a grid.
 The object is callable: `fd(t) == evaluate(fd, t)`.
+Optional `ids` are copied, unique subject labels of length `nobs` and are
+retained through subsetting and conversions.
 """
 struct BasisFunctionalData{T<:AbstractFloat,B<:AbstractBasis} <: AbstractFunctionalData{T}
     coefs::Matrix{T}
     basis::B
-    function BasisFunctionalData(coefs::AbstractMatrix{S}, basis::B) where {S<:Real,B<:AbstractBasis}
+    ids::Union{Nothing,Vector{Any}}
+    function BasisFunctionalData(coefs::AbstractMatrix{S}, basis::B; ids=nothing) where {S<:Real,B<:AbstractBasis}
         Base.require_one_based_indexing(coefs)
         size(coefs, 1) >= 1 || throw(ArgumentError("at least one curve is required"))
         size(coefs, 2) == nbasis(basis) ||
@@ -157,7 +166,7 @@ struct BasisFunctionalData{T<:AbstractFloat,B<:AbstractBasis} <: AbstractFunctio
         T = promote_type(_floattype(S), _basis_eltype(basis))
         c = Matrix{T}(coefs)
         all(isfinite, c) || throw(ArgumentError("basis coefficients must be finite"))
-        new{T,B}(c, basis)
+        new{T,B}(c, basis, _validate_ids(ids, size(c, 1)))
     end
 end
 

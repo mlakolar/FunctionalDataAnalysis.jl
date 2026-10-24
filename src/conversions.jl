@@ -9,15 +9,15 @@ domain is retained. Irregular data are copied without changing observations.
 """
 function to_irregular(fd::GridFunctionalData{T}) where {T}
     IrregularFunctionalData(Vector{T}[fd[i][1] for i in 1:nobs(fd)],
-        Vector{T}[fd[i][2] for i in 1:nobs(fd)]; domain=domain(fd))
+        Vector{T}[fd[i][2] for i in 1:nobs(fd)]; domain=domain(fd), ids=fd.ids)
 end
 to_irregular(fd::IrregularFunctionalData) =
-    IrregularFunctionalData(fd.times, fd.values, fd.offsets; domain=domain(fd))
+    IrregularFunctionalData(fd.times, fd.values, fd.offsets; domain=domain(fd), ids=fd.ids)
 function to_irregular(fd::BasisFunctionalData; grid)
     sampled = to_grid(fd, grid)
     T = eltype(sampled)
     IrregularFunctionalData(Vector{T}[sampled[i][1] for i in 1:nobs(fd)],
-        Vector{T}[sampled[i][2] for i in 1:nobs(fd)]; domain=domain(fd))
+        Vector{T}[sampled[i][2] for i in 1:nobs(fd)]; domain=domain(fd), ids=fd.ids)
 end
 
 """
@@ -48,7 +48,7 @@ function to_grid(fd::Union{GridFunctionalData,IrregularFunctionalData},
             out[i, j] = values[k]
         end
     end
-    GridFunctionalData(out, x)
+    GridFunctionalData(out, x; ids=fd.ids)
 end
 
 function to_grid(fd::Union{GridFunctionalData,IrregularFunctionalData},
@@ -59,13 +59,13 @@ function to_grid(fd::Union{GridFunctionalData,IrregularFunctionalData},
     T = eltype(values)
     out = Matrix{Union{Missing,T}}(values)
     out[isnan.(values)] .= missing
-    GridFunctionalData(out, x)
+    GridFunctionalData(out, x; ids=fd.ids)
 end
 
 function to_grid(fd::BasisFunctionalData, grid::AbstractVector{<:Real})
     x = _evaluation_points(fd, grid)
     quadrature_weights(x)
-    GridFunctionalData(evaluate(fd, x), x)
+    GridFunctionalData(evaluate(fd, x), x; ids=fd.ids)
 end
 
 """
@@ -110,7 +110,7 @@ function to_basis(fd::Union{GridFunctionalData,IrregularFunctionalData},
             coefs[i, :] = factor \ (transpose(X) * y)
         end
     end
-    BasisFunctionalData(coefs, basis)
+    BasisFunctionalData(coefs, basis; ids=fd.ids)
 end
 
 to_basis(::BasisFunctionalData, ::AbstractBasis; kwargs...) =
@@ -118,15 +118,16 @@ to_basis(::BasisFunctionalData, ::AbstractBasis; kwargs...) =
 
 function Base.vcat(a::GridFunctionalData, b::GridFunctionalData)
     a.grid == b.grid || throw(ArgumentError("grid data must share the same grid for vcat"))
-    GridFunctionalData(vcat(_grid_matrix(a), _grid_matrix(b)), a.grid)
+    GridFunctionalData(vcat(_grid_matrix(a), _grid_matrix(b)), a.grid;
+        ids=_concatenated_ids(a, b))
 end
 function Base.vcat(a::IrregularFunctionalData, b::IrregularFunctionalData)
     domain(a) == domain(b) || throw(ArgumentError("irregular data must share the same domain for vcat"))
     offsets = vcat(a.offsets, b.offsets[2:end] .+ length(a.times))
     IrregularFunctionalData(vcat(a.times, b.times), vcat(a.values, b.values), offsets;
-        domain=domain(a))
+        domain=domain(a), ids=_concatenated_ids(a, b))
 end
 function Base.vcat(a::BasisFunctionalData, b::BasisFunctionalData)
     a.basis == b.basis || throw(ArgumentError("basis data must share the same basis for vcat"))
-    BasisFunctionalData(vcat(a.coefs, b.coefs), a.basis)
+    BasisFunctionalData(vcat(a.coefs, b.coefs), a.basis; ids=_concatenated_ids(a, b))
 end
