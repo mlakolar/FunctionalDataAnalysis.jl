@@ -17,6 +17,7 @@ export GridFunctionalData, IrregularFunctionalData, BasisFunctionalData,
 export SmoothedMean, SmoothedCovariance, CurveCV
 export FPCA, FPCBasis, FVE, AIC, BIC, eigenfunctions, eigvals, scores,
     score_covariances, fve, noise_variance, reconstruct, predict, pace_bandwidth_candidates
+export MultivariateFPCA, score_array
 export LocalPolynomial, PenalizedSpline, GCV, smooth_curves
 export ids, RegularSampling, SparseSampling, simulate_kl,
     fourier_eigenfunctions, legendre_eigenfunctions
@@ -39,5 +40,6 @@ include("fpcbasis.jl")
 include("fpca.jl")
 include("pace_defaults.jl")
 include("pace.jl")
+include("multivariate_fpca.jl")
 
 end
