@@ -10,7 +10,7 @@ abstract type AbstractFunctionalData{T<:AbstractFloat} end
 """
     AbstractBasis
 
-A basis for representing functions on a common domain. The planned interface
+A basis for representing functions on a common domain. The interface
 is `nbasis(b)`, `domain(b)`, `basismatrix(b, t; derivative)`, `gram(b)` and
 `penalty(b, order)`.
 """
