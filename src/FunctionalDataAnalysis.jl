@@ -5,6 +5,8 @@ import StatsAPI: nobs, fit, predict
 import KernelSmoothing
 import BSplineKit
 import Tables
+using RecipesBase: @recipe, @series
+import RecipesBase
 using Random: AbstractRNG, rand, randn, randperm
 
 export AbstractFunctionalData, AbstractBasis, nobs, domain, evaluate,
@@ -22,6 +24,9 @@ export MultivariateFPCA, MFPCA, score_array
 export LocalPolynomial, PenalizedSpline, GCV, smooth_curves
 export ids, RegularSampling, SparseSampling, simulate_kl,
     fourier_eigenfunctions, legendre_eigenfunctions
+export curve_data, mean_data, modes_of_variation, scree_data, covariance_data,
+    design_data, fitted_curve_data
+export modesplot, screeplot, covplot, designplot, fitplot
 
 include("interface.jl")
 include("quadrature.jl")
@@ -44,5 +49,7 @@ include("pace.jl")
 include("multivariate_fpca.jl")
 include("mfpca.jl")
 include("cross_covariance.jl")
+include("plot_data.jl")
+include("recipes.jl")
 
 end

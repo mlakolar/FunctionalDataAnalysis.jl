@@ -25,4 +25,5 @@ using Test
     include("multivariate_fpca_golden.jl")
     include("mfpca.jl")
     include("cross_covariance.jl")
+    include("plotting.jl")
 end

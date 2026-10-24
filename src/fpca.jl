@@ -148,7 +148,9 @@ Silverman (2005), chapter 8. Noisy dense data should use `presmooth` or
 is applied through `smooth_curves`, evaluated on the original data grid, and
 recorded with its selected tuning metadata. Prediction applies the same fitted
 preprocessing; a spline GCV choice is fixed at its training-selected lambda.
-All choices are stored and shown. Inputs are copied. Dense noise variance and
+All choices are stored and shown. `training_data` retains a copy of the original
+observations (before presmoothing) for [`fitted_curve_data`](@ref).
+Inputs are copied. Dense noise variance and
 score covariances are `nothing`.
 """
 struct FPCA{T<:AbstractFloat,M,C,N,SC,P,S,D,R,O}
@@ -171,6 +173,7 @@ struct FPCA{T<:AbstractFloat,M,C,N,SC,P,S,D,R,O}
     ids::Union{Nothing,Vector{Any}}
     presmooth::P
     settings::O
+    training_data::Union{GridFunctionalData{T},IrregularFunctionalData{T}}
 end
 
 function _fpca_tolerance(value, name)
@@ -309,15 +312,19 @@ Base.@constprop :aggressive function fit(::Type{FPCA}, fd::GridFunctionalData; m
     basis = FPCBasis(grid, system.eigenfunctions[:, 1:k]; weights)
     projected = residuals * (weights .* basis.values)
     all(isfinite, projected) || throw(ArgumentError("dense FPCA scores must be finite; rescale the observations"))
+    covariance_functions = system.eigenfunctions .* transpose(sqrt.(system.eigenvalues))
+    full_projected_covariance = covariance_functions * transpose(covariance_functions)
+    all(isfinite, full_projected_covariance) || throw(ArgumentError(
+        "dense FPCA fitted covariance must be finite; rescale the observations"))
     settings = (; requested_method=method, grid_source=:data, ncomponents=deepcopy(ncomponents),
         maxK=Int(maxK), eigen_tol, sign_tol,
         covariance_denominator=n-1, quadrature=:stored_trapezoidal,
-        preprocessing)
+        preprocessing, observations=:copied_original, full_projected_covariance)
     sign_rule = (; method=:mean_alignment, fallback=:largest_absolute_entry, tolerance=sign_tol)
     FPCA(:dense, design, grid, weights, GridFunctionalData(reshape(mu, 1, :), grid),
         covariance, nothing, system.eigenvalues[1:k], system.eigenvalues,
         system.fve, basis, selection, system.dropped, sign_rule, projected,
-        nothing, deepcopy(fd.ids), deepcopy(presmooth), settings)
+        nothing, deepcopy(fd.ids), deepcopy(presmooth), settings, _convert_component(T, fd))
 end
 
 function fit(::Type{FPCA}, fd::IrregularFunctionalData; method=:auto, grid=nothing,
@@ -461,7 +468,12 @@ function Base.show(io::IO, f::FPCA)
     print(io, "FPCA(method=", f.method, ", design=", f.design, ", n=", nobs(f),
         ", grid=", length(f.grid), " points, ncomponents=", ncomponents(f),
         ", selection=", f.selection, ", presmooth=", f.presmooth,
-        ", sign_rule=", f.sign_rule, ", settings=", f.settings,
+        ", sign_rule=", f.sign_rule, ", settings=", _show_summary(f.settings),
         ", dropped=", f.dropped, ", noise_variance=", f.noise_variance, ")")
 end
 Base.show(io::IO, ::MIME"text/plain", f::FPCA) = show(io, f)
+
+# Large arrays in settings (projected covariance surfaces) are shown by size.
+_show_summary(x::AbstractMatrix) = "$(join(size(x), "×")) $(nameof(typeof(x)))"
+_show_summary(x::NamedTuple) = map(_show_summary, x)
+_show_summary(x) = x
