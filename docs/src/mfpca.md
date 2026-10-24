@@ -224,6 +224,6 @@ component(::MFPCA, ::Integer)
 eigvals(::MFPCA)
 eigenfunctions(::MFPCA)
 scores(::MFPCA)
-predict(::MFPCA, ::MultivariateFunctionalData)
+StatsAPI.predict(::MFPCA{T}, ::MultivariateFunctionalData{S}) where {T,S}
 reconstruct(::MFPCA)
 ```

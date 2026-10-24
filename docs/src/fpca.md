@@ -505,7 +505,7 @@ score_covariances
 fve
 noise_variance
 StatsAPI.predict(::FPCA, ::GridFunctionalData)
-StatsAPI.predict(::MultivariateFPCA, ::MultivariateFunctionalData)
+StatsAPI.predict(::MultivariateFPCA{T}, ::MultivariateFunctionalData{S}) where {T,S}
 reconstruct
 MultivariateFPCA
 score_array
