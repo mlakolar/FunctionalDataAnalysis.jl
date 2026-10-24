@@ -22,7 +22,7 @@
   the 2D covariance bandwidth needs a number or explicit `CurveCV` candidates.
   Both weighting schemes match fixed-bandwidth fdapace covariance fixtures. Full cross-version tests and docs remain controller gates.
   Pointwise mean bands await cluster-robust variance support in KernelSmoothing.jl.
-- Milestone 3 (in progress): dense univariate FPCA is implemented, with a
+- Milestone 3 (done): dense univariate FPCA is implemented, with a
   stored weighted eigenbasis, quadrature scores, FVE or fixed component
   selection, optional per-curve presmoothing, prediction, and reconstruction.
   The dense default component cap is `max(1, min(length(grid)-2, nobs(data)-2))`,
@@ -34,9 +34,16 @@
   supported; AIC/BIC retain the full criterion curve and global minimizer
   alongside fdapace's first-increase choice. Sparse prediction reuses the
   fitted mean, eigenfunctions, full projected covariance, and noise variance.
-  The work grid and bandwidths remain explicit; defaults are the next task.
-  PACE and dense defaults and intentional fdapace differences are documented
-  on the FPCA and audit pages. Roughness-penalized FPCA, FACE, and conditional
+  No-keyword fits use source-audited PACE defaults: a 51-point work grid,
+  Gaussian kernel, observation weighting, and mean/covariance bandwidths of
+  5%/10% of the observed range. Every choice is retained and shown.
+  `pace_bandwidth_candidates` exposes fdapace's geometric candidates for
+  optional whole-curve CV. Automatic binning follows the audited bin-count
+  rule and reuses the existing weighted covariance-pair aggregation.
+  End-to-end fixed-bandwidth and default references, sparse recovery,
+  dense-versus-PACE agreement, and a bounded-time sparse fit complete the
+  milestone validation. Intentional fdapace differences are documented on
+  the FPCA and audit pages. Roughness-penalized FPCA, FACE, and conditional
   score `rho` regularization remain outside this milestone's current scope.
   Cross-version tests and the docs build remain controller gates.
 - Milestone 4: multivariate FPCA; FunctionalGraphicalModels.jl migrates.

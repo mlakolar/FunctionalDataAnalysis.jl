@@ -19,4 +19,6 @@ using Test
     include("fpca.jl")
     include("pace.jl")
     include("pace_golden.jl")
+    include("pace_defaults.jl")
+    include("pace_defaults_golden.jl")
 end

@@ -6,6 +6,12 @@ Irregular and masked grid data use PACE, including designs classified as
 `:dense_irregular`. `method=:pace` also permits conditional-expectation scores
 for complete grid data. `method=:dense` requires complete common-grid data.
 
+For `GridFunctionalData`, automatic routing depends on its observed-mask
+field at runtime, so inference includes both dense and PACE result types.
+Compiled callers that request a fixed `method=:dense` or `method=:pace` can
+infer that route's concrete result type. No-keyword irregular-data fits and
+the bandwidth candidate helper retain their inference checks.
+
 ```@example dense_fpca
 using FunctionalDataAnalysis, Random, LinearAlgebra
 import StatsAPI
@@ -16,7 +22,7 @@ simulation = simulate_kl(Xoshiro(42), 200;
     eigenfunctions=fourier_eigenfunctions((0, 1), 3),
     eigenvalues=[2.0, 0.5, 0.1], noise_sd=0,
     sampling=RegularSampling(grid))
-model = StatsAPI.fit(FPCA, simulation.data; ncomponents=FVE(0.99))
+model = StatsAPI.fit(FPCA, simulation.data)
 (ncomponents(model), eigvals(model), fve(model))
 ```
 
@@ -46,18 +52,32 @@ reconstructing from that copy does not inherit training IDs.
 Prediction applies the training presmoothing settings. When spline GCV selected
 a penalty, prediction uses that selected penalty for new curves.
 
-## Defaults and recorded choices
+## Defaults and where they come from
 
-| Choice | Default and source |
-|:--|:--|
-| Route | `method=:auto`: complete common-grid data use dense FPCA; irregular or masked data use PACE. This explicit design dispatch follows the milestone specification. |
-| Component selection | `ncomponents=FVE(0.99)`, following fdapace's `FVEthreshold`. An integer requests a fixed number. PACE also supports `AIC()` and `BIC()`, following Yao, Müller, and Wang (2005), section 2.5. |
-| Maximum components | `max(1, min(length(grid)-2, nobs(data)-2))`, matching fdapace 0.6.0's dense cross-sectional default (`SetOptions.R`). There is no cap of 20 on the dense route. An explicit `maxK` may be as large as `min(length(grid), nobs(data)-1)`, the sample covariance rank bound. |
-| Mean and covariance | Cross-sectional sample mean and covariance with denominator `n-1`, matching fdapace's dense cross-sectional route. |
-| Quadrature | Stored trapezoidal weights, including nonuniform grids, as used throughout this package. This differs from fdapace's rectangular eigenvalue scaling. |
-| Positive spectrum | `eigen_tol=1e-10`: retain eigenvalues strictly larger than this relative tolerance times the largest absolute eigenvalue. This is an explicit numerical convention. |
-| Sign | Align each component with the unweighted work-grid mean inner product, following fdapace. If its magnitude is at most `sign_tol * norm(phi) * norm(mean)`, with `sign_tol=1e-12`, make the largest absolute entry positive, following FunctionalGraphicalModels.jl. The relative tolerance is an explicit numerical convention. |
-| Presmoothing | `presmooth=nothing`, under the dense noise-free approximation of Ramsay and Silverman (2005), chapter 8. |
+Let `n = nobs(data)`, `g = length(model.grid)`, and `r` be the range of the
+observed times. The defaults below are resolved and recorded when fitting.
+The source audit uses fdapace **0.6.0**; its executable defaults differ from
+some older help text. See [Comparison with fdapace](fdapace.md) for details.
+
+| Keyword or choice | Default | Source and override |
+|:--|:--|:--|
+| `method` | `:auto`: complete common-grid data use dense FPCA; irregular or masked data use PACE. | Milestone design dispatch. Use `method=:dense` or `method=:pace`. |
+| `grid`, PACE | 51 equally spaced points over the observed time range. | fdapace [`nRegGrid=51` and work-grid construction](https://github.com/cran/fdapace/blob/0.6.0/R/FPCA.R), with the count set in [`SetOptions`](https://github.com/cran/fdapace/blob/0.6.0/R/SetOptions.R). Pass a strictly increasing `grid` covering all observations. |
+| `grid`, dense | The data grid and its stored quadrature weights. | Preserve the data representation. A new grid requires an explicit data conversion before fitting. |
+| `ncomponents` | `FVE(0.99)`. | fdapace [`FVEthreshold`](https://github.com/cran/fdapace/blob/0.6.0/R/SetOptions.R). Pass `FVE(threshold)` or a fixed integer; PACE also accepts `AIC()` and `BIC()` from [Yao, Müller, and Wang (2005), section 2.5](https://doi.org/10.1198/016214504000001745). |
+| `maxK`, PACE | `max(1, min(20, g-2, n-2))`. | fdapace [`SetOptions`, smoothing route](https://github.com/cran/fdapace/blob/0.6.0/R/SetOptions.R). Pass an integer no larger than `g`. |
+| `maxK`, dense | `max(1, min(g-2, n-2))`, without a cap of 20. | fdapace [`SetOptions`, cross-sectional route](https://github.com/cran/fdapace/blob/0.6.0/R/SetOptions.R). An explicit cap may be as large as `min(g, n-1)`, the sample covariance rank bound. |
+| `kernel`, PACE | `KernelSmoothing.GaussianKernel()`. | fdapace [`SetOptions`, non-dense data](https://github.com/cran/fdapace/blob/0.6.0/R/SetOptions.R). Pass another KernelSmoothing kernel. Unlike compact kernels, the Gaussian has no empty windows from finite support. Direct `SmoothedMean` and `SmoothedCovariance` calls retain their Epanechnikov default. |
+| `weighting`, PACE | `:obs`, equal weight per observation. | fdapace [default smoothing weighting](https://github.com/cran/fdapace/blob/0.6.0/R/SetOptions.R). Pass `:subj` for equal curve weights. Neither weighting scheme dominates in all designs; see [Zhang and Wang (2016)](https://doi.org/10.1214/16-AOS1446). |
+| `mean_bandwidth`, PACE | `0.05r`. | fdapace [`methodBwMu="Default"`, `userBwMu`](https://github.com/cran/fdapace/blob/0.6.0/R/SetOptions.R). Pass a number, `CurveCV`, or a supported KernelSmoothing regression bandwidth selector. |
+| `covariance_bandwidth`, PACE | `0.10r`. | fdapace [`methodBwCov="Default"`, `userBwCov`](https://github.com/cran/fdapace/blob/0.6.0/R/SetOptions.R). Pass a number or `CurveCV` with explicit candidates. |
+| `diagonal_bandwidth`, PACE | The selected covariance bandwidth. | The milestone 2 smoother default, following fdapace's diagonal-variance smoothing. Pass a number, `CurveCV`, or a supported univariate selector. |
+| `binning`, PACE | `:auto`, the audited fdapace `useBinnedData="AUTO"` bin-count rule. | fdapace [`GetBinNum`](https://github.com/cran/fdapace/blob/0.6.0/R/GetBinNum.R). Pass `nothing` to disable snapping or an integer of at least two to set its grid size. The package retains milestone 2's weighted covariance-pair aggregation. |
+| Dense mean and covariance | Cross-sectional sample mean and covariance with denominator `n-1`. | fdapace [`GetCovDense`](https://github.com/cran/fdapace/blob/0.6.0/R/GetCovDense.R). |
+| Quadrature | Stored trapezoidal weights, including nonuniform grids. | Package inner-product convention. This differs from fdapace's rectangular eigenvalue scaling. |
+| `eigen_tol` | `1e-10`: retain eigenvalues strictly above this relative tolerance times the largest absolute eigenvalue. | Adjustable package numerical convention. |
+| `sign_tol` | `1e-12` for a negligible mean overlap. | Adjustable package numerical convention. Signs first align with the unweighted work-grid mean inner product, following fdapace. With negligible overlap, the largest absolute entry is positive, following FunctionalGraphicalModels.jl; the first entry breaks ties. |
+| `presmooth`, dense | `nothing`. | Dense noise-free approximation in [Ramsay and Silverman (2005), chapter 8](https://doi.org/10.1007/b98888). Pass a `LocalPolynomial` or `PenalizedSpline` object, or use `method=:pace`. |
 
 All tuning settings are stored on the fit and displayed by `show`. The
 `selection` record stores the rule, FVE threshold when applicable, `maxK`,
@@ -90,28 +110,29 @@ The implementation resolves these details left unspecified by the milestone:
 
 PACE estimates a pooled mean and latent covariance, then predicts each
 subject's principal component scores by conditional expectation. It reuses
-[`SmoothedMean`](@ref) and [`SmoothedCovariance`](@ref). At this stage, supply
-a work `grid` and the bandwidth for each smoother that is estimated. Automatic
-work-grid and bandwidth choices are deferred to milestone 3's next task.
+[`SmoothedMean`](@ref) and [`SmoothedCovariance`](@ref). A no-keyword fit uses
+the work grid, Gaussian kernel, and fractional bandwidths listed above.
+The Gaussian avoids empty windows caused by compact support, but it cannot
+prevent ill-conditioned local fits on extremely coarse or clustered data.
+Such fits raise an informative error suggesting a larger bandwidth. Increase
+`mean_bandwidth` or `covariance_bandwidth` explicitly when needed; the fit
+does not enlarge them automatically.
 
 ```@example pace_fpca
 using FunctionalDataAnalysis, Random, LinearAlgebra
 import StatsAPI
 
-grid = collect(range(0, 1; length=31))
 simulation = simulate_kl(Xoshiro(43), 120;
     mean=t -> 1 + t,
     eigenfunctions=legendre_eigenfunctions((0, 1), 2),
     eigenvalues=[1.5, 0.4], noise_sd=0.3,
     sampling=SparseSampling((0, 1), 3:8))
-model = StatsAPI.fit(FPCA, simulation.data;
-    grid, mean_bandwidth=0.5, covariance_bandwidth=0.6,
-    noise_variance=0.09, ncomponents=FVE(0.99), maxK=5)
+model = StatsAPI.fit(FPCA, simulation.data)
 (ncomponents(model), size(scores(model)), size(score_covariances(model)))
 ```
 
-The explicit noise variance in this example is the simulation's known value.
-Omit it to use the nonnegative `SmoothedCovariance` estimate. Smoother settings,
+This fit estimates the noise variance with `SmoothedCovariance`. Pass
+`noise_variance=0.09` to use the simulation's known value. Smoother settings,
 selection metadata, the origin of every supplied or estimated input, and the
 noise truncation details are retained on the fit. Inputs are copied.
 
@@ -184,22 +205,131 @@ including when that covariance object was supplied to the fit.
 If the covariance must be estimated, the mean must be estimated in the same
 fit or supplied as a `SmoothedMean`. A named-tuple mean cannot be passed to
 the existing pooled covariance smoother; supply a covariance surface with
-that mean instead. `mean_bandwidth` and `covariance_bandwidth` are required
-only for the respective estimated inputs.
+that mean instead. Bandwidth defaults are used only for the respective
+estimated inputs. Supplying `mean_bandwidth` together with a supplied `mean`
+raises `ArgumentError`. Supplying `covariance_bandwidth` or
+`diagonal_bandwidth` together with a supplied `covariance` also raises
+`ArgumentError`. Reused inputs retain their fitted tuning values; unused
+bandwidth overrides are rejected.
 
-### PACE defaults and selection
+Binning only affects covariance estimation. With a supplied covariance,
+`binning` must remain `:auto`, and the fit records `settings.binning=nothing`
+and `settings.binning_rule=:not_applicable`. When both mean and covariance
+are supplied, `kernel` must remain `nothing` and `weighting` must remain
+`:obs`; overrides raise `ArgumentError`. Their active settings are recorded
+as `nothing` because no smoother runs. If either input is estimated,
+`kernel` and `weighting` still tune that smoother. Supplied fitted inputs
+keep their original settings under `settings.mean_input` and
+`settings.covariance_input`.
 
-| Choice | Default and source |
-|:--|:--|
-| Work grid and bandwidths | Required when needed in this task; no automatic choices are made. |
-| Maximum components | `max(1, min(20, length(grid)-2, nobs(data)-2))`, following fdapace 0.6.0's smoothed-route cap in `SetOptions.R`. An explicit PACE `maxK` may be as large as the work-grid length. |
-| Mean and covariance inputs | `nothing` estimates the pooled smoothers, following the PACE construction of Yao, Müller, and Wang (2005). |
-| Noise variance | `nothing` uses `SmoothedCovariance`'s nonnegative estimate. A supplied surface requires a number. A supplied number overrides the estimate. |
-| Kernel | `KernelSmoothing.EpanechnikovKernel()`, the milestone's explicit choice and the existing pooled smoother default. This differs from fdapace's Gaussian sparse default. |
-| Weighting | `:obs`, the existing pooled smoother convention; `:subj` gives equal weight to curves in the pooled estimates. |
-| Binning | `nothing`, retaining the existing covariance smoother's explicit no-binning default. |
-| Eigenanalysis and signs | The same trapezoidal quadrature, relative eigenvalue cutoff, and sign convention as dense FPCA. |
-| Score solve | Unregularized conditional expectation, as in Yao, Müller, and Wang (2005); Cholesky factorization must succeed. |
+### Overriding defaults and selecting bandwidths
+
+Every automatic choice can be replaced explicitly. For example:
+
+```julia
+import KernelSmoothing
+
+model = StatsAPI.fit(FPCA, simulation.data;
+    method=:pace,
+    grid=collect(range(extrema(simulation.data.times)...; length=61)),
+    ncomponents=2, maxK=6,
+    kernel=KernelSmoothing.GaussianKernel(), weighting=:subj,
+    mean_bandwidth=0.15, covariance_bandwidth=0.25,
+    diagonal_bandwidth=0.20, binning=nothing)
+```
+
+For an irregular object, use `extrema(simulation.data.times)` to obtain the
+observed endpoints: concatenated times are ordered within curves, rather than
+across curves. A work grid may cover a wider interval, but all observations
+must remain inside it. Fractional bandwidth defaults always use the observed
+time range, not the work-grid range.
+
+[`pace_bandwidth_candidates`](@ref) returns the ten geometric mean and
+covariance bandwidths from fdapace's `GCVLwls1D1` and `GCVLwls2DV2` candidate
+grids. The candidate values use the Gaussian convention of the PACE default.
+Pass `kernel=KernelSmoothing.EpanechnikovKernel()` to generate the compact-kernel
+variant, and use the same kernel for `fit`. The helper does not run fdapace's
+GCV, choose a bandwidth, or fit a smoother. Use whole-curve CV to select from
+these candidates:
+
+```julia
+candidates = pace_bandwidth_candidates(simulation.data)
+model = StatsAPI.fit(FPCA, simulation.data;
+    mean_bandwidth=CurveCV(candidates.mean; folds=10, rng=Xoshiro(44)),
+    covariance_bandwidth=CurveCV(candidates.covariance; folds=10, rng=Xoshiro(45)))
+```
+
+Pass `grid=work_grid` to both the helper and `fit` when using a custom work
+grid. `CurveCV` retains the candidate grid, errors, and fold assignments.
+Mean selectors and covariance selectors pass to the existing pooled
+smoothers unchanged. The 2D covariance smoother accepts a number or explicit
+`CurveCV` candidates; KernelSmoothing bandwidth selectors are univariate.
+Covariance CV holds the supplied fitted mean fixed across folds. It holds out
+whole curves, whereas fdapace's covariance CV holds out raw covariance pairs.
+These procedures therefore need not select the same bandwidth. The helper
+requires enough unique observation times and time pairs for the audited
+nearest-neighbor starts. It throws if they are unavailable. Equal candidate
+endpoints can yield repeated values; use `unique(candidates.mean)` or
+`unique(candidates.covariance)` before `CurveCV` in that case.
+
+### Cost and automatic binning
+
+Let `N_i` be the number of observations on curve `i`, `M=sum(N_i)`,
+`P=sum(N_i*(N_i-1))`, and `g` the work-grid size. Fixed-bandwidth pooled mean
+smoothing costs `O(g*M)`; unbinned covariance smoothing costs `O(g^2*P)` after
+forming `P` off-diagonal products. The weighted eigenstep costs `O(g^3)` and
+the per-curve Cholesky score solves cost `O(sum(N_i^3))`. The defaults perform
+no bandwidth search.
+
+For `binning=:auto`, take `m=median(N_i)` for sparse designs and `m=max(N_i)`
+otherwise, as in fdapace's audited rule:
+
+1. With `m<=20`, do not bin.
+2. With `m>400`, initially choose 400 bins.
+3. With `n>5000`, compute `mstar=max(20,400+19*(5000-n)/2250)` and choose
+   `ceil(mstar)` bins if `mstar<m`; otherwise do not bin.
+4. If none of these rules selects a count, do not bin.
+
+The candidate helper and bin-count decision use fdapace's `IsRegular`
+classification. Let `u` be the number of unique pooled observation times and
+`coverage=M/(n*u)`. Full coverage is `Dense` with at least eight unique times
+and `Sparse` with fewer than eight. Incomplete coverage above `0.8` is
+`DenseWithMV`; other designs are `Sparse`. This classifier controls only the
+mean-candidate start and bin-count statistic. It does not change FPCA's
+`:auto` route: complete `GridFunctionalData` use dense FPCA, and irregular or
+masked data use PACE.
+
+The resolved bin count and the decision's design, count statistic, summary
+count, and number of curves are stored and shown. Binning snaps covariance-pool
+times and combines within-curve cell products with their original weights;
+it does not discard observations. It uses the existing covariance smoother,
+rather than fdapace's separate preprocessing of each curve. The pooled mean
+and work-grid length are unchanged by this aggregation. With `b` bins,
+`Q=sum(min(N_i*(N_i-1),b^2))` bounds its occupied cells. Covariance smoothing
+then costs `O(g^2*Q)`, and pair storage costs `O(Q)`, after `O(P)` work to form
+the products. Most sparse curves have at most 20 observations, so automatic
+binning does not turn on, even when `n` is large.
+
+The candidate helper's covariance nearest-neighbor calculation itself takes
+`O(U^2)` time and `O(U)` storage for `U` unique time pairs, including diagonal
+pairs. It is optional and is not run by a default fit.
+
+A 2D `CurveCV` with `H` candidate bandwidths and `F` folds costs
+`O(H*P^2 + H*F*P)` without binning, or `O(H*Q^2 + H*F*Q)` with binning. The held-out
+products are evaluated at their pool coordinates (snapped when binning is
+enabled), rather than only at the work grid. Ten candidate bandwidths can therefore cost much more than a
+fixed-bandwidth fit. Reduce the candidate set or set an explicit bin count
+when that expense is inappropriate. See [Smoothing](smoothing.md) for the
+weight-preserving binning and CV contracts.
+
+### PACE component selection
+
+Missing `mean` and `covariance` inputs estimate the pooled smoothers, following
+[Yao, Müller, and Wang (2005)](https://doi.org/10.1198/016214504000001745).
+Missing `noise_variance` uses `SmoothedCovariance`'s nonnegative estimate;
+a supplied surface requires an explicit number. The score solve uses
+unregularized conditional expectation and must admit Cholesky factorization.
+Eigenanalysis, signs, and numerical tolerances are shared with the dense route.
 
 For `AIC()` and `BIC()`, each candidate ``k`` uses its own ``k``-component
 covariance plus ``\sigma^2 I`` in the Gaussian likelihood. The criterion is
@@ -219,6 +349,23 @@ uses known mean, covariance, and noise with 3 to 8 points per curve. Mean
 squared score error is compared with the mean trace of ``\Omega_i`` within
 10%, and each standardized component error variance is checked within 10%
 of one. These are Monte Carlo checks, not coverage guarantees after smoothing.
+
+### Default recovery checks and their limits
+
+A fixed-seed `simulate_kl` check uses 400 sparse curves, 2–6 observations per
+curve, Fourier constant/sine components with eigenvalues `[2.0,0.7]`, and
+noise variance `1.0`. A no-keyword fit has weighted mean L2 error below
+`0.30`, sign-invariant weighted L2 error below `0.35` for each of the first
+two eigenfunctions, and noise relative error below `0.40`. An 80-curve,
+25-point regular-grid check compares dense and PACE eigenvalues within `15%`
+and absolute weighted eigenfunction correlations above `0.98`.
+
+These thresholds describe finite simulations. They are not universal
+recovery guarantees. In a lower-noise diagnostic with the same sparse signal
+and true variance `0.25`, the default fit estimated `0.56615`. The fixed
+`0.10r` covariance bandwidth can leave appreciable diagonal smoothing bias.
+Inspect the fitted noise estimate and use an explicit bandwidth selector or
+known `noise_variance` when appropriate.
 
 ## Basis and numerical conventions
 
@@ -249,6 +396,7 @@ does not implement a roughness penalty on the FPCA eigenfunctions.
 ```@docs
 FPCA
 FPCBasis
+pace_bandwidth_candidates
 FVE
 AIC
 BIC

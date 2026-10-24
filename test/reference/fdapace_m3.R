@@ -196,3 +196,107 @@ cat("Sparse fixture: n=", sparse_n, ", m=", length(sparse_grid),
     sparse_aic$selectK, sparse_bic$selectK, sparse_fve$selectK), collapse = "/"), "\n", sep = "")
 cat("Full Gaussian AIC:", format(raw_aic + gaussian_constant, digits = 17), "\n")
 cat("Full Gaussian BIC:", format(raw_bic + gaussian_constant, digits = 17), "\n")
+
+# End-to-end estimated smoothers. The fixed-bandwidth work grid is the full
+# observed union, so both implementations evaluate the mean at exactly the
+# same points before forming raw covariance pairs. Native FPCA still uses
+# its rectangular eigen operator; the Julia tests explicitly reproduce that
+# documented operator for the eigen/CE golden comparisons.
+end2end_grid <- observation_grid
+end2end_options <- list(dataType = "Sparse", methodMuCovEst = "smooth",
+    nRegGrid = length(end2end_grid), userBwMu = .30, userBwCov = .40,
+    kernel = "epan", useBinnedData = "OFF", useBinnedCov = FALSE,
+    methodXi = "CE", methodRho = "vanilla", maxK = 5L,
+    methodSelectK = 3L, userSigma2 = sparse_sigma2, verbose = FALSE)
+end2end <- FPCA(sparse_values, sparse_times, end2end_options)
+
+# Keep the completely native defaults call (apart from the aligned supplied
+# noise variance). Native FPCA evaluates its mean on obsGrid and interpolates
+# to workGrid, whereas Julia directly smooths workGrid then interpolates back
+# to observations. Store an additional userMu-aligned FPCA call to separate
+# that deliberate interpolation difference from smoothing/eigen/CE agreement.
+defaults <- FPCA(sparse_values, sparse_times, list(userSigma2 = sparse_sigma2))
+defaults_grid <- defaults$workGrid
+defaults_smc <- fdapace:::GetSmoothedMeanCurve(sparse_values, sparse_times,
+    observation_grid, defaults_grid, defaults$optns)
+aligned_obs_mean <- approx(defaults_grid, defaults_smc$muDense,
+                           observation_grid)$y
+defaults_aligned <- FPCA(sparse_values, sparse_times,
+    list(userSigma2 = sparse_sigma2,
+         userMu = list(t = observation_grid, mu = aligned_obs_mean)))
+
+record_end2end <- function(object, prefix = "") {
+    work <- object$workGrid
+    full_options <- object$optns
+    full_options$FVEthreshold <- 1
+    full <- fdapace:::GetEigenAnalysisResults(object$smoothedCov, work,
+        full_options, muWork = object$mu)
+    rbind(
+        rows(paste0(prefix, "grid"), seq_along(work), 0L, work),
+        rows(paste0(prefix, "mean"), seq_along(work), 0L, object$mu),
+        rows(paste0(prefix, "eigenvalue"), seq_along(object$lambda), 0L, object$lambda),
+        rows(paste0(prefix, "all_eigenvalue"), seq_along(full$lambda), 0L, full$lambda),
+        rows(paste0(prefix, "fve"), seq_along(full$cumFVE), 0L, full$cumFVE),
+        rows(paste0(prefix, "selected_k"), 1L, 0L, object$selectK),
+        rows(paste0(prefix, "noise_variance"), 1L, 0L, object$sigma2),
+        do.call(rbind, lapply(seq_len(ncol(object$phi)), function(k) {
+            rows(paste0(prefix, "eigenfunction"), seq_along(work), k, object$phi[, k])
+        })),
+        do.call(rbind, lapply(seq_len(ncol(object$xiEst)), function(k) {
+            rows(paste0(prefix, "score"), seq_len(sparse_n), k, object$xiEst[, k])
+        })),
+        do.call(rbind, lapply(seq_len(sparse_n), function(i) {
+            k <- object$selectK
+            # As in the supplied-input fixture, SubsetFPCA leaves xiVar at
+            # full rank. Only its selected upper-left block is compared.
+            rows(paste0(prefix, "score_covariance"), i, seq_len(k * k),
+                 as.vector(object$xiVar[[i]][seq_len(k), seq_len(k)]))
+        })),
+        do.call(rbind, lapply(seq_along(work), function(j) {
+            rows(paste0(prefix, "covariance"), seq_along(work), j, object$smoothedCov[, j])
+        })),
+        do.call(rbind, lapply(seq_along(work), function(j) {
+            rows(paste0(prefix, "fitted_covariance"), seq_along(work), j, object$fittedCov[, j])
+        }))
+    )
+}
+write_reference(record_end2end(end2end), "test/data/m3_fdapace_end2end.csv",
+    paste("columns: quantity,index,component,value; estimated mean/covariance;",
+          "epan bw_mu=.30 bw_cov=.40 grid=observed union; observation weights;",
+          "K=3 maxK=5 sigma2=.12; native rectangular eigen operator"))
+
+# Initial ten GCV candidate grids from the audited GCVLwls1D1/GCVLwls2DV2
+# expressions. This does not run either GCV selector. The covariance start
+# deliberately calls fdapace's actual GetMinb/BwNN implementation.
+time_range <- diff(range(unlist(sparse_times)))
+dstar <- fdapace:::Minb(unlist(sparse_times), 3L)
+if (dstar > time_range / 4) dstar <- .75 * dstar
+mean_start <- min(2.5 * dstar, time_range)
+mean_candidates <- sort(mean_start *
+    (time_range / (4 * mean_start))^((0:9) / 9))
+cov_range <- sqrt(2) * time_range
+cov_start <- min(.2 * fdapace:::GetMinb(sparse_times,
+    observation_grid, dataType = "Sparse"), cov_range / 4)
+cov_target <- if (cov_start < cov_range / 4) cov_range / 4 else cov_range / 2
+cov_candidates <- as.numeric(cov_start * (cov_target / cov_start)^((0:9) / 9))
+defaults_reference <- rbind(
+    record_end2end(defaults, "native_"),
+    record_end2end(defaults_aligned, "aligned_"),
+    rows("direct_mean", seq_along(defaults_grid), 0L, defaults_smc$muDense),
+    rows("mean_candidate", seq_len(10L), 0L, mean_candidates),
+    rows("covariance_candidate", seq_len(10L), 0L, cov_candidates),
+    rows("default_bandwidth", 1:2, 0L,
+         c(defaults$optns$userBwMu, defaults$optns$userBwCov)),
+    rows("default_maxK", 1L, 0L, defaults$optns$maxK)
+)
+write_reference(defaults_reference, "test/data/m3_fdapace_defaults.csv",
+    paste("columns: quantity,index,component,value; native_=FPCA defaults except sigma2=.12;",
+          "aligned_=same with userMu at obsGrid equal to linear interpolation of direct_mean;",
+          "direct_mean=GetSmoothedMeanCurve muDense; native rectangular eigen operator;",
+          "GCV candidate grids follow audited formulae, no selector run"))
+cat("End-to-end fixed bandwidths: n=", sparse_n, ", m=", length(end2end_grid),
+    ", K=", end2end$selectK, "\n", sep = "")
+cat("Default native/aligned K=", defaults$selectK, "/", defaults_aligned$selectK,
+    "; candidates mean=", paste(format(mean_candidates, digits = 17), collapse = ","),
+    "; covariance=", paste(format(cov_candidates, digits = 17), collapse = ","),
+    "\n", sep = "")
