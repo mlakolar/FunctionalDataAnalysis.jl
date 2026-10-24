@@ -1,7 +1,7 @@
 """
     CurveCV(bandwidths; folds=10, rng=nothing)
 
-Select a pooled-mean bandwidth by leaving out whole curves. Candidates must be
+Select a pooled-mean or covariance bandwidth by leaving out whole curves. Candidates must be
 finite, positive, and distinct. Supply an `AbstractRNG` for shuffled, balanced
 K-fold splits; `folds == nobs(fd)` uses deterministic leave-one-curve-out and
 needs no RNG. Inputs, including the RNG state, are copied. Each fit starts from
@@ -77,14 +77,14 @@ function _mean_pool(fd, weighting)
     times, values, weights, subjects
 end
 
-function _mean_predict(t, y, w, points, method)
+function _mean_predict(t, y, w, points, method; label="pooled mean")
     model = KernelSmoothing.fit(KernelSmoothing.LocalPolynomialRegression, t, y;
         bandwidth=method.bandwidth, kernel=method.kernel, degree=method.degree,
         weights=w, points, minobs=0)
     values = KernelSmoothing.coef(model)
     for (point, value) in zip(points, values)
         isfinite(value) || throw(ArgumentError(
-            "pooled mean has an undefined estimate at point $point; use a larger bandwidth"))
+            "$label has an undefined estimate at point $point; use a larger bandwidth"))
     end
     values
 end

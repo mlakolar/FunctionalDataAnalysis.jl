@@ -14,4 +14,5 @@ using Test
     include("simulation.jl")
     include("smoothing.jl")
     include("mean.jl")
+    include("covariance.jl")
 end

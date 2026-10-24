@@ -12,7 +12,13 @@
   weighting. `CurveCV` selects bandwidths by leaving out whole curves and stores
   candidates, errors, and fold assignments on the result. Fixed-bandwidth mean
   tests match fdapace for both weighting schemes.
-  Remaining tasks: covariance surface and noise variance on KernelSmoothing.jl.
+  Covariances use `StatsAPI.fit(SmoothedCovariance, fd, mean; ...)`, with
+  off-diagonal product-kernel local linear smoothing, optional time binning,
+  curve-level CV conditional on the supplied mean, bilinear evaluation, and
+  middle-half integrated noise variance (diagonal bandwidth equals the selected
+  covariance bandwidth). Both weighting schemes match fixed-bandwidth fdapace
+  covariance fixtures. Full cross-version tests and docs remain controller gates.
+  Pointwise mean bands await cluster-robust variance support in KernelSmoothing.jl.
 - Milestone 3: FPCA, dense and sparse (PACE), validated against fdapace.
 - Milestone 4: multivariate FPCA; FunctionalGraphicalModels.jl migrates.
 - Milestone 5: registration, functional regression, depth and outliers,
