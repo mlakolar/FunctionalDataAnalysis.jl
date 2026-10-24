@@ -190,3 +190,38 @@ sampling design, CV results, and noise details appear in `show`.
 ```@docs
 SmoothedCovariance
 ```
+
+## Automatic univariate pilots
+
+Bandwidth keywords remain required. The pooled mean's `bandwidth` and the
+noise diagonal's `diagonal_bandwidth` also accept regression rules from
+KernelSmoothing, such as `KernelSmoothing.RuleOfThumb()` or
+`KernelSmoothing.IMSEOptimal()`. Each rule receives the smoother's pooled
+responses, times, observation weights, kernel, and degree. For the diagonal,
+responses are raw squared residuals and times are snapped when binning is used.
+The mean stores `selection=(rule, bandwidth, details)`; the diagonal stores it
+in `noise_details.selection`. Density-only rules and rules returning pointwise
+vectors (currently `MSEOptimal()`) raise `ArgumentError`.
+
+These rules assume independent observations. They ignore within-curve
+correlation and therefore tend to undersmooth repeated-measures data.
+Use `CurveCV` for the final choice.
+
+```julia
+pilot = KernelSmoothing.RuleOfThumb()
+automatic = StatsAPI.fit(SmoothedMean, fd; grid=t, bandwidth=pilot)
+cv = CurveCV(; pilot, folds=nobs(fd))
+selected = StatsAPI.fit(SmoothedMean, fd; grid=t, bandwidth=cv)
+```
+
+Pilot-based `CurveCV` computes `h_pilot` on the full pooled data at fit time,
+then evaluates `multipliers .* h_pilot` with the existing curve-level CV.
+Defaults are `multipliers=2.0 .^ range(-1, 2; length=10)`, `folds=10`, and
+`rng=nothing`; supply an RNG unless leaving one curve out. Selection retains
+`pilot`, `h_pilot`, `pilot_details`, copied `multipliers`, candidate `bandwidths`,
+CV `errors`, and fold `assignments`. Explicit `CurveCV(bandwidths; ...)` keeps
+its existing behavior. Both forms work for the mean and noise diagonal.
+
+The covariance surface uses a bivariate smoother. KernelSmoothing rules are
+univariate, so covariance `bandwidth` rejects rules and pilot-based `CurveCV`.
+Use `CurveCV` with explicit candidates for that bandwidth.

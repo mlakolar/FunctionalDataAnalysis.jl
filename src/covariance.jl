@@ -3,7 +3,9 @@
         kernel=KernelSmoothing.EpanechnikovKernel(), weighting=:obs, binning=nothing)
 
 Smooth all ordered within-curve off-diagonal residual products by bivariate
-local linear regression and symmetrize. `bandwidth` is positive or a [`CurveCV`](@ref).
+local linear regression and symmetrize. The required `bandwidth` is positive
+or a [`CurveCV`](@ref) with explicit candidates. KernelSmoothing selectors and
+pilot-based CurveCV are univariate and cannot select this 2D bandwidth.
 `:obs` gives each pair weight one; `:subj` gives weight `1/(N_i*(N_i-1))`.
 Every curve must have at least two observations. Stored data weights are unused.
 The supplied mean is interpolated at original observation times and held fixed
@@ -20,12 +22,20 @@ errors are retained for raw-product CV scores. Residuals are computed before sna
 weights. `noise_variance` estimates measurement error by integrating the
 smoothed raw squares minus the surface diagonal over the middle half of the
 work-grid domain, multiplying by `2/domain_length`, and truncating at zero.
-The required `diagonal_bandwidth` is a positive number or a `CurveCV`, selected
+The required `diagonal_bandwidth` is a positive number, a `CurveCV` (including
+pilot-based candidates), or a regression `KernelSmoothing.BandwidthSelector`
+returning one global bandwidth, selected
 independently of the covariance bandwidth. Diagonal CV predicts held-out raw
 squared residuals at their original times, leaving whole curves out with the
 mean CV fold and weighting rules. With binning, diagonal training times are
 snapped but held-out queries stay at original times. The supplied mean stays
 fixed. The diagonal uses local linear degree one and observation weights one or `1/N_i`.
+Rules use pooled raw squared residuals, training times (snapped with binning),
+and the same observation weights. They assume independent observations, ignore
+within-curve correlation, and therefore tend to undersmooth repeated-measures
+data; use `CurveCV` for the final choice. Density-only and pointwise rules throw.
+`noise_details.selection` stores the rule, bandwidth, and selector details,
+or the CV candidates, errors, assignments, and pilot information when used.
 `noise_details` records its bandwidth, fold count, selection scores and assignments,
 raw estimate, truncation flag, integration bounds and grid, and fitted squares.
 Boundary values for integration are linearly interpolated. All settings and
@@ -132,16 +142,17 @@ function fit(::Type{SmoothedCovariance}, fd::Union{GridFunctionalData,IrregularF
     binning = binning === nothing ? nothing : Int(binning)
     grid = _evaluation_points(fd, grid)
     weights = quadrature_weights(grid)
-    method = LocalPolynomial(; bandwidth=bandwidth isa CurveCV ? first(bandwidth.bandwidths) : bandwidth, kernel)
-    diagonal_method = LocalPolynomial(; bandwidth=diagonal_bandwidth isa CurveCV ?
-        first(diagonal_bandwidth.bandwidths) : diagonal_bandwidth, kernel=method.kernel)
+    bandwidth isa KernelSmoothing.BandwidthSelector && throw(ArgumentError(
+        "KernelSmoothing bandwidth selectors are univariate; use CurveCV with explicit candidates for the 2D covariance bandwidth"))
+    bandwidth isa CurveCV && bandwidth.pilot !== nothing && throw(ArgumentError(
+        "pilot CurveCV is univariate; the 2D covariance bandwidth requires CurveCV with explicit candidates"))
+    method = LocalPolynomial(; bandwidth=_initial_bandwidth(bandwidth), kernel)
+    LocalPolynomial(; bandwidth=_initial_bandwidth(diagonal_bandwidth), kernel=method.kernel)
     pool = _covariance_pool(fd, mean, weighting, binning)
-    diagonal_selection = diagonal_bandwidth isa CurveCV ?
-        _mean_selection(diagonal_bandwidth, fd, pool.times, pool.squares,
+    diagonal_h, diagonal_selection =
+        _resolve_bandwidth(diagonal_bandwidth, fd, pool.times, pool.squares,
             pool.diagonal_weights, pool.diagonal_subjects, method.kernel, 1;
-            prediction_times=pool.original_times, label="noise variance diagonal smoother") : nothing
-    diagonal_h = diagonal_selection === nothing ? diagonal_method.bandwidth :
-        diagonal_selection.bandwidths[argmin(diagonal_selection.errors)]
+            prediction_times=pool.original_times, label="noise variance diagonal smoother")
     selection = bandwidth isa CurveCV ? _covariance_selection(bandwidth, fd, pool, method.kernel) : nothing
     h = selection === nothing ? method.bandwidth : selection.bandwidths[argmin(selection.errors)]
     T = eltype(grid)

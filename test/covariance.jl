@@ -241,3 +241,72 @@ using DelimitedFiles
     em = StatsAPI.fit(SmoothedMean, endpoints; grid=[0.,1.], bandwidth=2.)
     @test_throws ArgumentError StatsAPI.fit(SmoothedCovariance, endpoints, em; diagonal_bandwidth=.65, grid=[0.,1.], bandwidth=2.)
 end
+
+@testset "Noise diagonal bandwidth rules and pilots" begin
+    times = [collect(range(0., 1.; length=n)) for n in (21, 25, 29, 33)]
+    ys = [sin.(4t) .+ .15i .* cos.(17t) for (i, t) in enumerate(times)]
+    fd = IrregularFunctionalData(times, ys)
+    grid = collect(0.:.1:1.)
+    kernel = KernelSmoothing.GaussianKernel()
+    m = StatsAPI.fit(SmoothedMean, fd; grid, kernel, bandwidth=.3)
+    original = vcat(times...)
+    squares = (vcat(ys...) - evaluate(m, original)).^2
+    for weighting in (:obs, :subj), binning in (nothing, 9)
+        x = binning === nothing ? original : round.(original .* 8, RoundNearestTiesUp) ./ 8
+        w = vcat([fill(weighting == :obs ? 1. : 1/length(t), length(t)) for t in times]...)
+        for rule in (KernelSmoothing.RuleOfThumb(), KernelSmoothing.IMSEOptimal())
+            direct = KernelSmoothing.selectbandwidth(rule,
+                KernelSmoothing.SmoothingData(x, squares; weights=w), kernel; degree=1)
+            # IMSEOptimal retains upstream data-dependent details; RuleOfThumb
+            # and pilot CV retain the milestone's inference checks.
+            c = if rule isa KernelSmoothing.RuleOfThumb
+                @inferred StatsAPI.fit(SmoothedCovariance, fd, m;
+                    grid, kernel, bandwidth=.5, diagonal_bandwidth=rule, weighting, binning)
+            else
+                StatsAPI.fit(SmoothedCovariance, fd, m;
+                    grid, kernel, bandwidth=.5, diagonal_bandwidth=rule, weighting, binning)
+            end
+            @test c.diagonal_bandwidth == c.noise_details.selection.bandwidth == direct.h
+            @test c.noise_details.selection.rule == rule
+            @test c.noise_details.selection.details == direct.details
+            @test c.noise_details.folds == 0
+            @test occursin(string(nameof(typeof(rule))), sprint(show, c))
+        end
+        pilot = KernelSmoothing.RuleOfThumb()
+        multipliers = [1., 2., 4.]
+        cv = CurveCV(; pilot, multipliers, folds=2, rng=MersenneTwister(52))
+        c = @inferred StatsAPI.fit(SmoothedCovariance, fd, m;
+            grid, kernel, bandwidth=.5, diagonal_bandwidth=cv, weighting, binning)
+        h = KernelSmoothing.selectbandwidth(pilot,
+            KernelSmoothing.SmoothingData(x, squares; weights=w), kernel; degree=1).h
+        candidates = multipliers .* h
+        explicit = StatsAPI.fit(SmoothedCovariance, fd, m;
+            grid, kernel, bandwidth=.5, weighting, binning,
+            diagonal_bandwidth=CurveCV(candidates; folds=2, rng=MersenneTwister(52)))
+        selection = c.noise_details.selection
+        @test selection.pilot == pilot
+        @test selection.h_pilot == h
+        @test selection.multipliers == multipliers
+        @test selection.bandwidths == candidates
+        @test selection.errors == explicit.noise_details.selection.errors
+        @test selection.assignments == explicit.noise_details.selection.assignments
+        @test c.diagonal_bandwidth == explicit.diagonal_bandwidth
+        @test c.noise_variance == explicit.noise_variance
+    end
+    for bandwidth in (KernelSmoothing.RuleOfThumb(), CurveCV(; pilot=KernelSmoothing.RuleOfThumb()))
+        err = try
+            StatsAPI.fit(SmoothedCovariance, fd, m; grid, kernel, bandwidth, diagonal_bandwidth=.5)
+        catch e
+            e
+        end
+        @test err isa ArgumentError
+        @test occursin("univariate", sprint(showerror, err))
+        @test occursin("CurveCV with explicit candidates", sprint(showerror, err))
+    end
+    for rule in (KernelSmoothing.NormalReference(), KernelSmoothing.MSEOptimal())
+        @test_throws ArgumentError StatsAPI.fit(SmoothedCovariance, fd, m;
+            grid, kernel, bandwidth=.5, diagonal_bandwidth=rule)
+        @test_throws ArgumentError StatsAPI.fit(SmoothedCovariance, fd, m;
+            grid, kernel, bandwidth=.5, diagonal_bandwidth=CurveCV(; pilot=rule, folds=4))
+    end
+end

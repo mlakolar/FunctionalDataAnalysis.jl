@@ -1,16 +1,29 @@
 """
     CurveCV(bandwidths; folds=10, rng=nothing)
+    CurveCV(; pilot, multipliers=2.0 .^ range(-1, 2; length=10), folds=10, rng=nothing)
 
 Select a pooled-mean, covariance, or noise-diagonal bandwidth by leaving out
 whole curves. Candidates must be finite, positive, and distinct. Supply an `AbstractRNG` for shuffled, balanced
 K-fold splits; `folds == nobs(fd)` uses deterministic leave-one-curve-out and
 needs no RNG. Inputs, including the RNG state, are copied. Each fit starts from
 that copied state. Exact score ties select the first candidate.
+
+For the mean or noise diagonal, `pilot` is a regression
+`KernelSmoothing.BandwidthSelector`. At fit time its global bandwidth multiplies
+`multipliers` to form the candidates. The default ten multipliers range from
+0.5 to 4 on a logarithmic grid. The pilot uses all pooled observations
+and the fit's weights. Selection records `pilot`, `h_pilot`, `pilot_details`,
+`multipliers`, `bandwidths`, `errors`, and `assignments`. The 2D covariance
+requires explicit candidates. Pilot rules assume independent observations,
+ignore within-curve correlation, and tend to undersmooth repeated-measures
+data; use `CurveCV` for the final choice.
 """
-struct CurveCV{T<:AbstractFloat,R}
+struct CurveCV{T<:AbstractFloat,R,P}
     bandwidths::Vector{T}
     folds::Int
     rng::R
+    pilot::P
+    multipliers::Vector{T}
     function CurveCV(bandwidths::AbstractVector{<:Real}; folds=10, rng=nothing)
         Base.require_one_based_indexing(bandwidths)
         isempty(bandwidths) && throw(ArgumentError("CurveCV bandwidths must be nonempty"))
@@ -24,8 +37,59 @@ struct CurveCV{T<:AbstractFloat,R}
             throw(ArgumentError("CurveCV folds must be an integer of at least two"))
         rng === nothing || rng isa AbstractRNG ||
             throw(ArgumentError("CurveCV rng must be an AbstractRNG or nothing"))
-        new{T,typeof(rng)}(hs, Int(folds), deepcopy(rng))
+        new{T,typeof(rng),Nothing}(hs, Int(folds), deepcopy(rng), nothing, T[])
     end
+    function CurveCV(; pilot, multipliers=2.0 .^ range(-1, 2; length=10),
+            folds=10, rng=nothing)
+        pilot isa KernelSmoothing.BandwidthSelector ||
+            throw(ArgumentError("CurveCV pilot must be a KernelSmoothing.BandwidthSelector"))
+        validated = CurveCV(multipliers; folds, rng)
+        T = eltype(validated.bandwidths)
+        new{T,typeof(validated.rng),typeof(pilot)}(T[], validated.folds,
+            validated.rng, deepcopy(pilot), validated.bandwidths)
+    end
+end
+
+# Validate polynomial settings before data-dependent selection without inventing
+# a smoothing bandwidth: this placeholder is used only for validation.
+_initial_bandwidth(h) = h
+_initial_bandwidth(::KernelSmoothing.BandwidthSelector) = 1.0
+_initial_bandwidth(cv::CurveCV) = cv.pilot === nothing ? first(cv.bandwidths) : 1.0
+
+function _regression_bandwidth(rule::KernelSmoothing.BandwidthSelector, t, y, w, kernel, degree)
+    data = KernelSmoothing.SmoothingData(t, y; weights=w)
+    hasmethod(KernelSmoothing.selectbandwidth,
+        Tuple{typeof(rule),typeof(data),typeof(kernel)}, (:degree,)) ||
+        throw(ArgumentError("$rule is density-only or does not support regression selection with degree; use a regression rule or CurveCV"))
+    selected = KernelSmoothing.selectbandwidth(rule, data, kernel; degree)
+    selected.h isa Real || throw(ArgumentError(
+        "$rule returns pointwise bandwidths; supply a rule returning one global bandwidth or CurveCV"))
+    h = LocalPolynomial(; bandwidth=selected.h, kernel, degree).bandwidth
+    (; rule=deepcopy(rule), bandwidth=h, details=deepcopy(selected.details))
+end
+
+function _cv_candidates(cv::CurveCV{T,R,Nothing}, t, y, w, kernel, degree) where {T<:AbstractFloat,R}
+    cv, NamedTuple()
+end
+function _cv_candidates(cv::CurveCV, t, y, w, kernel, degree)
+    pilot = _regression_bandwidth(cv.pilot, t, y, w, kernel, degree)
+    candidates = CurveCV(cv.multipliers .* pilot.bandwidth; folds=cv.folds, rng=cv.rng)
+    candidates, (; pilot=pilot.rule, h_pilot=pilot.bandwidth,
+        pilot_details=pilot.details, multipliers=copy(cv.multipliers))
+end
+
+function _resolve_bandwidth(h, fd, t, y, w, subjects, kernel, degree; kwargs...)
+    LocalPolynomial(; bandwidth=h, kernel, degree).bandwidth, nothing
+end
+function _resolve_bandwidth(rule::KernelSmoothing.BandwidthSelector,
+        fd, t, y, w, subjects, kernel, degree; kwargs...)
+    selection = _regression_bandwidth(rule, t, y, w, kernel, degree)
+    selection.bandwidth, selection
+end
+function _resolve_bandwidth(cv::CurveCV, fd, t, y, w, subjects, kernel, degree; kwargs...)
+    candidates, pilot = _cv_candidates(cv, t, y, w, kernel, degree)
+    selection = _mean_selection(candidates, fd, t, y, w, subjects, kernel, degree; kwargs...)
+    selection.bandwidths[argmin(selection.errors)], merge(selection, pilot)
 end
 
 """
@@ -36,11 +100,18 @@ Fit a local polynomial to all observed values of univariate grid or irregular
 data. `:obs` gives each observation weight one; `:subj` gives each observation
 in curve i weight `1/N_i`. Stored data weights are not used. Empty curves throw.
 The explicit work grid must be finite and strictly increasing with at least
-two points. `bandwidth` is a positive number or [`CurveCV`](@ref).
+two points. The required `bandwidth` is a positive number, [`CurveCV`](@ref),
+or a regression `KernelSmoothing.BandwidthSelector` returning one global
+bandwidth. Selectors use the pooled observations and the chosen weights.
+They assume independent observations, ignore within-curve correlation, and
+therefore tend to undersmooth repeated-measures data. Use `CurveCV` for the
+final choice. Density-only and pointwise bandwidth rules raise `ArgumentError`.
 
 The fit stores grid, values, selected bandwidth, kernel, degree, weighting,
 sampling design (`design`), `minobs=0`, `binning=:none`, and `folds` (zero for
-a fixed bandwidth). `selection` is `nothing` or a named tuple of `bandwidths`,
+a fixed or rule-selected bandwidth). Fixed bandwidths store `selection=nothing`.
+A rule stores `rule`, `bandwidth`, and
+selector `details` in `selection`. CV stores a named tuple of `bandwidths`,
 `errors`, and per-curve `assignments`. CV minimizes total weighted squared
 prediction error divided by total held-out weight, at actual observation
 times. An undefined fit, including any CV prediction, throws with its point
@@ -123,12 +194,10 @@ function fit(::Type{SmoothedMean}, fd::Union{GridFunctionalData,IrregularFunctio
     x = _evaluation_points(fd, grid)
     quadrature_weights(x)
     # Validate settings before either fitting or selecting a bandwidth.
-    method = LocalPolynomial(; bandwidth=bandwidth isa CurveCV ? first(bandwidth.bandwidths) : bandwidth,
+    method = LocalPolynomial(; bandwidth=_initial_bandwidth(bandwidth),
         kernel, degree)
     t, y, w, subjects = _mean_pool(fd, weighting)
-    selection = bandwidth isa CurveCV ?
-        _mean_selection(bandwidth, fd, t, y, w, subjects, method.kernel, method.degree) : nothing
-    h = selection === nothing ? method.bandwidth : selection.bandwidths[argmin(selection.errors)]
+    h, selection = _resolve_bandwidth(bandwidth, fd, t, y, w, subjects, method.kernel, method.degree)
     chosen = LocalPolynomial(; bandwidth=h, kernel=method.kernel, degree=method.degree)
     values = Vector{eltype(x)}(_mean_predict(t, y, w, x, chosen))
     all(isfinite, values) || throw(ArgumentError("pooled mean values must remain finite after conversion"))
@@ -154,7 +223,13 @@ end
 evaluate(m::SmoothedMean, t::Real) = only(evaluate(m, [t]))
 
 function Base.show(io::IO, selector::CurveCV)
-    print(io, "CurveCV(", selector.bandwidths, "; folds=", selector.folds,
+    print(io, "CurveCV(")
+    if selector.pilot === nothing
+        print(io, selector.bandwidths, "; ")
+    else
+        print(io, "; pilot=", selector.pilot, ", multipliers=", selector.multipliers, ", ")
+    end
+    print(io, "folds=", selector.folds,
         ", rng=", selector.rng, ")")
 end
 function Base.show(io::IO, m::SmoothedMean)
