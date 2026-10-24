@@ -257,15 +257,10 @@ end
         for rule in (KernelSmoothing.RuleOfThumb(), KernelSmoothing.IMSEOptimal())
             direct = KernelSmoothing.selectbandwidth(rule,
                 KernelSmoothing.SmoothingData(x, squares; weights=w), kernel; degree=1)
-            # IMSEOptimal retains upstream data-dependent details; RuleOfThumb
-            # and pilot CV retain the milestone's inference checks.
-            c = if rule isa KernelSmoothing.RuleOfThumb
-                @inferred StatsAPI.fit(SmoothedCovariance, fd, m;
-                    grid, kernel, bandwidth=.5, diagonal_bandwidth=rule, weighting, binning)
-            else
-                StatsAPI.fit(SmoothedCovariance, fd, m;
-                    grid, kernel, bandwidth=.5, diagonal_bandwidth=rule, weighting, binning)
-            end
+            # KernelSmoothing selectors' `details` types depend on the data (and on
+            # the KernelSmoothing version), so selector fits are not inferred.
+            c = StatsAPI.fit(SmoothedCovariance, fd, m;
+                grid, kernel, bandwidth=.5, diagonal_bandwidth=rule, weighting, binning)
             @test c.diagonal_bandwidth == c.noise_details.selection.bandwidth == direct.h
             @test c.noise_details.selection.rule == rule
             @test c.noise_details.selection.details == direct.details
@@ -275,7 +270,7 @@ end
         pilot = KernelSmoothing.RuleOfThumb()
         multipliers = [1., 2., 4.]
         cv = CurveCV(; pilot, multipliers, folds=2, rng=MersenneTwister(52))
-        c = @inferred StatsAPI.fit(SmoothedCovariance, fd, m;
+        c = StatsAPI.fit(SmoothedCovariance, fd, m;
             grid, kernel, bandwidth=.5, diagonal_bandwidth=cv, weighting, binning)
         h = KernelSmoothing.selectbandwidth(pilot,
             KernelSmoothing.SmoothingData(x, squares; weights=w), kernel; degree=1).h

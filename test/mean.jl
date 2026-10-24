@@ -141,13 +141,9 @@ end
         for rule in (KernelSmoothing.RuleOfThumb(), KernelSmoothing.IMSEOptimal())
             direct = KernelSmoothing.selectbandwidth(rule,
                 KernelSmoothing.SmoothingData(x, y; weights=w), kernel; degree=1)
-            # IMSEOptimal's upstream details have a data-dependent inferred type.
-            # Keep inference coverage for RuleOfThumb and the CV paths below.
-            m = if rule isa KernelSmoothing.RuleOfThumb
-                @inferred StatsAPI.fit(SmoothedMean, fd; grid, bandwidth=rule, kernel, weighting)
-            else
-                StatsAPI.fit(SmoothedMean, fd; grid, bandwidth=rule, kernel, weighting)
-            end
+            # KernelSmoothing selectors' `details` types depend on the data (and on
+            # the KernelSmoothing version), so selector fits are not inferred.
+            m = StatsAPI.fit(SmoothedMean, fd; grid, bandwidth=rule, kernel, weighting)
             @test m.bandwidth == m.selection.bandwidth == direct.h
             @test m.selection.rule == rule
             @test m.selection.details == direct.details
@@ -160,7 +156,7 @@ end
         @test_throws ArgumentError("CurveCV multipliers must be nonempty") CurveCV(; pilot, multipliers=Float64[])
         @test_throws ArgumentError("CurveCV multipliers must be finite and positive") CurveCV(; pilot, multipliers=[1., -2.])
         multipliers[1] = 10.
-        m = @inferred StatsAPI.fit(SmoothedMean, fd; grid, bandwidth=cv, kernel, weighting)
+        m = StatsAPI.fit(SmoothedMean, fd; grid, bandwidth=cv, kernel, weighting)
         h = KernelSmoothing.selectbandwidth(pilot,
             KernelSmoothing.SmoothingData(x, y; weights=w), kernel; degree=1).h
         candidates = [1., 2., 4.] .* h
