@@ -23,4 +23,5 @@ using Test
     include("pace_defaults_golden.jl")
     include("multivariate_fpca.jl")
     include("multivariate_fpca_golden.jl")
+    include("cross_covariance.jl")
 end

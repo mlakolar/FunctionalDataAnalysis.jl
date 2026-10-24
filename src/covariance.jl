@@ -1,5 +1,5 @@
 """
-    fit(SmoothedCovariance, fd, mean::SmoothedMean; grid, bandwidth, diagonal_bandwidth=nothing,
+    fit(SmoothedCovariance, fd, mean; grid, bandwidth, diagonal_bandwidth=nothing,
         kernel=KernelSmoothing.EpanechnikovKernel(), weighting=:obs, binning=nothing)
 
 Smooth all ordered within-curve off-diagonal residual products by bivariate
@@ -8,8 +8,9 @@ or a [`CurveCV`](@ref) with explicit candidates. KernelSmoothing selectors and
 pilot-based CurveCV are univariate and cannot select this 2D bandwidth.
 `:obs` gives each pair weight one; `:subj` gives weight `1/(N_i*(N_i-1))`.
 Every curve must have at least two observations. Stored data weights are unused.
-The supplied mean is interpolated at original observation times and held fixed
-through CV. Its grid must cover those times.
+The supplied mean (`SmoothedMean` or one complete `GridFunctionalData` curve,
+including a multivariate FPCA mean) is interpolated at original observation
+times and held fixed through CV. Its grid must cover those times.
 
 Optional integer `binning >= 2` snaps times to the nearest of that many equally
 spaced points over the observed domain (midpoint ties go upward). Products
@@ -62,20 +63,54 @@ struct SmoothedCovariance{T<:AbstractFloat,H,D,K,S,N,B}
     noise_details::N
 end
 
+_covariance_mean_values(mean::SmoothedMean, t) = evaluate(mean, t)
+function _covariance_mean_values(mean::GridFunctionalData, t)
+    nobs(mean) == 1 && mean.observed === nothing || throw(ArgumentError(
+        "a covariance mean must contain one complete grid curve"))
+    all(v -> first(mean.grid) <= v <= last(mean.grid), t) || throw(ArgumentError(
+        "the mean grid must cover every observation time"))
+    vec(evaluate(mean, t, PiecewiseLinear()))
+end
+
+function _covariance_snap(t, binning)
+    binning === nothing && return t
+    a, b = extrema(t)
+    b > a || throw(ArgumentError("binning requires a nondegenerate observed domain"))
+    knots = collect(range(a, b; length=binning))
+    [knots[clamp(floor(Int, (v-a)/(b-a)*(binning-1) + 0.5)+1, 1, binning)] for v in t]
+end
+
+# Shared weight-preserving aggregation for covariance and cross-covariance.
+function _covariance_add_pair!(pool, cells, binning, s, t, product, weight, subject)
+    isfinite(product) || throw(ArgumentError(
+        "covariance raw products must be finite; rescale the observations"))
+    cell = (s, t)
+    index = binning === nothing ? 0 : get(cells, cell, 0)
+    if index == 0
+        push!(pool.x, s); push!(pool.y, t); push!(pool.z, product)
+        push!(pool.weights, weight); push!(pool.scatter, zero(product))
+        push!(pool.subjects, subject)
+        binning === nothing || (cells[cell] = length(pool.z))
+    else
+        total = pool.weights[index] + weight
+        delta = product - pool.z[index]
+        pool.z[index] += (weight/total)*delta
+        pool.scatter[index] += weight*delta*(product-pool.z[index])
+        pool.weights[index] = total
+    end
+    nothing
+end
+
 function _covariance_pool(fd, mean, weighting, binning)
     t, y, w, subjects = _mean_pool(fd, weighting)
-    residual = y - evaluate(mean, t)
+    residual = y - _covariance_mean_values(mean, t)
     all(isfinite, residual) || throw(ArgumentError("covariance residuals must be finite"))
     original_times = t
-    if binning !== nothing
-        a, b = extrema(t)
-        b > a || throw(ArgumentError("binning requires a nondegenerate observed domain"))
-        knots = collect(range(a, b; length=binning))
-        t = [knots[clamp(floor(Int, (v-a)/(b-a)*(binning-1) + 0.5)+1, 1, binning)] for v in t]
-    end
+    t = _covariance_snap(t, binning)
     T = eltype(residual)
     x, yy, z, pw, scatter = T[], T[], T[], T[], T[]
     ps = Int[]
+    pool = (; x, y=yy, z, weights=pw, scatter, subjects=ps)
     for i in 1:nobs(fd)
         ix = findall(==(i), subjects)
         n = length(ix)
@@ -84,23 +119,8 @@ function _covariance_pool(fd, mean, weighting, binning)
         for j in ix, k in ix
             j == k && continue
             product = residual[j]*residual[k]
-            isfinite(product) || throw(ArgumentError("covariance raw products must be finite; rescale the observations"))
             weight = weighting == :obs ? one(T) : one(T)/(n*(n-1))
-            cell = (t[j], t[k])
-            index = binning === nothing ? 0 : get(cells, cell, 0)
-            if index == 0
-                push!(x, t[j]); push!(yy, t[k]); push!(z, product)
-                push!(pw, weight); push!(scatter, zero(T)); push!(ps, i)
-                binning === nothing || (cells[cell] = length(z))
-            else
-                # Weighted online mean and centered sum of squares. The latter
-                # keeps held-out raw-product loss exact after aggregation.
-                total = pw[index] + weight
-                delta = product - z[index]
-                z[index] += (weight/total)*delta
-                scatter[index] += weight*delta*(product-z[index])
-                pw[index] = total
-            end
+            _covariance_add_pair!(pool, cells, binning, t[j], t[k], product, weight, i)
         end
     end
     squares = residual.^2
@@ -138,7 +158,7 @@ function _covariance_selection(selector::CurveCV, fd, pool, kernel)
 end
 
 function fit(::Type{SmoothedCovariance}, fd::Union{GridFunctionalData,IrregularFunctionalData},
-        mean::SmoothedMean; grid::AbstractVector{<:Real}, bandwidth, diagonal_bandwidth=nothing,
+        mean::Union{SmoothedMean,GridFunctionalData}; grid::AbstractVector{<:Real}, bandwidth, diagonal_bandwidth=nothing,
         kernel=KernelSmoothing.EpanechnikovKernel(), weighting=:obs, binning=nothing)
     weighting in (:obs, :subj) || throw(ArgumentError("weighting must be :obs or :subj"))
     binning === nothing || (binning isa Integer && 2 <= binning <= typemax(Int)) ||

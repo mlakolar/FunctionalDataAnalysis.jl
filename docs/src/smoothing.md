@@ -125,7 +125,9 @@ projected onto the positive-semidefinite cone.
 `:obs` assigns weight one to each pair. `:subj` assigns
 `1/(N_i*(N_i-1))` so each curve has total pair weight one. Each curve must have
 at least two observations; empty and singleton curves raise errors.
-The supplied mean is linearly interpolated at the original observation times.
+The supplied mean is a `SmoothedMean` fit or one complete `GridFunctionalData`
+curve, including a mean stored by multivariate FPCA. It is linearly
+interpolated at the original observation times.
 Its stored grid must cover all those times. Stored data weights are unused.
 
 A `CurveCV` selector leaves entire curves out of the covariance smoother and
@@ -193,6 +195,82 @@ sampling design, CV results, and noise details appear in `show`.
 
 ```@docs
 SmoothedCovariance
+```
+
+## [Cross-covariance](@id smoothing-cross-covariance)
+
+For complete common-grid curves,
+`StatsAPI.fit(CrossCovariance, fd1, fd2)` returns the sample cross-covariance
+with denominator `n-1`. Each node is centered by its own sample mean; each
+node may have a different grid. Missing observations raise an error.
+
+For sparse, irregular, masked, or explicitly smoothed grid data, fit
+`SmoothedCrossCovariance` with two supplied means. For each subject, it forms
+all Cartesian residual products between the nodes and reuses the bivariate
+local linear smoother on `grid1 × grid2`. The surface is generally not
+symmetric. A positive scalar bandwidth uses the same width in both axes;
+`bandwidth=(h1,h2)` chooses them separately. The default kernel is Gaussian,
+following fdapace 0.6.0 `GetCrCovYX`. Bandwidths and work grids are explicit;
+an explicit-candidate `CurveCV` leaves out whole subjects, with the two means
+held fixed. This selection deliberately differs from fdapace's Gaussian
+GCV default. The [source audit](fdapace.md) details every difference.
+
+Same-time pairs are **kept** by default. This assumes independent measurement
+errors between the two nodes. When errors at shared times are correlated,
+use `exclude_same_time=true`; the test uses exact original times before any
+binning. Each subject must retain at least one pair. `weighting=:obs` gives
+each retained pair weight one; `:subj` gives `1/(N1_i*N2_i)`, without changing
+the denominator after same-time exclusions. Data-object weights are unused.
+Empty curves, mismatched counts, mismatched available IDs, inadequate work
+or mean grids, and singular windows raise informative errors.
+
+The optional `binning` integer snaps each axis over its own observed range
+and reuses covariance pair aggregation within subject. Multiplicities and
+within-cell squared errors are retained; CV predicts raw products at the
+snapped coordinates. Default `nothing` performs no snapping. This differs
+from fdapace's exact-duplicate aggregation, which does not move times.
+`evaluate(c,s,t)` interpolates bilinearly inside the stored grids and throws
+outside them. Both grids and their quadrature weights, the two copied means,
+all tuning settings, and CV results are stored on the fit and shown.
+
+```@example smoothing
+# Two nodes on the same subjects. The mean objects can also be the
+# one-curve grid means stored by a MultivariateFPCA fit.
+other = GridFunctionalData(2 .* fd.values .+ 0.1, t; ids=ids(fd))
+other_mean = StatsAPI.fit(SmoothedMean, other; grid=t, bandwidth=0.5)
+cross = StatsAPI.fit(SmoothedCrossCovariance, fd, other, mean_fit, other_mean;
+    grid1=t, bandwidth=(0.4, 0.6))
+evaluate(cross, 0.25, 0.75)
+sample_cross = StatsAPI.fit(CrossCovariance, fd, other)
+```
+
+`cross_covariances(mfd; bandwidth, ...)` returns a matrix of fits with the
+existing `SmoothedCovariance` fits on the diagonal and cross fits elsewhere.
+It fits each unordered node pair once and transposes the result, enforcing
+`G[j,k](s,t) = G[k,j](t,s)` exactly at stored grid points. Reverse blocks have
+independent arrays. The helper accepts one shared scalar bandwidth or
+`CurveCV`; direct cross fits support separate axis widths.
+
+Supply `fpca=a_multivariate_fpca_fit` to reuse its node means, or provide a
+vector `means`. Without supplied means, complete grid nodes use sample means
+and irregular/masked nodes use Gaussian local linear means at 5% of their
+observed range, as multivariate marginal FPCA does. `mean_bandwidth` requests
+explicit mean smoothing and can be shared or per node. A shared real `grid`
+vector or vector of node grids overrides the mean grids / FPCA default grids.
+The diagonal blocks retain their own off-diagonal observation-index rule and
+noise estimator. This helper always returns smoothed blocks; it does not
+silently switch to sample covariance for dense inputs.
+
+```@example smoothing
+nodes = MultivariateFunctionalData([fd, other])
+blocks = cross_covariances(nodes; bandwidth=0.6)
+blocks[1,2].surface == transpose(blocks[2,1].surface)
+```
+
+```@docs
+CrossCovariance
+SmoothedCrossCovariance
+cross_covariances
 ```
 
 ## Automatic univariate pilots

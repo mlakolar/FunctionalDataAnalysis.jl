@@ -13,6 +13,54 @@ The archive's SHA-256 is
 File paths below are relative to that archive. Function names identify the
 executable source; several comments and help-text defaults disagree with it.
 
+## [Cross-covariance: GetCrCovYX (milestone 4 task 3)](@id fdapace-cross-covariance)
+
+This section audits the executable fdapace **0.6.0** sources
+[`R/GetCrCovYX.R`](https://github.com/cran/fdapace/blob/0.6.0/R/GetCrCovYX.R),
+[`R/GetRawCrCovFuncFunc.R`](https://github.com/cran/fdapace/blob/0.6.0/R/GetRawCrCovFuncFunc.R),
+[`R/BinRawCov.R`](https://github.com/cran/fdapace/blob/0.6.0/R/BinRawCov.R),
+[`R/BwNN.R`](https://github.com/cran/fdapace/blob/0.6.0/R/BwNN.R), and
+[`R/Lwls2D.R`](https://github.com/cran/fdapace/blob/0.6.0/R/Lwls2D.R).
+The locally installed R 4.5.1 / fdapace 0.6.0 function bodies were also
+inspected. These are defaults of `GetCrCovYX`, distinct from `FPCA` defaults.
+
+| Item | fdapace 0.6.0 executable behavior | FDA contract |
+|:--|:--|:--|
+| Sparse inputs | `Ly1,Lt1,Ly2,Lt2`: lists aligned by subject; both means are required, with values on each node's sorted unique pooled times. `GetRawCrCovFuncFunc` linearly interpolates means to observations and forms every within-subject Cartesian residual product. | Grid or irregular nodes; explicit checks for equal subject counts, matching available IDs, finite residuals, and observation coverage. Means are smoothed fits or one-curve complete grid data, including task 1 FPCA means. |
+| Dense inputs | With both value matrices and no times or means, return `rawCC$rawCCov=cov(Ly1,Ly2,use="pairwise.complete.obs")`; no smoothed surface. Divisor is `n-1`. | `CrossCovariance` uses separate sample means and divisor `n-1`. Missing observations throw to prevent silent pairwise deletion. Nodes may have different grids. |
+| Kernel | Formal default `kern="gauss"`; the help comment saying FALSE is incorrect. `smoothRCC2D` calls `Lwls2D(...,crosscov=TRUE)`, so it does not symmetrize. | `SmoothedCrossCovariance` and the block helper default to Gaussian; any supported kernel can be supplied. The diagonal helper blocks receive that same kernel. |
+| Bandwidths | `bw1=NULL,bw2=NULL`. Two numeric bandwidths bypass selection; otherwise both are selected. Automatic selection rejects non-Gaussian kernels. | Required scalar, axis tuple `(h1,h2)`, or explicit-candidate `CurveCV`. Separate axis bandwidths match the audited fixed-bandwidth method. |
+| Bandwidth selection | Gaussian GCV; default `bwRoutine="l-bfgs-b"`. `getBWidths` constructs ten equally spaced values per axis from that node's `BwNN(...,onlyCov=TRUE,k=5)` to its `k=45` value. The bounds are computed from **within-node** time-pair clouds. The default bounded optimizer starts at 95% of the upper bounds and uses `maxit=51`. `bobyqa` and `grid-search` are explicit alternatives. | Whole-subject `CurveCV` with explicit scalar candidates reuses milestone 2 and respects subject dependence. No automatic GCV or candidate grid is silently substituted. This intentional departure requires an explicit bandwidth or selector. |
+| Same-time pairs | `rmDiag=FALSE`. When true, remove pairs with exactly equal coordinates after exact-duplicate aggregation. This concerns equal times, not matching observation indices. | `exclude_same_time=false`, assuming independent cross-node measurement errors. Set true to remove correlated same-time noise; equality is tested on original times before optional snapping. |
+| Pair weights | Raw pairs have weight one. If at least 20% of time-pair rows duplicate earlier rows and `useGAM=FALSE`, `BinRawCov` groups **exact** duplicates, storing means, counts, and within-cell RSS. `smoothRCC2D` supplies the counts as weights. There is no subject-equal weighting option here. | `:obs` is identical for fixed-bandwidth smoothing. Optional `:subj` uses `1/(N1_i*N2_i)` per retained pair, without renormalizing after exclusions. No data weights are silently used. |
+| Binning | Exact-duplicate grouping leaves the fixed-bandwidth surface unchanged. It does not snap distinct times. | Default `binning=nothing`; duplicate rows with weight one already give the same fit. Explicit integer binning reuses milestone 2: snap each axis to its own observed-range bin grid; aggregate within subject, preserving multiplicities and RSS. This changes the fitting locations and is an explicit departure. |
+| Output | A 51 by 51 `smoothedCC`, on separate equally spaced grids spanning each node's observed range. `smoothGrid` is a 51 by 2 matrix containing the two axes, **not** the 2601 product points. Also returns processed `rawCC`, `bw`, and `score`. | Explicit `grid1,grid2` for direct fits, stored with their separate quadrature weights. The block helper defaults to FPCA/mean grids. Evaluation is bilinear within the two grid ranges. |
+
+`GCVgauss2D` interpolates the fitted surface back to raw (or grouped) pair
+coordinates. Its numerator is the unweighted sum of squared differences of
+the raw/group means; the denominator is
+`(1-r1*r2*0.398942^2/(N*bw1*bw2))^2`, where `N` is the number of raw/group
+values and `r1,r2` are the output-grid ranges. Thus grouping counts affect
+smoothing but are not used as multiplicities in this GCV loss. The code
+returns this Gaussian-form score even for fixed non-Gaussian bandwidths,
+with a source comment warning that it can be incorrect. FDA compares only
+the fixed-bandwidth **surface**, not this diagnostic score.
+
+The source's optional grid-search loop indexes `1:length(bwCandidates)` on
+a 100 by 2 matrix, rather than its 100 rows. Its advertised missing-`minqa`
+fallback also uses `==` rather than assignment. Neither path is used or
+replicated here. `useGAM=FALSE` is the fdapace default; the optional GAM
+route is outside this task.
+
+`test/reference/fdapace_m4.R` generates fixed sparse two-node observations
+and `m4_fdapace_crosscov.csv` using `GetCrCovYX` itself, Epanechnikov,
+`bw1=.55,bw2=.8`, and both `rmDiag` values. Supplied linear means agree
+exactly under interpolation. Tests compare the full returned 51 by 51
+surface in its original orientation at relative error below `1e-8`.
+The fixture exercises fdapace's duplicate grouping; FDA uses unsnapped,
+unaggregated raw observation pairs, which have the same weighted fit.
+The generating script and CSV headers record R and fdapace versions.
+
 ## Defaults and data routes
 
 Here `n` is the number of curves and `m` is the number of work-grid points.

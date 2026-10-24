@@ -12,6 +12,11 @@ function _pace_observed_range(fd)
     a, b
 end
 
+# fdapace methodBwMu/methodBwCov = "Default": userBwMu = 0.05 and userBwCov = 0.10
+# times the observed range.
+_pace_default_mean_bandwidth(a, b) = 0.05*(b-a)
+_pace_default_covariance_bandwidth(a, b) = 0.10*(b-a)
+
 _pace_default_grid(fd) = collect(range(_pace_observed_range(fd)...; length=51))
 
 # fdapace IsRegular uses coverage of the pooled observed-time union. This

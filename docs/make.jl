@@ -18,6 +18,7 @@ makedocs(;
         "FPCA" => "fpca.md",
         "Comparison with fdapace" => "fdapace.md",
         "Multivariate FPCA validation" => "m4_report.md",
+        "Cross-covariance validation" => "m4_cross_report.md",
         "Comparison with FGM" => "m4_fgm.md",
         "Roadmap" => "roadmap.md",
     ],
