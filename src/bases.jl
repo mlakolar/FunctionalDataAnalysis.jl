@@ -114,6 +114,8 @@ end
 
 The functions `1, t, ..., t^degree` on the finite interval `domain`.
 The polynomial degree must be a nonnegative integer.
+Raw monomials are ill-conditioned at high degrees or on domains far from
+zero. Consider [`BSplineBasis`](@ref) for those settings.
 """
 struct MonomialBasis{T<:AbstractFloat} <: AbstractBasis
     interval::Tuple{T,T}
@@ -140,6 +142,33 @@ Base.:(==)(a::BSplineBasis, b::BSplineBasis) =
 Base.:(==)(a::FourierBasis, b::FourierBasis) = a.interval == b.interval && a.n == b.n
 Base.:(==)(a::MonomialBasis, b::MonomialBasis) =
     a.interval == b.interval && a.degree == b.degree
+
+Base.hash(b::BSplineBasis, h::UInt) =
+    hash(b.breakpoints, hash(b.order, hash(:BSplineBasis, h)))
+Base.hash(b::FourierBasis, h::UInt) =
+    hash(b.interval, hash(b.n, hash(:FourierBasis, h)))
+Base.hash(b::MonomialBasis, h::UInt) =
+    hash(b.interval, hash(b.degree, hash(:MonomialBasis, h)))
+
+function Base.show(io::IO, b::BSplineBasis)
+    a, z = domain(b)
+    print(io, "BSplineBasis(order ", b.order, ", ", nbasis(b),
+        " functions on [", a, ", ", z, "])")
+end
+
+function Base.show(io::IO, b::FourierBasis)
+    a, z = domain(b)
+    print(io, "FourierBasis(", nbasis(b), " functions on [", a, ", ", z, "])")
+end
+
+function Base.show(io::IO, b::MonomialBasis)
+    a, z = domain(b)
+    print(io, "MonomialBasis(degree ", b.degree, ", ", nbasis(b),
+        " functions on [", a, ", ", z, "])")
+end
+
+Base.show(io::IO, ::MIME"text/plain", b::Union{BSplineBasis,FourierBasis,MonomialBasis}) =
+    show(io, b)
 
 function basismatrix(b::BSplineBasis, t::AbstractVector{<:Real}; derivative=0)
     m = _derivative_order(derivative)

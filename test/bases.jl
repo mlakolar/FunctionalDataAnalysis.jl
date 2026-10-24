@@ -84,6 +84,29 @@
         end
     end
 
+    @testset "Hash and display" begin
+        pairs = ((BSplineBasis(3, [0.0, 0.5, 1.0]), BSplineBasis(3, Float32[0, 0.5, 1])),
+            (FourierBasis((0.0, 1.0), 3), FourierBasis((0.0f0, 1.0f0), 3)),
+            (MonomialBasis((0.0, 1.0), 2), MonomialBasis((0.0f0, 1.0f0), 2)))
+        for (b, single) in pairs
+            @test hash(b) == hash(deepcopy(b))
+            @test hash(b, UInt(123)) == hash(deepcopy(b), UInt(123))
+            @test b == single
+            @test hash(b) == hash(single)
+            @test Dict(b => :found)[deepcopy(b)] == :found
+            @test deepcopy(b) in Set([b])
+            text = sprint(show, b)
+            @test !occursin('\n', text)
+            @test length(text) < 100
+            @test sprint(show, MIME"text/plain"(), b) == text
+        end
+        @test sprint(show, first(pairs[1])) ==
+            "BSplineBasis(order 3, 4 functions on [0.0, 1.0])"
+        @test sprint(show, first(pairs[2])) == "FourierBasis(3 functions on [0.0, 1.0])"
+        @test sprint(show, first(pairs[3])) ==
+            "MonomialBasis(degree 2, 3 functions on [0.0, 1.0])"
+    end
+
     @testset "Invalid bases" begin
         for bad in (Float64[], [0.0], [0.0, 0.0], [1.0, 0.0], [0.0, Inf], [0.0, NaN])
             @test_throws ArgumentError BSplineBasis(4, bad)
