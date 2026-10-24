@@ -384,11 +384,108 @@ explicit compatibility convention used by the R golden tests.
 Spectrum sums and sign comparisons are evaluated after rescaling to avoid
 overflow while preserving the stated FVE and relative sign rules.
 
-The dense covariance denominator differs from the `n` denominator currently
-used by FunctionalGraphicalModels.jl. Milestone 4 must account for this change
-when migrating that package's FPCA implementation.
+The dense covariance denominator differs from the `n` denominator in the
+FunctionalGraphicalModels.jl reference. The multivariate comparison below
+accounts for this convention explicitly.
 
-Multivariate and pooled FPCA and cross-covariances arrive in milestone 4.
+## Multivariate FPCA
+
+`StatsAPI.fit(FPCA, mfd::MultivariateFunctionalData)` returns a
+[`MultivariateFPCA`](@ref). The default `basis=:marginal` fits each node with
+the univariate method above. Nodes may use different grids or mix complete
+grid data with sparse irregular data. Each node retains its own route,
+defaults, tuning record, and conditional score covariances, when applicable.
+This operation performs separate marginal decompositions. The joint
+multivariate decomposition of Happ and Greven is a later milestone 4 task.
+
+```julia
+model = StatsAPI.fit(FPCA, mfd; basis=:marginal, ncomponents=2)
+node_model = component(model, 1)
+node_scores = scores(model, 1)
+counts = ncomponents(model) # one selected count per node
+```
+
+For marginal fitting, every univariate keyword accepts either a shared value
+or a length-`p` vector containing one value per node. A numeric work `grid`
+is one shared grid; an outer vector of grids or `nothing` entries specifies
+one choice per node. To supply
+different means or covariance surfaces, use a vector of the same fitted
+objects or named tuples accepted by univariate FPCA. A vector with the wrong
+node count throws. For example:
+
+```julia
+model = StatsAPI.fit(FPCA, mfd;
+    basis=:marginal, ncomponents=[2, 3], maxK=[4, 5],
+    grid=[work_grid_node_1, work_grid_node_2])
+```
+
+The `basis=:pooled` route estimates one common basis from the average of the
+node sample covariance matrices. It follows the partial-separability
+construction of [Zapata, Oh, and Petersen
+(2022)](https://doi.org/10.1093/biomet/asab046). Every node must be complete
+`GridFunctionalData` on exactly the same grid. Masked grids, irregular nodes,
+and mismatched grids throw. Pooled PACE is not implemented.
+
+For centered node matrices ``Z_j=X_j-\mathbf 1\widehat\mu_j^\mathsf T``, the
+pooled surface and node scores are
+
+```math
+\widehat G_{\mathrm{pool}}
+    =\frac1p\sum_{j=1}^p\frac{Z_j^\mathsf T Z_j}{n-1},
+\qquad
+\widehat\xi_{ijm}
+    =\sum_g w_g\{X_{ij}(t_g)-\widehat\mu_j(t_g)\}\widehat\phi_m(t_g).
+```
+
+The weighted eigenstep and positive-eigenvalue cutoff are the same as for
+univariate FPCA. `ncomponents` is an integer or `FVE(threshold)`, defaulting
+to `FVE(0.99)`; `maxK` follows
+the dense route. Selection uses the pooled spectrum. The sign rule uses
+the average of the node mean curves as its common reference and records
+`sign_reference=:average_node_mean`. Near-zero overlap uses the same
+largest-absolute-entry fallback as univariate FPCA. The pooled tuning
+keywords are `ncomponents`, `maxK`, `eigen_tol`, and `sign_tol`;
+`method=:auto` or `:dense` is accepted. Pooled presmoothing, custom work
+grids, and PACE smoothing options throw because no corresponding pooled
+method is implemented. Each node keeps its own sample mean, and
+`eigvals(model)[j]` reports that node's score sample variances, with
+denominator `n-1`. These node variances need not be
+ordered within a node because the shared basis is ordered by the pooled
+spectrum. `eigenfunctions(model)` returns the shared `FPCBasis` for every
+node. `component(model, j)` throws for a pooled fit because there is no
+separately fitted univariate FPCA at that node.
+
+```julia
+pooled = StatsAPI.fit(FPCA, mfd; basis=:pooled, ncomponents=2)
+array = score_array(pooled) # subjects × nodes × principal components
+```
+
+[`score_array`](@ref) gives FunctionalGraphicalModels.jl's `n × p × M`
+convention. Its node order is exactly the order of `component(mfd, j)` and
+the second axis of `to_array(mfd)`. It requires equal selected counts across
+nodes. Unequal counts throw and suggest an integer `ncomponents`; scores are
+never padded or truncated. `scores(model)` always returns a vector of node
+score matrices. These matrices are the fit's own storage; copy them before
+independent mutation. `score_covariances(model)` returns a vector whose entries
+are conditional covariance arrays for PACE nodes and `nothing` for dense or
+pooled nodes.
+
+`StatsAPI.predict(model, newmfd)` returns one prediction per node using the
+training means and bases. Dense predictions are score matrices; PACE
+predictions are the univariate `(scores, covariances)` named tuples.
+`reconstruct(model)` returns `MultivariateFunctionalData` and preserves
+training subject IDs. Its `grid` keyword accepts one shared grid or one grid
+per node; without an override, each training grid is used. Reconstruction
+from other score matrices follows the univariate ID convention above.
+
+The FunctionalGraphicalModels.jl reference computes dense covariance and
+score variances with denominator `n`. FDA uses `n-1`, so matching eigenvalues
+are the reference values multiplied by `n/(n-1)`. Dense scores retain their
+scale. Reference dense eigenfunction signs must be aligned before comparing
+scores. See [Milestone 4 comparison report](m4_report.md) for the frozen
+reference, sparse-route differences, defaults, and development checks.
+
+Cross-covariances arrive in a later milestone 4 task.
 Smoothed FPCA with a roughness penalty, FACE, and fdapace's conditional-score
 `rho` regularization are not yet implemented. Presmoothing individual curves
 does not implement a roughness penalty on the FPCA eigenfunctions.
@@ -402,10 +499,14 @@ AIC
 BIC
 eigenfunctions
 LinearAlgebra.eigvals(::FPCA)
+LinearAlgebra.eigvals(::MultivariateFPCA)
 scores
 score_covariances
 fve
 noise_variance
 StatsAPI.predict(::FPCA, ::GridFunctionalData)
+StatsAPI.predict(::MultivariateFPCA, ::MultivariateFunctionalData)
 reconstruct
+MultivariateFPCA
+score_array
 ```

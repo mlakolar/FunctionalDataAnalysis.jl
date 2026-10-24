@@ -21,4 +21,6 @@ using Test
     include("pace_golden.jl")
     include("pace_defaults.jl")
     include("pace_defaults_golden.jl")
+    include("multivariate_fpca.jl")
+    include("multivariate_fpca_golden.jl")
 end

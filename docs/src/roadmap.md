@@ -46,6 +46,12 @@
   the FPCA and audit pages. Roughness-penalized FPCA, FACE, and conditional
   score `rho` regularization remain outside this milestone's current scope.
   Cross-version tests and the docs build remain controller gates.
-- Milestone 4: multivariate FPCA; FunctionalGraphicalModels.jl migrates.
+- Milestone 4 (task 1 implemented): marginal multivariate FPCA delegates to
+  dense or PACE fits per node. Pooled complete-grid FPCA uses the average node
+  sample covariance, a shared weighted eigenbasis, and node-specific means
+  and score variances. `score_array` provides subject × node × component
+  order for FunctionalGraphicalModels.jl. Its migration, cross-covariance
+  surfaces, and Happ--Greven multivariate FPCA remain subsequent tasks.
+  See [Multivariate FPCA validation](m4_report.md) for defaults and checks.
 - Milestone 5: registration, functional regression, depth and outliers,
   plotting recipes.
