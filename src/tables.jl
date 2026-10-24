@@ -16,6 +16,7 @@ and have one label per curve. Labels are stored without restricting their
 type. Exact duplicate subject subsets of labeled data therefore throw.
 Multivariate data return the IDs shared by labeled components, or `nothing`
 if no component is labeled. Labeled components must agree exactly in order.
+FPCA fits return copied training subject IDs.
 """
 ids(fd::Union{GridFunctionalData,IrregularFunctionalData,BasisFunctionalData}) =
     fd.ids === nothing ? nothing : deepcopy(fd.ids)

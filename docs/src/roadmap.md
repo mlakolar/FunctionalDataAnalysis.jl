@@ -22,7 +22,14 @@
   the 2D covariance bandwidth needs a number or explicit `CurveCV` candidates.
   Both weighting schemes match fixed-bandwidth fdapace covariance fixtures. Full cross-version tests and docs remain controller gates.
   Pointwise mean bands await cluster-robust variance support in KernelSmoothing.jl.
-- Milestone 3: FPCA, dense and sparse (PACE), validated against fdapace.
+- Milestone 3 (in progress): dense univariate FPCA is implemented, with a
+  stored weighted eigenbasis, quadrature scores, FVE or fixed component
+  selection, optional per-curve presmoothing, prediction, and reconstruction.
+  The dense default component cap is `max(1, min(length(grid)-2, nobs(data)-2))`,
+  following the fdapace source audit and replacing the plan's cap of 20.
+  Source-audited fdapace fixtures test the documented eigenvalue convention.
+  PACE conditional-expectation scores and AIC/BIC selection are next.
+  Cross-version tests and the docs build remain controller gates.
 - Milestone 4: multivariate FPCA; FunctionalGraphicalModels.jl migrates.
 - Milestone 5: registration, functional regression, depth and outliers,
   plotting recipes.
