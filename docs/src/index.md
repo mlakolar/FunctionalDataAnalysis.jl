@@ -13,6 +13,9 @@ Milestone 2 adds per-curve and pooled smoothing, covariance estimation,
 noise variance, and whole-curve bandwidth selection. Milestone 3 adds dense
 and sparse PACE FPCA, with documented automatic defaults and fdapace
 reference validation. See [FPCA](fpca.md) for a no-keyword example.
+Milestone 4 adds marginal, pooled, and Happ--Greven multivariate FPCA and
+cross-covariance surfaces. See [Multivariate FPCA (MFPCA)](mfpca.md) for the
+joint construction, weights, and R reference audit.
 
 ## Installation
 

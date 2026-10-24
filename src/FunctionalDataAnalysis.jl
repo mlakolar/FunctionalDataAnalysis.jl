@@ -18,7 +18,7 @@ export SmoothedMean, SmoothedCovariance, CurveCV
 export CrossCovariance, SmoothedCrossCovariance, cross_covariances
 export FPCA, FPCBasis, FVE, AIC, BIC, eigenfunctions, eigvals, scores,
     score_covariances, fve, noise_variance, reconstruct, predict, pace_bandwidth_candidates
-export MultivariateFPCA, score_array
+export MultivariateFPCA, MFPCA, score_array
 export LocalPolynomial, PenalizedSpline, GCV, smooth_curves
 export ids, RegularSampling, SparseSampling, simulate_kl,
     fourier_eigenfunctions, legendre_eigenfunctions
@@ -42,6 +42,7 @@ include("fpca.jl")
 include("pace_defaults.jl")
 include("pace.jl")
 include("multivariate_fpca.jl")
+include("mfpca.jl")
 include("cross_covariance.jl")
 
 end
