@@ -21,10 +21,11 @@ are stored in `f.pooled`. The sign reference is the average node mean;
 the univariate largest-entry fallback resolves near-zero alignment.
 
 Pooled defaults `ncomponents=FVE(0.99)`, `maxK=nothing`, `eigen_tol=1e-10`,
-and `sign_tol=1e-12` are exactly the dense univariate defaults and have the
-sources given in [`FPCA`](@ref). In particular, `maxK` resolves to
-`max(1,min(grid_length-2,nobs-2))`, with explicit cap
-`min(grid_length,nobs-1)`. Only shared values of these four keywords and
+and `sign_tol=1e-12` follow the dense univariate defaults and have the
+sources given in [`FPCA`](@ref). The pooled covariance averages `p` node
+covariances of rank at most `nobs-1`, so its rank is at most `p*(nobs-1)`;
+`maxK` therefore resolves to `max(1,min(grid_length-2,p*(nobs-1)-1))`, the
+dense rule with that rank, with explicit cap `min(grid_length,p*(nobs-1))`. Only shared values of these four keywords and
 `method=:auto`/`:dense` are supported for pooled fits. PACE tuning and
 `presmooth` throw instead of being ignored. Inputs and settings are copied.
 
@@ -110,11 +111,14 @@ function _multivariate_pooled(mfd::MultivariateFunctionalData{T};
         "pooled FPCA requires the same stored quadrature weights for every node"))
     n, g = size(firstnode.values)
     n >= 2 || throw(ArgumentError("pooled FPCA requires at least two curves"))
-    requested_maxK = maxK
-    maxK = maxK === nothing ? max(1, min(g-2, n-2)) : maxK
-    maxK isa Integer && 1 <= maxK <= min(g, n-1) || throw(ArgumentError(
-        "pooled FPCA maxK must be between 1 and min(grid length, nobs-1)"))
     p = length(mfd.components)
+    # The pooled covariance averages p rank-(n-1) node covariances, so its rank
+    # is at most p(n-1); the defaults mirror the dense rule with that rank.
+    rank = p * (n - 1)
+    requested_maxK = maxK
+    maxK = maxK === nothing ? max(1, min(g-2, rank-1)) : maxK
+    maxK isa Integer && 1 <= maxK <= min(g, rank) || throw(ArgumentError(
+        "pooled FPCA maxK must be between 1 and min(grid length, nodes*(nobs-1))"))
     grid, weights = copy(firstnode.grid), copy(firstnode.weights)
     means = GridFunctionalData{T}[]
     residuals = Matrix{T}[]
