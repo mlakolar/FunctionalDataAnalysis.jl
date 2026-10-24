@@ -1,14 +1,16 @@
 name = "FunctionalDataAnalysis"
 uuid = "b0173d16-ca42-4446-bf44-e56735cff075"
-authors = ["Mladen Kolar <mkolar@usc.edu>"]
 version = "0.1.0"
+authors = ["Mladen Kolar <mkolar@usc.edu>"]
 
 [deps]
+BSplineKit = "093aae92-e908-43d7-9660-e50ee39d5a0a"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 StatsAPI = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
 
 [compat]
 Aqua = "0.8"
+BSplineKit = "0.19.3"
 LinearAlgebra = "1"
 Random = "1"
 StatsAPI = "1"

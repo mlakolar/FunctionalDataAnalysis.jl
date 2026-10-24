@@ -8,6 +8,7 @@ makedocs(;
     pages = [
         "Home" => "index.md",
         "Interface" => "interface.md",
+        "Bases" => "bases.md",
         "Roadmap" => "roadmap.md",
     ],
 )
