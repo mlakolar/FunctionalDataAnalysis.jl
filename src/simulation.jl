@@ -132,14 +132,19 @@ end
 _sampling_type(::RegularSampling{T}) where {T} = T
 _sampling_type(::SparseSampling{T}) where {T} = T
 
-function _truth_value(mean, eigenfunctions, scores, i, t, ::Type{T}) where {T}
+function _validate_simulation_callables(mean, eigenfunctions, t)
     applicable(mean, t) || throw(ArgumentError("mean must be callable at observation times"))
+    for f in eigenfunctions
+        applicable(f, t) || throw(ArgumentError("eigenfunctions must be callable at observation times"))
+    end
+    nothing
+end
+
+function _truth_value(mean, eigenfunctions, scores, i, t, ::Type{T}) where {T}
     mu = mean(t)
     mu isa Real && isfinite(mu) || throw(ArgumentError("mean must return finite real values"))
     value = T(mu)
     for k in eachindex(eigenfunctions)
-        applicable(eigenfunctions[k], t) ||
-            throw(ArgumentError("eigenfunctions must be callable at observation times"))
         raw = eigenfunctions[k](t)
         raw isa Real && isfinite(raw) ||
             throw(ArgumentError("eigenfunctions must return finite real values"))
@@ -153,6 +158,7 @@ end
 function _simulate_kl(rng, n, mean, eigenfunctions, values::Vector{T}, noise_sd,
         sampling::RegularSampling) where {T}
     grid = Vector{T}(sampling.grid)
+    _validate_simulation_callables(mean, eigenfunctions, first(grid))
     scores = randn(rng, T, n, length(values)) .* transpose(sqrt.(values))
     truth = Matrix{T}(undef, n, length(grid))
     observed = similar(truth)
@@ -175,6 +181,7 @@ end
 
 function _simulate_kl(rng, n, mean, eigenfunctions, values::Vector{T}, noise_sd,
         sampling::SparseSampling) where {T}
+    _validate_simulation_callables(mean, eigenfunctions, T(first(sampling.domain)))
     scores = randn(rng, T, n, length(values)) .* transpose(sqrt.(values))
     times = [_sample_times(rng, sampling, rand(rng, sampling.npoints), T) for _ in 1:n]
     truth = Vector{T}[Vector{T}(undef, length(t)) for t in times]

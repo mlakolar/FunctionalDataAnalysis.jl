@@ -6,6 +6,8 @@ Within curves, times are sorted. Grid input uses the sorted union of all
 times; absent rows become missing without interpolation. Duplicate
 `(id, time)` pairs throw for grid data; irregular data can explicitly use
 `ties=:mean`. Missing irregular observations throw rather than being dropped.
+Nullable time columns are accepted when no entries are missing. Grid input
+treats `-0.0` and `0.0` as the same time; duplicate rows at that time still throw.
 
 ```jldoctest
 julia> using FunctionalDataAnalysis, Tables

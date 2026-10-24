@@ -45,6 +45,37 @@
     @test ids(gf) == [2, 1]
     @test GridFunctionalData((id=[1, 1], time=[0, 1], value=[2, 3]); id=:id, time=:time, value=:value) isa GridFunctionalData{Float64}
 
+    @testset "Nullable and signed zero times" begin
+        for T in (Float32, Float64)
+            nullable = (id=[2, 1, 2, 1], time=Union{Missing,T}[1, 0, 0, 1], value=T[3, 2, 1, 4])
+            griddata = GridFunctionalData(nullable; id=:id, time=:time, value=:value)
+            irregular = IrregularFunctionalData(nullable; id=:id, time=:time, value=:value)
+            @test griddata isa GridFunctionalData{T}
+            @test irregular isa IrregularFunctionalData{T}
+            @test griddata.grid == T[0, 1]
+            @test griddata.values == T[1 3; 2 4]
+            @test irregular.times == T[0, 1, 0, 1]
+            @test irregular.values == T[1, 3, 2, 4]
+            @test ids(griddata) == ids(irregular) == [2, 1]
+
+            signedzero = (id=[2, 2, 1, 1], time=T[-0.0, 1, 0, 1], value=T[1, 2, 3, 4])
+            normalized = GridFunctionalData(signedzero; id=:id, time=:time, value=:value)
+            @test normalized isa GridFunctionalData{T}
+            @test isequal(normalized.grid, T[0, 1])
+            @test normalized.values == T[1 2; 3 4]
+            @test normalized.observed === nothing
+            @test ids(normalized) == [2, 1]
+            @test signbit(signedzero.time[1])
+            duplicatezero = (id=[1, 1, 1], time=T[-0.0, 0, 1], value=T[1, 2, 3])
+            @test_throws ArgumentError("table must have unique (id, time) pairs") GridFunctionalData(duplicatezero; id=:id, time=:time, value=:value)
+        end
+        for times in (Union{Missing,Float64}[0.0, missing], [missing, missing], ["0", "1"])
+            invalid = (id=[1, 1], time=times, value=[1.0, 2.0])
+            @test_throws ArgumentError GridFunctionalData(invalid; id=:id, time=:time, value=:value)
+            @test_throws ArgumentError IrregularFunctionalData(invalid; id=:id, time=:time, value=:value)
+        end
+    end
+
     labels = [20, 10]
     raw = @inferred GridFunctionalData([1 2 3; 4 5 6], [0.0, 0.5, 1.0]; ids=labels)
     labels[1] = -1

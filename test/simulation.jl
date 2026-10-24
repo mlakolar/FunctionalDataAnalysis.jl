@@ -117,5 +117,10 @@ end
         @test_throws ArgumentError simulate_kl(Random.Xoshiro(1), 2; mean=t -> 0.0, eigenfunctions=[t -> NaN], eigenvalues=[1.0], sampling=regular)
         @test_throws ArgumentError simulate_kl(Random.Xoshiro(1), 2; mean=0.0, eigenfunctions=functions, eigenvalues=[1.0], sampling=regular)
         @test_throws ArgumentError simulate_kl(Random.Xoshiro(1), 2; mean=t -> 0.0, eigenfunctions=[1.0], eigenvalues=[1.0], sampling=regular)
+        sparse = SparseSampling((0, 1), 2:5)
+        @test_throws ArgumentError simulate_kl(Random.Xoshiro(1), 2; mean=0.0,
+            eigenfunctions=functions, eigenvalues=[1.0], sampling=sparse)
+        @test_throws ArgumentError simulate_kl(Random.Xoshiro(1), 2; mean=t -> 0.0,
+            eigenfunctions=[1.0], eigenvalues=[1.0], sampling=sparse)
     end
 end

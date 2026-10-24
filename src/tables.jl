@@ -67,12 +67,13 @@ function _table_columns(table, id, time, value)
         throw(DimensionMismatch("id, time and value columns must have equal lengths"))
     isempty(labels) && throw(ArgumentError("table must contain at least one observation"))
     any(ismissing, labels) && throw(ArgumentError("subject ids must not be missing"))
-    times isa AbstractVector{<:Real} ||
+    times isa AbstractVector{<:Union{Missing,Real}} ||
         throw(ArgumentError("table times must be finite nonmissing real values"))
+    any(ismissing, times) && throw(ArgumentError("table times must not be missing"))
     values isa AbstractVector{<:Union{Missing,Real}} ||
         throw(ArgumentError("table values must be real or missing"))
     all(isfinite, times) || throw(ArgumentError("table times must be finite"))
-    labels, times, values
+    labels, Vector{Base.nonmissingtype(eltype(times))}(times), values
 end
 
 function _table_groups(labels)
@@ -123,8 +124,9 @@ Read a Tables.jl source onto the sorted union of its time points as one
 common grid. Absent `(id, time)` rows and explicit missing values become
 masked observations. Every `(id, time)` pair must be unique. Curve order is
 first appearance of each ID. At least two distinct grid points are required.
-No interpolation is performed. Subject labels are copied and available
-through `ids`.
+Signed zero times are normalized to positive zero before grouping. No
+interpolation is performed. Subject labels are copied and available through
+`ids`.
 """
 function GridFunctionalData(table; id::Symbol, time::Symbol, value::Symbol)
     labels, times, values = _table_columns(table, id, time, value)
@@ -135,7 +137,7 @@ function _grid_from_columns(labels, times::AbstractVector{S}, values::AbstractVe
         {S<:Real,V<:Union{Missing,Real}}
     labels, rows = _table_groups(labels)
     T = promote_type(_floattype(S), _floattype(Base.nonmissingtype(V)))
-    t = Vector{T}(times)
+    t = Vector{T}(times) .+ zero(T)
     grid = sort!(unique(t))
     quadrature_weights(grid)
     out = Matrix{Union{Missing,T}}(missing, length(labels), length(grid))
