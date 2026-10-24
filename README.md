@@ -35,6 +35,8 @@ Pkg.add(url = "https://github.com/mlakolar/FunctionalDataAnalysis.jl")
   noise variance, curve-level bandwidth selection) on KernelSmoothing.jl.
 - Milestone 3 (done): FPCA, dense and sparse (PACE), with automatic defaults
   and fdapace reference validation.
-- Milestone 4: multivariate FPCA; FunctionalGraphicalModels.jl migrates.
+- Milestone 4: marginal and pooled multivariate FPCA; sample and smoothed
+  cross-covariance surfaces with multivariate blocks. FunctionalGraphicalModels.jl
+  migration and Happ--Greven FPCA are separate tasks.
 - Milestone 5: registration, functional regression, depth and outliers,
   plotting recipes.

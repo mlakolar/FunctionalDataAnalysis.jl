@@ -302,8 +302,8 @@ function _fit_pace(fd; method=:auto, grid=nothing, ncomponents=FVE(0.99), maxK=n
     covariance_bandwidth_source = covariance === nothing ? (covariance_bandwidth === nothing ? :default_fraction : :supplied) : :covariance_input
     requested_mean_bandwidth = deepcopy(mean_bandwidth)
     requested_covariance_bandwidth = deepcopy(covariance_bandwidth)
-    mean === nothing && mean_bandwidth === nothing && (mean_bandwidth = 0.05*(b-a))
-    covariance === nothing && covariance_bandwidth === nothing && (covariance_bandwidth = 0.10*(b-a))
+    mean === nothing && mean_bandwidth === nothing && (mean_bandwidth = _pace_default_mean_bandwidth(a, b))
+    covariance === nothing && covariance_bandwidth === nothing && (covariance_bandwidth = _pace_default_covariance_bandwidth(a, b))
     _fpca_tolerance(eigen_tol, "eigen_tol")
     _fpca_tolerance(sign_tol, "sign_tol")
     requested_maxK = maxK

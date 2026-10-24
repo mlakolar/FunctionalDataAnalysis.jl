@@ -1,12 +1,17 @@
 # Product-kernel local linear regression. Coordinates are scaled by bandwidth
 # so the three normal-equation columns have comparable units. Only the
 # intercept is needed. No nearest-neighbour bandwidth adjustment is applied.
+_bandwidth_axes(h::Real) = (h, h)
+_bandwidth_axes(h::Tuple{<:Real,<:Real}) = h
+
 function _local_linear2d(x, y, z, weights, s, t, h, kernel)
-    T = promote_type(eltype(x), eltype(z), typeof(h), typeof(s), typeof(t))
+    h1, h2 = _bandwidth_axes(h)
+    T = promote_type(eltype(x), eltype(y), eltype(z), eltype(weights),
+        typeof(h1), typeof(h2), typeof(s), typeof(t))
     A = zeros(T, 3, 3)
     b = zeros(T, 3)
     for i in eachindex(z)
-        u, v = (x[i] - s)/h, (y[i] - t)/h
+        u, v = (x[i] - s)/h1, (y[i] - t)/h2
         w = weights[i] * kernel(u) * kernel(v)
         w == 0 && continue
         row = (one(T), u, v)

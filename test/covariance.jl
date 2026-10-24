@@ -2,6 +2,22 @@ import KernelSmoothing
 import StatsAPI
 using DelimitedFiles
 
+@testset "Covariance with an FPCA grid mean" begin
+    grid = [0., .3, .7, 1.]
+    fd = GridFunctionalData([i*(1+t) for i in 1:4, t in grid], grid)
+    smoothmean = StatsAPI.fit(SmoothedMean, fd; grid, bandwidth=2.)
+    gridmean = GridFunctionalData(reshape(copy(smoothmean.values),1,:),grid)
+    fromgrid = @inferred StatsAPI.fit(SmoothedCovariance,fd,gridmean; grid,bandwidth=2.)
+    fromsmooth = StatsAPI.fit(SmoothedCovariance,fd,smoothmean; grid,bandwidth=2.)
+    @test fromgrid.surface == fromsmooth.surface
+    @test fromgrid.noise_variance == fromsmooth.noise_variance
+    for badmean in (GridFunctionalData(zeros(2,4),grid),
+            GridFunctionalData([0. missing 0. 0.],grid),
+            GridFunctionalData(zeros(1,2),[.1,.9]))
+        @test_throws ArgumentError StatsAPI.fit(SmoothedCovariance,fd,badmean; grid,bandwidth=2.)
+    end
+end
+
 @testset "Pooled covariance" begin
     input = readdlm(joinpath(@__DIR__, "data", "m2_input.csv"), ','; comments=true)
     times = [Float64.(input[input[:,1] .== i,2]) for i in 1:4]
