@@ -182,7 +182,8 @@ function _pace_cholesky(covariance, curve; criterion=false)
     factor
 end
 
-function _pace_ce(fd, grid, mu, functions, values, projected, sigma2)
+function _pace_ce(fd, grid, mu, functions, values, projected, sigma2;
+        curve_ce=_pace_curve_ce)
     T = promote_type(eltype(grid), eltype(mu), eltype(functions), eltype(values),
         eltype(projected), typeof(sigma2), eltype(fd))
     k, n = length(values), nobs(fd)
@@ -190,22 +191,29 @@ function _pace_ce(fd, grid, mu, functions, values, projected, sigma2)
     covariances = Array{T}(undef, k, k, n)
     for i in 1:n
         times, observations = fd[i]
+        isempty(times) && throw(ArgumentError("curve $i has no observed values for conditional scores"))
         phi = _pace_interpolated_basis(grid, functions, times)
         local_mean = _evaluate_curve!(Vector{T}(undef, length(times)), grid, mu,
             times, PiecewiseLinear())
-        covariance = T[_pace_bilinear(grid, projected, s, t) for s in times, t in times]
-        for j in axes(covariance, 1)
-            covariance[j, j] += sigma2
-        end
-        factor = _pace_cholesky(covariance, i)
-        numerator = phi .* transpose(values)
-        output[i, :] = transpose(numerator) * (factor \ (observations-local_mean))
-        omega = Diagonal(values) - transpose(numerator) * (factor \ numerator)
-        covariances[:, :, i] = (omega + transpose(omega))/2
+        output[i, :], covariances[:, :, i] = curve_ce(times,
+            observations-local_mean, phi, values, grid, projected, sigma2, i, T)
     end
     all(isfinite, output) && all(isfinite, covariances) || throw(ArgumentError(
         "PACE scores and score covariances must be finite; rescale the observations"))
     (; scores=output, covariances)
+end
+
+function _pace_curve_ce(times, residuals, phi, values, grid, projected::AbstractMatrix,
+        sigma2, curve, ::Type{T}) where {T}
+    covariance = T[_pace_bilinear(grid, projected, s, t) for s in times, t in times]
+    for j in axes(covariance, 1)
+        covariance[j, j] += sigma2
+    end
+    factor = _pace_cholesky(covariance, curve)
+    numerator = phi .* transpose(values)
+    projected_scores = transpose(numerator) * (factor \ residuals)
+    omega = Diagonal(values) - transpose(numerator) * (factor \ numerator)
+    projected_scores, (omega + transpose(omega))/2
 end
 
 function _pace_likelihood_selection(rule::Union{AIC,BIC}, fd, grid, mu, system, maxK, sigma2)

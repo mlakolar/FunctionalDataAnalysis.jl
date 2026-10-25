@@ -85,6 +85,10 @@ Prediction calls univariate `predict` per node and applies the same weights
 and coefficients, followed by the stored R score scales. It does not subtract
 training or new-data score means. It returns a matrix, including when some
 nodes use PACE.
+FACE margins are available with
+`univariate=(; method=:face, face=(; lambda=2.5))`; omitting `lambda` uses
+the audited FACE GCV default. Their conditional score matrices pass through
+the same multivariate eigenproblem and prediction interface.
 Nodewise conditional covariances remain available from the marginal fit;
 joint conditional uncertainty would require cross-node assumptions and is
 not estimated here. Reconstruction adds each node's training mean to its

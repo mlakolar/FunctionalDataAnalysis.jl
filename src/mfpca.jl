@@ -34,6 +34,10 @@ projection use uncentered scores, exactly as in R's default exact route.
 Unlike marginal PACE eigenvalues, the multivariate eigenvalues describe the
 sample covariance of these estimated scores.
 
+For common-grid margins, `univariate=(; method=:face, face=(; ...))` uses
+FACE with the defaults and source audit in [`FPCA`](@ref). Its shrinkage
+scores pass through this same joint eigenproblem and prediction interface.
+
 The existing univariate eigenstep is reused with `eigen_tol=1e-10`, the same
 package numerical cutoff relative to the largest absolute eigenvalue. Its
 largest-absolute-entry sign rule is applied to `c` (first entry breaks ties).

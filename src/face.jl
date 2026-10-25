@@ -1,0 +1,221 @@
+# A lazy covariance surface: fitting and scoring never allocate a grid-square
+# matrix. Plotting or Matrix(surface) materializes it only when requested.
+struct _LowRankCovariance{T} <: AbstractMatrix{T}
+    factor::Matrix{T}
+end
+Base.size(c::_LowRankCovariance) = (size(c.factor, 1), size(c.factor, 1))
+Base.getindex(c::_LowRankCovariance, i::Int, j::Int) = dot(view(c.factor, i, :), view(c.factor, j, :))
+Base.copy(c::_LowRankCovariance) = _LowRankCovariance(copy(c.factor))
+Base.Matrix(c::_LowRankCovariance) = c.factor * transpose(c.factor)
+
+Base.@constprop :aggressive function _face_mean(fd, ::Nothing, center, smoother)
+    T = eltype(fd)
+    if !center
+        smoother === nothing || throw(ArgumentError("FACE mean_smoother requires center=true"))
+        return zeros(T, length(fd.grid)), (; source=:zero, smoothing=nothing)
+    end
+    observed = fd.observed
+    mu = T[sum(fd.values[i, j] for i in 1:nobs(fd)) /
+        (observed === nothing ? nobs(fd) : count(view(observed, :, j))) for j in eachindex(fd.grid)]
+    all(isfinite, mu) || throw(ArgumentError("FACE mean requires at least one observed value in every grid column"))
+    if smoother === nothing
+        # Use the existing smoother with bounded dimension to preserve FACE's
+        # linear dependence on grid length. This is not a P-spline penalty.
+        length(fd.grid) >= 4 || throw(ArgumentError("FACE default mean smoother requires at least four grid points; supply mean or center=false"))
+        basis = BSplineBasis(4, (first(fd.grid), last(fd.grid)), min(38, length(fd.grid)))
+        width = last(fd.grid)-first(fd.grid)
+        smoother = PenalizedSpline(basis; lambda=GCV(exp.(range(-20.0, 20.0; length=100)) .* width^3))
+    end
+    smoother isa PenalizedSpline || throw(ArgumentError("FACE mean_smoother must be a PenalizedSpline"))
+    smoother.order == 2 || throw(ArgumentError("FACE mean_smoother must use integrated derivative order 2"))
+    fitted = smooth_curves(GridFunctionalData(reshape(mu, 1, :), fd.grid), smoother)
+    Vector{T}(vec(evaluate(fitted, fd.grid))), (; source=:estimated, smoothing=deepcopy(fitted.metadata))
+end
+
+function _face_mean(fd, mean, center, smoother)
+    center || throw(ArgumentError("FACE supplied mean requires center=true"))
+    smoother === nothing || throw(ArgumentError("FACE mean_smoother cannot be used with a supplied mean"))
+    supplied, _ = _pace_mean(fd, mean, fd.grid, nothing, nothing, :obs)
+    Vector{eltype(fd)}(_pace_mean_values(supplied, fd.grid)),
+        (; source=:supplied, smoothing=nothing, input=supplied)
+end
+
+function _face_initialize(fd, mu)
+    Y = fd.values .- transpose(mu)
+    initialization = NamedTuple{(:curve, :lambda, :spar, :knots),Tuple{Int,Float64,Float64,Vector{Float64}}}[]
+    if fd.observed !== nothing
+        for i in 1:nobs(fd)
+            keep = findall(view(fd.observed, i, :))
+            isempty(keep) && throw(ArgumentError("FACE curve $i is fully missing"))
+            absent = findall(!, view(fd.observed, i, :))
+            isempty(absent) && continue
+            length(keep) >= 4 || throw(ArgumentError("FACE curve $i needs at least four observations for missing-value initialization"))
+            initial = _face_initial_curve(Float64.(fd.grid[keep]), Float64.(Y[i, keep]), Float64.(fd.grid[absent]))
+            Y[i, absent] = initial.values
+            push!(initialization, (; curve=i, initial.lambda, initial.spar, initial.knots))
+        end
+    end
+    Y, initialization
+end
+
+function _face_gcv(Y, transformed, s, candidates, alpha, missing_fraction)
+    J = size(Y, 2)
+    diagonal = vec(sum(abs2, transformed; dims=2))
+    total, projected = sum(abs2, Y), sum(diagonal)
+    map(candidates) do lambda
+        h = inv.(1 .+ lambda .* s)
+        numerator = sum(diagonal .* (1 .- h).^2) - projected + total
+        denominator = 1-alpha*sum(h)/J/(1-missing_fraction)
+        denominator == 0 ? oftype(total, Inf) : numerator/denominator^2
+    end
+end
+
+# Precision-form solve for the selected FACE model, called explicitly by FACE
+# fitting and prediction. It requires the observation covariance phi*Lambda*phi'
+# and must not be selected by the storage type: DPC uses a different numerator
+# with the full projected observation covariance.
+function _face_curve_ce(times, residuals, phi, values, grid, projected,
+        sigma2, curve, ::Type{T}) where {T}
+    k = length(values)
+    if sigma2 == 0
+        factor = qr(phi, ColumnNorm())
+        diagonal = abs.(diag(factor.R))
+        length(diagonal) == k && minimum(diagonal) > max(size(phi)...)*eps(T)*maximum(diagonal) ||
+            throw(ArgumentError("FACE noiseless score design for curve $curve is rank deficient"))
+        return factor \ residuals, zeros(T, k, k)
+    end
+    precision = transpose(phi)*phi + Diagonal(sigma2 ./ values)
+    factor = _pace_cholesky(precision, curve)
+    projected_scores = factor \ (transpose(phi)*residuals)
+    omega = sigma2 .* (factor \ Matrix{T}(I, k, k))
+    projected_scores, (omega+transpose(omega))/2
+end
+
+Base.@constprop :aggressive function _fit_face(fd::GridFunctionalData{T}; ncomponents=FVE(0.99), maxK=nothing,
+        mean=nothing, eigen_tol=_FPCA_EIGEN_TOL, sign_tol=_FPCA_SIGN_TOL,
+        knots=35, p=3, m=2, lambda=nothing, alpha=1, center=true,
+        loglambda=collect(range(-20.0, 20.0; length=100)), mean_smoother=nothing,
+        kwargs...) where {T}
+    isempty(kwargs) || throw(ArgumentError("unknown FACE settings: $(keys(kwargs))"))
+    n, J = size(fd.values)
+    n >= 2 || throw(ArgumentError("FACE requires at least two curves"))
+    center isa Bool || throw(ArgumentError("FACE center must be true or false"))
+    alpha isa Real && !(alpha isa Bool) && isfinite(alpha) && alpha > 0 || throw(ArgumentError("FACE alpha must be finite and positive"))
+    isfinite(T(alpha)) && T(alpha) > 0 || throw(ArgumentError("FACE alpha must remain finite and positive after conversion"))
+    lambda === nothing || (lambda isa Real && !(lambda isa Bool) && isfinite(lambda) && lambda >= 0) ||
+        throw(ArgumentError("FACE lambda must be finite and nonnegative, or nothing for GCV"))
+    loglambda isa AbstractVector{<:Real} && !isempty(loglambda) && all(isfinite, loglambda) ||
+        throw(ArgumentError("FACE loglambda must be a nonempty finite real vector"))
+    Base.require_one_based_indexing(loglambda)
+    candidates = T.(exp.(loglambda))
+    all(x -> isfinite(x) && x > 0, candidates) && length(unique(candidates)) == length(candidates) ||
+        throw(ArgumentError("FACE loglambda must produce distinct finite positive lambdas"))
+    _fpca_tolerance(eigen_tol, "eigen_tol")
+    _fpca_tolerance(sign_tol, "sign_tol")
+    ncomponents isa Union{AIC,BIC} && throw(ArgumentError("AIC and BIC component selection require method=:pace"))
+    ncomponents isa FVE || (ncomponents isa Integer && !(ncomponents isa Bool) && 1 <= ncomponents <= typemax(Int)) ||
+        throw(ArgumentError("FACE ncomponents must be FVE or a positive integer representable as Int"))
+    setting = _pspline_setting(fd.grid, knots, p, m)
+    c = size(setting.A, 2)
+    cap = min(n, c)
+    maxK = maxK === nothing ? cap : maxK
+    maxK isa Integer && !(maxK isa Bool) && 1 <= maxK <= cap || throw(ArgumentError("FACE maxK must be between 1 and min(nobs, knots+p)"))
+    mu, mean_settings = _face_mean(fd, mean, center, mean_smoother)
+    Y, initialization = _face_initialize(fd, mu)
+    all(isfinite, Y) || throw(ArgumentError("FACE centered observations must be finite; rescale the observations"))
+    observed = fd.observed
+    missing_fraction = observed === nothing ? zero(T) : T(count(!, observed)/length(observed))
+    transformed = transpose(setting.A)*transpose(Y)
+    gcv_scores = _face_gcv(Y, transformed, setting.s, candidates, alpha, missing_fraction)
+    selected = lambda === nothing ? candidates[argmin(gcv_scores)] : T(lambda)
+    isfinite(selected) && selected >= 0 || throw(ArgumentError("FACE lambda must remain finite after conversion"))
+    lambda === nothing && !isfinite(minimum(gcv_scores)) && throw(ArgumentError("FACE GCV has no finite candidate"))
+    shrink = inv.(1 .+ selected .* setting.s)
+    changes = T[]
+    converged = observed === nothing
+    previous = zeros(T, size(transformed))
+    smoothed = similar(transformed)
+    iterations = 0
+    sigma2 = zero(T)
+    # Refund updates the missing values once AFTER checking convergence of YS.
+    # The final eigensystem is from YS, while final scores use the updated Y.
+    for iteration in 1:(observed === nothing ? 1 : 100)
+        iterations = iteration
+        transformed = transpose(setting.A)*transpose(Y)
+        smoothed = shrink .* transformed
+        all(isfinite, smoothed) || throw(ArgumentError("FACE smoothed data must be finite; rescale the observations"))
+        sigma2 = max((observed === nothing ? sum(abs2, Y)/length(Y) : sum(abs2, Y[observed])/count(observed)) - sum(abs2, smoothed)/(n*J), zero(T))
+        isfinite(sigma2) || throw(ArgumentError("FACE noise estimate must be finite; rescale the observations"))
+        if observed !== nothing
+            system = _fpca_eigen(smoothed*transpose(smoothed)/n, ones(T, c), zeros(T, c);
+                maxK, eigen_tol, sign_tol)
+            selection = _fpca_selection(ncomponents, system.fve, Int(maxK))
+            U = system.eigenfunctions[:, 1:selection.chosen]
+            d = system.eigenvalues[1:selection.chosen]
+            completed = transpose(setting.A * (U * ((d ./ (d .+ sigma2)) .* (transpose(U)*transformed))))
+            Y[.!observed] = completed[.!observed]
+            if iteration > 1
+                denominator = norm(smoothed)
+                change = denominator == 0 ? zero(T) : norm(smoothed-previous)/denominator
+                push!(changes, change)
+                converged = change <= T(0.02)
+            end
+            previous = smoothed
+        end
+        converged && break
+    end
+    # Weighted eigenanalysis is only c-by-c. QR of sqrt(W)*A transfers the
+    # stored quadrature metric into that small covariance matrix.
+    R = Matrix(qr(sqrt.(fd.weights) .* setting.A).R)
+    small = R * (smoothed*transpose(smoothed)/n) * transpose(R)
+    small = (small+transpose(small))/2
+    system = _fpca_eigen(small, ones(T, c), zeros(T, c); maxK, eigen_tol, sign_tol)
+    functions = setting.A * (R \ system.eigenfunctions)
+    _fpca_orient!(functions, mu, sign_tol)
+    selection = _fpca_selection(ncomponents, system.fve, Int(maxK))
+    k = selection.chosen
+    basis = FPCBasis(fd.grid, functions[:, 1:k]; weights=fd.weights)
+    values = system.eigenvalues[1:k]
+    # H' = Q*R implies H*H' = R'*R. Keep at most c columns, including all
+    # smoothed covariance directions regardless of maxK or eigen_tol.
+    covariance_root = Matrix(qr(transpose(smoothed)).R)
+    covariance = _LowRankCovariance(setting.A * transpose(covariance_root) / sqrt(T(n)))
+    projected = _LowRankCovariance(functions .* transpose(sqrt.(system.eigenvalues)))
+    # Scores use completed curves as refund does; pointwise uncertainty uses
+    # the same selected-K model and the same completed observation design.
+    completed_fd = GridFunctionalData(Y .+ transpose(mu), fd.grid)
+    scored = _pace_ce(completed_fd, fd.grid, mu, basis.values, values, projected, sigma2;
+        curve_ce=_face_curve_ce)
+    settings = (; requested_method=:face, grid_source=:data, ncomponents=deepcopy(ncomponents),
+        maxK=Int(maxK), eigen_tol, sign_tol, knots=Int(knots), p=Int(p), m=Int(m),
+        knot_sequence=copy(setting.knots), lambda=selected, lambda_source=lambda === nothing ? :GCV : :supplied,
+        loglambda=T.(loglambda), gcv_lambdas=candidates, gcv_scores,
+        alpha=T(alpha), center, mean=mean_settings, covariance_denominator=n,
+        quadrature=:stored_trapezoidal, score_method=:conditional_expectation,
+        noise_scale=:observed_mean_square_minus_euclidean_trace_over_grid_length,
+        design_eigenvalue_floor=T(1e-7), score_design=:completed_training_observed_prediction,
+        full_projected_covariance=projected, smoothing_spectrum=copy(setting.s),
+        imputation=(; iterations, converged, relative_changes=changes, tolerance=T(0.02),
+            maxiter=100, initialization, completed_centered=copy(Y),
+            missing_fraction, lambda_refitted=false,
+            initialization_rule=(; reference=:R_stats_4_5_1, penalty_quadrature=0.3330,
+                knot_rule=:smooth_spline_default, spar_bounds=(-1.5, 1.5),
+                spar_tolerance=1e-4, spar_epsilon=2e-8, spar_maxiter=500,
+                spar_rule=:last_evaluated_R_fit,
+                extrapolation=:observed_centered_mean)))
+    sign_rule = (; method=:mean_alignment, fallback=:largest_absolute_entry, tolerance=sign_tol)
+    FPCA(:face, sampling_design(fd), copy(fd.grid), copy(fd.weights),
+        GridFunctionalData(reshape(mu, 1, :), fd.grid), covariance, sigma2,
+        values, system.eigenvalues, system.fve, basis, selection, system.dropped,
+        sign_rule, scored.scores, scored.covariances, deepcopy(fd.ids), nothing,
+        settings, _convert_component(T, fd))
+end
+
+function _face_predict(f::FPCA, fd::GridFunctionalData)
+    fd.grid == f.grid || throw(ArgumentError("FACE prediction grid must exactly match the training grid"))
+    if fd.values == f.training_data.values && fd.observed == f.training_data.observed
+        return (; scores=copy(f.scores), covariances=copy(f.score_covariances))
+    end
+    _pace_ce(fd, f.grid, vec(f.mean.values), f.basis.values, f.eigenvalues,
+        f.settings.full_projected_covariance, f.noise_variance; curve_ce=_face_curve_ce)
+end

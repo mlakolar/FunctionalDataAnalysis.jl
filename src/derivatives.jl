@@ -65,8 +65,8 @@ fitted covariance in both arguments with the existing local polynomial
 smoother. It reuses weighted FPCA eigenanalysis and selects `FVE(0.9999)` by
 default (fdapace's derivative threshold); an integer or `FVE` overrides it.
 Dense scores project locally differentiated, centered training curves. PACE
-scores use conditional expectation with the original full projected covariance
-and noise, and the cross-covariance of curves with derivative scores.
+and FACE scores use conditional expectation with the original full projected
+covariance and noise, and the cross-covariance of curves with derivative scores.
 The stored mean is differentiated, rather than re-estimated from observations.
 This gives consistent derivative scores/uncertainties on nonuniform grids;
 fdapace instead uses covariance finite differences, rectangular quadrature,
