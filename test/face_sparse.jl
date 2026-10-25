@@ -1,19 +1,11 @@
 import StatsAPI
 import RecipesBase
-using DelimitedFiles
 
 @testset "Sparse FACE: face 0.1-8 and weighted L2 conversion" begin
     FDA = FunctionalDataAnalysis
-    readinput(name) = readdlm(joinpath(@__DIR__, "data", name), ','; comments=true)
-    function irregular(x)
-        IrregularFunctionalData((id=Int.(x[:,1]),time=x[:,2],value=x[:,3]);
-            id=:id,time=:time,value=:value)
-    end
-    function quantity(golden, name)
-        x = golden[golden[:,1] .== name,:]
-        reshape(Float64.(x[:,4]), Int(maximum(x[:,2])), Int(maximum(x[:,3])))
-    end
-    relerr(x,y) = norm(x-y)/norm(y)
+    readinput(name) = golden_read(name)
+    irregular(x) = golden_sparse3(x;ids=Int.(unique(x[:,1])))
+    quantity(golden, name) = golden_matrix4(golden,name)
     for dataset in ("sparse", "cd4"), case in ("default", "fixed")
         input = readinput(dataset=="sparse" ? "m3_sparse_input.csv" : "m6_sparse_face_cd4_input.csv")
         fd = irregular(input)
@@ -21,7 +13,7 @@ using DelimitedFiles
             sample = load_dataset(:cd4;sample=true).data
             @test all(fd[i] == sample[i] for i in 1:nobs(sample))
         end
-        golden = readdlm(joinpath(@__DIR__, "data", "m6_sparse_face_$(dataset)_$(case).csv"), ',', Any; comments=true)
+        golden = golden_read("m6_sparse_face_$(dataset)_$(case).csv", Any)
         q(name) = quantity(golden,name)
         options = case=="default" ? (;) : (; lambda=2.5,lambda_mean=.75)
         f = StatsAPI.fit(FPCA,fd;method=:face,face=options)
@@ -29,20 +21,20 @@ using DelimitedFiles
         subjects = Int.(vec(q("subjects")))
         @test f.method == :face
         @test f.grid ≈ vec(q("grid")) rtol=1e-14
-        @test relerr(vec(f.mean.values),vec(q("mean"))) < 1e-8
+        @test golden_relative_error(vec(f.mean.values),vec(q("mean"))) < 1e-8
         @test f.settings.lambda ≈ only(q("lambda")) rtol=1e-8
         @test f.settings.mean.lambda ≈ only(q("lambda_mean")) rtol=1e-8
-        @test relerr(f.settings.gcv_scores,vec(q("gcv"))) < 1e-8
-        @test relerr(f.settings.mean.gcv_scores,vec(q("mean_gcv"))) < 1e-8
+        @test golden_relative_error(f.settings.gcv_scores,vec(q("gcv"))) < 1e-8
+        @test golden_relative_error(f.settings.mean.gcv_scores,vec(q("mean_gcv"))) < 1e-8
         @test noise_variance(f) ≈ only(q("sigma2")) rtol=1e-8
         @test !f.settings.noise_floor_applied
         @test f.settings.raw_noise_variance ≈ only(q("raw_sigma2")) rtol=1e-8
-        @test relerr(f.all_eigenvalues,vec(q("eigenvalue"))) < 1e-8
-        @test relerr(f.basis.values,q("eigenfunction")) < 1e-8
-        @test relerr(scores(f)[subjects,:],q("score")) < 1e-8
-        @test relerr(reshape(score_covariances(f)[:,:,subjects],ncomponents(f)^2,:),q("score_covariance")) < 1e-8
-        @test relerr(reconstruct(f).values[subjects[1:3],:],q("fitted")) < 1e-8
-        @test relerr(fitted_bands(f;curves=subjects[1:3]).variance,q("variance")) < 1e-8
+        @test golden_relative_error(f.all_eigenvalues,vec(q("eigenvalue"))) < 1e-8
+        @test golden_relative_error(f.basis.values,q("eigenfunction")) < 1e-8
+        @test golden_relative_error(scores(f)[subjects,:],q("score")) < 1e-8
+        @test golden_relative_error(reshape(score_covariances(f)[:,:,subjects],ncomponents(f)^2,:),q("score_covariance")) < 1e-8
+        @test golden_relative_error(reconstruct(f).values[subjects[1:3],:],q("fitted")) < 1e-8
+        @test golden_relative_error(fitted_bands(f;curves=subjects[1:3]).variance,q("variance")) < 1e-8
         @test f.basis.values'*(f.weights .* f.basis.values) ≈ I atol=1e-12
         @test f.settings.knot_sequence ≈ vec(q("knots")) rtol=1e-14
         @test f.covariance.coefficient_root*f.covariance.coefficient_root' ≈ q("theta") rtol=1e-8
@@ -61,8 +53,8 @@ using DelimitedFiles
             append!(predicted, FDA._face_sparse_mean_values(full.settings.mean,t)+phi*scores(full)[i,:])
             append!(variance,diag(phi*score_covariances(full)[:,:,i]*phi'))
         end
-        @test relerr(predicted,vec(q("source_prediction"))) < 1e-8
-        @test relerr(variance,vec(q("source_variance"))) < 1e-8
+        @test golden_relative_error(predicted,vec(q("source_prediction"))) < 1e-8
+        @test golden_relative_error(variance,vec(q("source_variance"))) < 1e-8
         # Plot data and recipes consume ordinary FPCA fields without a new path.
         @test fitted_curve_data(f,1).method == :face
         @test mean_data(f).values ≈ vec(f.mean.values)

@@ -1,13 +1,10 @@
-using Test, LinearAlgebra, DelimitedFiles
+using Test, LinearAlgebra
 using FunctionalDataAnalysis
 import StatsAPI
 
 function mfpca_fixture()
-    table = readdlm(joinpath(@__DIR__, "data", "m4_mfpca_input.csv"), ','; comments=true)
-    function matrix(quantity, node)
-        rows = table[(table[:, 1] .== quantity) .& (table[:, 2] .== node), :]
-        reshape(Float64.(rows[:, 5]), Int(maximum(rows[:, 3])), Int(maximum(rows[:, 4])))
-    end
+    table = golden_read("m4_mfpca_input.csv")
+    matrix(quantity, node) = golden_matrix5(table,quantity,node)
     labels = ["mfpca-$i" for i in 1:24]
     data = MultivariateFunctionalData([GridFunctionalData(matrix("value", j),
         vec(matrix("grid", j)); ids=labels) for j in 1:3])
@@ -39,13 +36,8 @@ end
 
     @testset "R MFPCA 1.3-11: given expansions and cross-method uFPCA" begin
         fixture = mfpca_fixture()
-        golden = readdlm(joinpath(@__DIR__, "data", "m4_mfpca.csv"), ','; comments=true)
-        function reference(mode, quantity, node=0)
-            a = golden[(golden[:, 1] .== mode) .& (golden[:, 2] .== quantity) .&
-                (golden[:, 3] .== node), :]
-            reshape(Float64.(a[:, 6]), Int(maximum(a[:, 4])), Int(maximum(a[:, 5])))
-        end
-        relative(a, b) = norm(a-b)/norm(b)
+        golden = golden_read("m4_mfpca.csv")
+        reference(mode, quantity, node=0) = golden_matrix6(golden,mode,quantity,node)
         strict_errors, cross_errors = Float64[], Float64[]
         for mode in ("given_unit", "given_weighted", "cross_method")
             weights = mode == "given_unit" ? ones(3) : [0.7, 1.5, 2.2]
@@ -66,21 +58,21 @@ end
             # residuals in both smoothers' unpenalized spaces, so it is exact
             # up to numerical error and uses the same strict tolerance.
             tolerance = 1e-8
-            push!(errors, relative(eigvals(fitted), vec(reference(mode, "eigenvalue"))))
-            push!(errors, relative(scores(fitted) .* signs', reference(mode, "score")))
+            push!(errors, golden_relative_error(eigvals(fitted), vec(reference(mode, "eigenvalue"))))
+            push!(errors, golden_relative_error(scores(fitted) .* signs', reference(mode, "score")))
             if mode != "cross_method"
-                push!(errors, relative(fitted.coefficients, reference(mode, "coefficient")))
+                push!(errors, golden_relative_error(fitted.coefficients, reference(mode, "coefficient")))
                 for j in 1:3
-                    @test relative(scores(component(fitted, j)), fixture.matrix("score", j)) < 1e-8
-                    @test relative(eigenfunctions(component(fitted, j)).values,
+                    @test golden_relative_error(scores(component(fitted, j)), fixture.matrix("score", j)) < 1e-8
+                    @test golden_relative_error(eigenfunctions(component(fitted, j)).values,
                         fixture.matrix("function", j)) < 1e-8
                 end
             end
             recovered = reconstruct(fitted)
             for j in 1:3
-                push!(errors, relative(eigenfunctions(fitted)[j].values .* signs',
+                push!(errors, golden_relative_error(eigenfunctions(fitted)[j].values .* signs',
                     reference(mode, "function", j)))
-                push!(errors, relative(component(recovered, j).values, reference(mode, "fit", j)))
+                push!(errors, golden_relative_error(component(recovered, j).values, reference(mode, "fit", j)))
             end
             @test maximum(errors) < tolerance
         end
@@ -204,27 +196,22 @@ end
         @test StatsAPI.predict(fitted, subset) ≈ scores(fitted)[2:5, :] atol=1e-13
         @test ids(reconstruct(fitted)) == ids(data)
 
-        golden = readdlm(joinpath(@__DIR__, "data", "m4_mfpca_pace.csv"), ','; comments=true)
-        function reference(mode, quantity, node=0)
-            rows = golden[(golden[:, 1] .== mode) .& (golden[:, 2] .== quantity) .&
-                (golden[:, 3] .== node), :]
-            reshape(Float64.(rows[:, 6]), Int(maximum(rows[:, 4])), Int(maximum(rows[:, 5])))
-        end
-        relative(a, b) = norm(a-b)/norm(b)
+        golden = golden_read("m4_mfpca_pace.csv")
+        reference(mode, quantity, node=0) = golden_matrix6(golden,mode,quantity,node)
         errors = Float64[]
         for (mode, weights) in (("given_pace_unit", ones(2)),
                 ("given_pace_weighted", [0.8, 1.4]))
             result = StatsAPI.fit(MFPCA, data; ncomponents=2, univariate=options, weights)
-            push!(errors, relative(eigvals(result), vec(reference(mode, "eigenvalue"))))
-            push!(errors, relative(result.coefficients, reference(mode, "coefficient")))
-            push!(errors, relative(result.settings.normalization_factors,
+            push!(errors, golden_relative_error(eigvals(result), vec(reference(mode, "eigenvalue"))))
+            push!(errors, golden_relative_error(result.coefficients, reference(mode, "coefficient")))
+            push!(errors, golden_relative_error(result.settings.normalization_factors,
                 vec(reference(mode, "normalization_factor"))))
-            push!(errors, relative(scores(result), reference(mode, "score")))
+            push!(errors, golden_relative_error(scores(result), reference(mode, "score")))
             recovered = reconstruct(result)
             for j in 1:2
-                push!(errors, relative(eigenfunctions(result)[j].values,
+                push!(errors, golden_relative_error(eigenfunctions(result)[j].values,
                     reference(mode, "function", j)))
-                push!(errors, relative(component(recovered, j).values, reference(mode, "fit", j)))
+                push!(errors, golden_relative_error(component(recovered, j).values, reference(mode, "fit", j)))
             end
             @test maximum(errors) < 1e-8
         end

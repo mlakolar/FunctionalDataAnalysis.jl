@@ -1,26 +1,20 @@
 import StatsAPI
-using DelimitedFiles
 import RecipesBase
 
 @testset "FACE: refund 0.1-40 and L2 conversion" begin
     FDA = FunctionalDataAnalysis
-    readface(name) = readdlm(joinpath(@__DIR__, "data", "m6_$(name).csv"), ','; comments=true)
+    readface(name) = golden_read("m6_$(name).csv")
     input = readface("face_input")
     grid = input[:, 1]
     Y = permutedims(input[:, 2:end])
     n, J = size(Y)
     fd = GridFunctionalData(Y, grid; ids=["face-$i" for i in axes(Y, 1)])
-    relerr(x, y) = norm(x-y)/norm(y)
-    reference(case) = readdlm(joinpath(@__DIR__, "data", "m6_face_$(case).csv"), ',', Any; comments=true)
-    function quantity(golden, name)
-        rows = golden[golden[:, 1] .== name, :]
-        isempty(rows) && return zeros(0, 0)
-        reshape(Float64.(rows[:, 4]), Int(maximum(rows[:, 2])), Int(maximum(rows[:, 3])))
-    end
+    reference(case) = golden_read("m6_face_$(case).csv", Any)
+    quantity(golden, name) = golden_matrix4(golden,name;allow_empty=true)
 
-    ps = readdlm(joinpath(@__DIR__, "data", "m6_pspline.csv"), ',', Any; comments=true)
+    ps = golden_read("m6_pspline.csv", Any)
     setting = FDA._pspline_setting(grid, 35, 3, 2)
-    @test relerr(setting.B, quantity(ps, "basis")) < 1e-8
+    @test golden_relative_error(setting.B, quantity(ps, "basis")) < 1e-8
     @test setting.P == quantity(ps, "penalty")
     @test setting.knots ≈ vec(quantity(ps, "knots")) rtol=1e-14
     @test nbasis(setting.basis) == 38
@@ -53,21 +47,21 @@ import RecipesBase
         @test model.method == :face
         _test_prediction_contract(model, data)
         @test nobs(model) == n
-        @test relerr(vec(model.mean.values), vec(q("mean"))) < 1e-8
+        @test golden_relative_error(vec(model.mean.values), vec(q("mean"))) < 1e-8
         if case != "package_mean"
             @test model.settings.mean.input.values == supplied.values
             @test model.settings.mean.input.values !== supplied.values
         end
-        @test relerr(eigvals(model), vec(q("eigenvalue"))) < 1e-8
-        @test relerr(model.basis.values, q("eigenfunction")) < 1e-8
-        @test relerr(scores(model), q("score")) < 1e-8
+        @test golden_relative_error(eigvals(model), vec(q("eigenvalue"))) < 1e-8
+        @test golden_relative_error(model.basis.values, q("eigenfunction")) < 1e-8
+        @test golden_relative_error(scores(model), q("score")) < 1e-8
         @test noise_variance(model) ≈ only(q("sigma2")) rtol=1e-8
         @test !model.settings.noise_floor_applied
         @test model.settings.raw_noise_variance == noise_variance(model)
         @test model.settings.lambda ≈ only(q("lambda")) rtol=1e-8
-        @test relerr(model.settings.gcv_scores, vec(q("gcv"))) < 1e-8
+        @test golden_relative_error(model.settings.gcv_scores, vec(q("gcv"))) < 1e-8
         fitted_curves = Int.(vec(q("fitted_curves")))
-        @test relerr(reconstruct(model).values[fitted_curves, :], q("fitted")) < 1e-8
+        @test golden_relative_error(reconstruct(model).values[fitted_curves, :], q("fitted")) < 1e-8
         @test model.basis.values' * (model.weights .* model.basis.values) ≈ I atol=2e-12
         @test model.settings.imputation.iterations == only(q("iterations"))
         @test model.settings.imputation.converged
@@ -75,7 +69,7 @@ import RecipesBase
         if case == "missing"
             completed[.!data.observed] = vec(q("imputed"))
         end
-        @test relerr(model.settings.imputation.completed_centered, completed) < 1e-8
+        @test golden_relative_error(model.settings.imputation.completed_centered, completed) < 1e-8
         prediction = StatsAPI.predict(model, data)
         @test prediction.scores == scores(model)
         @test prediction.covariances == score_covariances(model)
@@ -96,7 +90,7 @@ import RecipesBase
         @test scree_data(model).eigenvalues ≈ model.all_eigenvalues
 
         bands = fitted_bands(model; curves=[1, 3])
-        @test relerr(vec(bands.variance[1, :]), vec(q("posterior_variance"))) < 1e-8
+        @test golden_relative_error(vec(bands.variance[1, :]), vec(q("posterior_variance"))) < 1e-8
         @test norm(q("posterior_variance")-q("refund_variance")) > 1e-4
         # Independent observation-space posterior, without the precision solve.
         Phi = model.basis.values
@@ -122,15 +116,15 @@ import RecipesBase
                     reference_score[:,k] .*= -1
                 end
             end
-            @test relerr(eigvals(raw), vec(q("refund_eigenvalue"))*delta) < 1e-8
-            @test relerr(raw.basis.values, reference_phi) < 1e-8
-            @test relerr(scores(raw), reference_score) < 1e-8
-            @test relerr(reconstruct(raw).values[fitted_curves, :], q("refund_fitted")) < 1e-8
+            @test golden_relative_error(eigvals(raw), vec(q("refund_eigenvalue"))*delta) < 1e-8
+            @test golden_relative_error(raw.basis.values, reference_phi) < 1e-8
+            @test golden_relative_error(scores(raw), reference_score) < 1e-8
+            @test golden_relative_error(reconstruct(raw).values[fitted_curves, :], q("refund_fitted")) < 1e-8
             PhiR = raw.basis.values*sqrt(delta)
             SigmaR = eigvals(raw)/(delta*length(grid))
             refund_cov = noise_variance(raw)*PhiR *
                 ((PhiR'PhiR + noise_variance(raw)*Diagonal(SigmaR)) \ PhiR')
-            @test relerr(diag(refund_cov), vec(q("refund_diag_var"))) < 1e-8
+            @test golden_relative_error(diag(refund_cov), vec(q("refund_diag_var"))) < 1e-8
             @test norm(fitted_bands(raw; curves=[1]).variance[1,:]-diag(refund_cov)) > 1e-4
         end
     end

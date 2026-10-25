@@ -1,6 +1,5 @@
 import KernelSmoothing
 import StatsAPI
-using DelimitedFiles
 
 @testset "Sample cross-covariance" begin
     g1, g2 = [0., .3, 1.], [-1., 2.]
@@ -41,23 +40,19 @@ using DelimitedFiles
 end
 
 @testset "Smoothed cross-covariance" begin
-    input = readdlm(joinpath(@__DIR__, "data", "m4_cross_input.csv"), ','; comments=true)
-    nodes = map(1:2) do node
-        rows = input[input[:,1] .== node, :]
-        IrregularFunctionalData([Float64.(rows[rows[:,2] .== i, 3]) for i in 1:12],
-            [Float64.(rows[rows[:,2] .== i, 4]) for i in 1:12]; ids=1:12)
-    end
+    input = golden_read("m4_cross_input.csv")
+    nodes = [golden_sparse4(input,node;subjects=1:12,ids=1:12) for node in 1:2]
     x, y = nodes
     g1, g2 = collect(range(0., 1.; length=51)), collect(range(0., 1.; length=51))
     m1 = GridFunctionalData(reshape(1 .+ g1, 1, :), g1)
     m2 = GridFunctionalData(reshape(-.2 .+ .3g2, 1, :), g2)
-    golden = readdlm(joinpath(@__DIR__, "data", "m4_fdapace_crosscov.csv"), ','; comments=true)
+    golden = golden_read("m4_fdapace_crosscov.csv")
     kernel = KernelSmoothing.EpanechnikovKernel()
     for exclude_same_time in (false, true)
         c = @inferred StatsAPI.fit(SmoothedCrossCovariance, x, y, m1, m2;
             grid1=g1, grid2=g2, bandwidth=(.55,.8), kernel, exclude_same_time)
         expected = reshape(golden[golden[:,1] .== Int(exclude_same_time), 6], 51, 51)
-        relative_error = norm(c.surface-expected)/norm(expected)
+        relative_error = golden_relative_error(c.surface,expected)
         @test relative_error < 1e-8
         if get(ENV, "FDA_M4_CROSS_REPORT", "false") == "true"
             @info "GetCrCovYX relative error" exclude_same_time relative_error

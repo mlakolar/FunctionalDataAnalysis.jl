@@ -4,16 +4,14 @@ import StatsAPI
 import KernelSmoothing
 
 function bands_fixture(; K=3, scalar=Float64)
-    readfixture(name) = scalar.(readdlm(joinpath(@__DIR__, "data", name), ','; comments=true))
+    readfixture(name) = scalar.(golden_read(name))
     input = readfixture("m3_sparse_input.csv")
     mean_input = readfixture("m3_sparse_mean.csv")
     surface = readfixture("m3_sparse_surface.csv")
     sigma2 = only(readfixture("m3_sparse_noise.csv"))
     grid = mean_input[:, 1]
     n = Int(maximum(input[:, 1]))
-    times = [input[input[:, 1] .== i, 2] for i in 1:n]
-    values = [input[input[:, 1] .== i, 3] for i in 1:n]
-    fd = IrregularFunctionalData(times, values)
+    fd = golden_sparse3(input;subjects=1:n,scalar)
     model = StatsAPI.fit(FPCA, fd; grid, mean=(; grid, values=mean_input[:, 2]),
         covariance=(; grid, surface), noise_variance=sigma2, ncomponents=K, max_k=5,
         eigen_tol=scalar === Float32 ? 1e-5 : 1e-10)
@@ -22,12 +20,12 @@ end
 
 @testset "Confidence bands" begin
     @testset "R critical values and fdapace 0.6.0 golden bands" begin
-        golden_q = readdlm(joinpath(@__DIR__, "data", "m5_chisq.csv"), ','; comments=true)
+        golden_q = golden_read("m5_chisq.csv")
         for (K, alpha, expected) in eachrow(golden_q)
             actual = FunctionalDataAnalysis._chisq_upper_quantile(Int(K), alpha)
             @test abs(actual / expected - 1) < 1e-10
         end
-        golden = readdlm(joinpath(@__DIR__, "data", "m5_fdapace_bands.csv"), ',', Any; comments=true)
+        golden = golden_read("m5_fdapace_bands.csv", Any)
         for K in (1, 3, 5)
             f = bands_fixture(; K)
             for coverage in (:interval, :band)
@@ -35,7 +33,7 @@ end
                 ref = golden[(golden[:, 1] .== String(coverage)) .& (golden[:, 2] .== K), :]
                 for (field, col) in ((:fitted, 5), (:lower, 6), (:upper, 7))
                     expected = permutedims(reshape(Float64.(ref[:, col]), length(f.grid), nobs(f.fd)))
-                    @test norm(getproperty(b, field) - expected) / norm(expected) < 1e-8
+                    @test golden_relative_error(getproperty(b, field),expected) < 1e-8
                 end
                 @test b.ncomponents == K && b.alpha == 0.05 && b.coverage == coverage
                 @test b.method == :pace && b.curves == collect(1:nobs(f.fd))

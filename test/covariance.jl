@@ -1,6 +1,5 @@
 import KernelSmoothing
 import StatsAPI
-using DelimitedFiles
 
 @testset "Covariance with an FPCA grid mean" begin
     grid = [0., .3, .7, 1.]
@@ -19,11 +18,11 @@ using DelimitedFiles
 end
 
 @testset "Noise methods: fdapace 0.6.0 PC_CovE" begin
-    input = readdlm(joinpath(@__DIR__, "data", "m2_input.csv"), ','; comments=true)
-    times = [Float64.(input[input[:,1] .== i,2]) for i in 1:4]
-    ys = [Float64.(input[input[:,1] .== i,3]) for i in 1:4]
+    input = golden_read("m2_input.csv")
+    observations = golden_observations3(input;subjects=1:4)
+    times, ys = observations.times, observations.values
     fd = IrregularFunctionalData(times, ys)
-    golden = readdlm(joinpath(@__DIR__, "data", "m5_fdapace_sigma2.csv"), ',', Any; comments=true)
+    golden = golden_read("m5_fdapace_sigma2.csv", Any)
     grids = (aligned=collect(0.:.125:1.), unaligned=[0., .18, .31, .56, .69, .84, 1.],
         extended=[-.1, .1, .35, .55, .7, .9, 1.1])
     for weighting in (:obs, :subj)
@@ -46,7 +45,7 @@ end
                     ("observed_diagonal", c.noise_details.diagonal[indexin(c.noise_details.integration_grid, grid)]))
                 selected = rows .& (golden[:,6] .== quantity)
                 expected = Float64.(golden[selected,9])
-                @test norm(actual - expected)/norm(expected) < 1e-8
+                @test golden_relative_error(actual,expected) < 1e-8
                 @test c.noise_details.integration_grid == Float64.(golden[selected,8])
             end
             @test c.noise_details.domain == (0., 1.)
@@ -160,11 +159,11 @@ end
 end
 
 @testset "Pooled covariance" begin
-    input = readdlm(joinpath(@__DIR__, "data", "m2_input.csv"), ','; comments=true)
-    times = [Float64.(input[input[:,1] .== i,2]) for i in 1:4]
-    ys = [Float64.(input[input[:,1] .== i,3]) for i in 1:4]
+    input = golden_read("m2_input.csv")
+    observations = golden_observations3(input;subjects=1:4)
+    times, ys = observations.times, observations.values
     fd = IrregularFunctionalData(times, ys)
-    golden = readdlm(joinpath(@__DIR__, "data", "m2_fdapace_cov.csv"), ',', Any; comments=true)
+    golden = golden_read("m2_fdapace_cov.csv", Any)
     grid = collect(0.0:.125:1.0)
     for weighting in (:obs, :subj)
         # The fixture centers at direct mean estimates: store the mean at every
@@ -173,7 +172,7 @@ end
         c = @inferred StatsAPI.fit(SmoothedCovariance, fd, m; diagonal_bandwidth=.65, grid, bandwidth=.65, weighting)
         rows = golden[:,1] .== string(weighting)
         expected = reshape(Float64.(golden[rows,5]), length(grid), length(grid))
-        @test norm(c.surface - expected)/norm(expected) < 1e-8
+        @test golden_relative_error(c.surface,expected) < 1e-8
         @test c.surface == transpose(c.surface)
         @test (@inferred noise_variance(c)) == c.noise_variance
         @test c.weights == quadrature_weights(grid)

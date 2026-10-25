@@ -1,22 +1,14 @@
 import StatsAPI
 import KernelSmoothing
-using DelimitedFiles
 
 @testset "Multivariate FPCA FGM reference values" begin
-    reference(table, basis, quantity, node=0) = Float64.(table[
-        (table[:, 1] .== basis) .& (table[:, 2] .== quantity) .&
-        (table[:, 3] .== node), 6])
+    reference(table, basis, quantity, node=0) = golden_values6(table,basis,quantity,node)
     observed_errors = Float64[]
-    function relative_error(actual, expected)
-        error = norm(actual - expected) / norm(expected)
-        push!(observed_errors, error)
-        error
-    end
+    relative_error(actual, expected) = golden_relative_error(observed_errors,actual,expected)
     aligned_signs(actual, expected) = sign.(vec(sum(actual .* expected; dims=1)))
 
     @testset "Dense marginal and pooled" begin
-        golden = readdlm(joinpath(@__DIR__, "data", "m4_fgm_dense.csv"), ',';
-            comments=true)
+        golden = golden_read("m4_fgm_dense.csv")
         grid = reference(golden, "input", "grid")
         p = Int(maximum(golden[golden[:, 2] .== "value", 3]))
         n = Int(maximum(golden[golden[:, 2] .== "value", 4]))
@@ -56,22 +48,13 @@ using DelimitedFiles
 
     @testset "Sparse marginal conditional scores" begin
         empty!(observed_errors)
-        golden = readdlm(joinpath(@__DIR__, "data", "m4_fgm_sparse.csv"), ',';
-            comments=true)
+        golden = golden_read("m4_fgm_sparse.csv")
         grid = reference(golden, "input", "grid")
         input = golden[golden[:, 1] .== "input", :]
         n = Int(maximum(input[input[:, 2] .== "value", 4]))
         p = Int(maximum(input[input[:, 2] .== "value", 3]))
         labels = ["fgm-sparse-$i" for i in 1:n]
-        nodes = [begin
-            rows = input[:, 3] .== j
-            node = input[rows, :]
-            times = [Float64.(node[(node[:, 2] .== "time") .&
-                (node[:, 4] .== i), 6]) for i in 1:n]
-            values = [Float64.(node[(node[:, 2] .== "value") .&
-                (node[:, 4] .== i), 6]) for i in 1:n]
-            IrregularFunctionalData(times, values; ids=labels)
-        end for j in 1:p]
+        nodes = [golden_sparse6(input,"input",j;subjects=1:n,ids=labels) for j in 1:p]
         noise = [only(reference(golden, "input", "noise_variance", j)) for j in 1:p]
         # Match FGM's full positive-rank denominator and relative cutoff.
         fitted = StatsAPI.fit(FPCA, MultivariateFunctionalData(nodes);

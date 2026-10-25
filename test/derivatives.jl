@@ -138,11 +138,11 @@ end
 end
 
 function derivative_fixture(design)
-    read(name) = readdlm(joinpath(@__DIR__,"data",name),',';comments=true)
+    read(name) = golden_read(name)
     data = read("m3_$(design)_input.csv")
     n = Int(maximum(data[:,1]))
-    times = [Float64.(data[data[:,1].==i,2]) for i in 1:n]
-    values = [Float64.(data[data[:,1].==i,3]) for i in 1:n]
+    observations = golden_observations3(data;subjects=1:n)
+    times, values = observations.times, observations.values
     if design=="dense"
         fd = GridFunctionalData(permutedims(hcat(values...)),first(times);ids=collect(1:n))
         f = StatsAPI.fit(FPCA,fd;ncomponents=3,max_k=5)
@@ -157,25 +157,24 @@ function derivative_fixture(design)
 end
 
 @testset "FPCA derivative reference and interface" begin
-    golden = readdlm(joinpath(@__DIR__,"data","m5_fdapace_der.csv"),',',Any;comments=true)
-    relative(actual,expected) = norm(actual-expected)/norm(expected)
+    golden = golden_read("m5_fdapace_der.csv", Any)
     for design in ("dense","sparse")
         fd,f = derivative_fixture(design)
-        ref(method,quantity) = Float64.(golden[(golden[:,1].==design).&(golden[:,2].==method).&(golden[:,3].==quantity),6])
+        ref(method,quantity) = golden_derivative_values6(golden,design,method,quantity)
         # Native DPC re-estimates the pooled mean even with a supplied mean.
         # Compare that quantity directly, independently of the DPC score prior.
         native_mean = StatsAPI.fit(SmoothedMean, fd; grid=f.grid, bandwidth=.12,
             kernel=KernelSmoothing.GaussianKernel(), derivative=1, degree=2)
-        @test relative(native_mean.values, ref("native_DPC", "mean")) < 1e-8
+        @test golden_relative_error(native_mean.values, ref("native_DPC", "mean")) < 1e-8
         for (method,nu,key) in ((:FPC,1,"FPC_order1"),(:FPC,2,"FPC_order2"),(:DPC,1,"DPC"))
             d = method===:FPC ? derivative(f,nu;mean_bandwidth=.12,covariance_bandwidth=.15) :
                 derivative(f,nu;method,mean_bandwidth=.12,covariance_bandwidth=.15,ncomponents=3)
             @test d isa FPCADerivative && d.method==method && d.order==nu
-            @test relative(vec(d.mean.values),ref(key,"mean")) < 1e-8
-            @test relative(d.basis.values,reshape(ref(key,"functions"),length(f.grid),:)) < 1e-8
-            @test relative(eigvals(d),ref(key,"eigenvalues")) < 1e-8
-            @test relative(scores(d),reshape(ref(key,"scores"),nobs(f),:)) < 1e-8
-            @test relative(reconstruct(d).values,reshape(ref(key,"curves"),nobs(f),:)) < 1e-8
+            @test golden_relative_error(vec(d.mean.values),ref(key,"mean")) < 1e-8
+            @test golden_relative_error(d.basis.values,reshape(ref(key,"functions"),length(f.grid),:)) < 1e-8
+            @test golden_relative_error(eigvals(d),ref(key,"eigenvalues")) < 1e-8
+            @test golden_relative_error(scores(d),reshape(ref(key,"scores"),nobs(f),:)) < 1e-8
+            @test golden_relative_error(reconstruct(d).values,reshape(ref(key,"curves"),nobs(f),:)) < 1e-8
             @test ids(d)==ids(f) && ids(reconstruct(d))==ids(f)
             @test d.scores !== f.scores && d.basis.values !== f.basis.values
             @test ids(reconstruct(d,copy(scores(d)))) === nothing
@@ -188,21 +187,21 @@ end
                 @test scores(d)==scores(f) && eigvals(d)==eigvals(f)
                 @test score_covariances(d)==score_covariances(f)
             else
-                @test relative(d.settings.derivative_covariance,
+                @test golden_relative_error(d.settings.derivative_covariance,
                     reshape(ref(key,"covariance"),length(f.grid),:)) < 1e-8
                 @test transpose(d.basis.values)*(d.weights.*d.basis.values) ≈ I atol=1e-12
                 if design=="sparse"
                     for i in 1:nobs(f)
-                        @test relative(score_covariances(d)[:,:,i],
+                        @test golden_relative_error(score_covariances(d)[:,:,i],
                             reshape(ref(key,"score_covariance_$i"),3,3)) < 1e-8
                         @test minimum(eigvals(Symmetric(score_covariances(d)[:,:,i]))) > -1e-10
                     end
                     # Native DPC is a different, recorded quantity, not the aligned oracle.
-                    @test relative(d.eigenvalues,ref("native_DPC","eigenvalues")[1:3]) > 1e-3
+                    @test golden_relative_error(d.eigenvalues,ref("native_DPC","eigenvalues")[1:3]) > 1e-3
                 else
                     # On a common grid, differentiating the stored sample mean
                     # also equals native DPC's pooled derivative mean.
-                    @test relative(vec(d.mean.values), ref("native_DPC", "mean")) < 1e-8
+                    @test golden_relative_error(vec(d.mean.values), ref("native_DPC", "mean")) < 1e-8
                     @test score_covariances(d) === nothing
                     @test eigvals(d) ≈ vec(sum(abs2,scores(d);dims=1))/(nobs(d)-1) rtol=1e-10
                 end
