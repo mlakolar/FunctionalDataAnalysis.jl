@@ -260,6 +260,21 @@ end
         end
         @test_throws ArgumentError StatsAPI.fit(FPCA,fd[1:2];lambda=cv,ncomponents=1)
         @test_throws ArgumentError StatsAPI.fit(FunctionalCCA,fd[1:2];lambda=LambdaCV([0.,1.]))
+        @test sprint(show, cv) == "LambdaCV([0.0, 1.0])"
+        @test eltype(f.basis) == Float64
+        @test nbasis(f.basis) == 2
+        mono = BasisFunctionalData(C[:,1:2], MonomialBasis((0.,1.),1))
+        @test StatsAPI.fit(FPCA,mono;ncomponents=1).settings.penalty == 0
+        @test_throws r"explicit penalty" FunctionalDataAnalysis._default_fpca_penalty(f.basis)
+        @test_throws r"LambdaCV candidate 0.5 failed in held-out curve 3" FunctionalDataAnalysis._basis_cv_error(
+            PosDefException(1), 0.5, 3)
+        @test_throws KeyError try
+            throw(KeyError(:x))
+        catch err
+            FunctionalDataAnalysis._basis_cv_error(err, 0.5, 3)
+        end
+        cca = StatsAPI.fit(FunctionalCCA,fd;ncan=1)
+        @test sprint(show, MIME"text/plain"(), cca) == sprint(show, cca)
         @test_throws ArgumentError StatsAPI.predict(f,to_grid(fd,f.grid))
         @test_throws ArgumentError StatsAPI.predict(f,BasisFunctionalData(C,BSplineBasis(3,(0,1),4)))
         @test_throws ArgumentError StatsAPI.predict(StatsAPI.fit(FPCA,to_grid(fd,f.grid);method=:dense),fd)
