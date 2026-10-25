@@ -143,13 +143,24 @@ function _face_initial_curve(t, y, targets)
     XtX = transpose(X)*X
     inner = 3:(nbasis(basis)-3)
     ratio = sum(diag(XtX)[inner])/sum(diag(P)[inner])
-    raw = GridFunctionalData(reshape(y, 1, :), x)
-    criterion(spar) = only(_gcv_selection(raw, basis, 2, [ratio*16.0^(6spar-2)]).scores)
+    # Scalar search changes only lambda. Reuse this integrated-derivative
+    # design and its products, independently of FACE's difference penalty.
+    yy = Vector{eltype(X)}(y)
+    Xty = transpose(X)*yy
+    function criterion(spar)
+        score = _spline_gcv_score(X, yy, XtX, P, Xty, ratio*16.0^(6spar-2))
+        isfinite(score) || throw(ArgumentError(
+            "GCV has no admissible lambda: use more observations, fewer basis functions, or a positive penalty"))
+        score
+    end
     spar = _spline_gcv_search(criterion)
     lambda = ratio*16.0^(6spar-2)
-    smoothed = smooth_curves(raw, PenalizedSpline(basis; lambda))
+    factor = cholesky(Symmetric(XtX + lambda*P); check=false)
+    isposdef(factor) || throw(ArgumentError("penalized basis fit is singular for curve 1"))
+    coefs = factor \ Xty
     out = fill(sum(y)/length(y), length(targets))
     inside = findall(z -> a <= z <= b, targets)
-    out[inside] = vec(evaluate(smoothed, (targets[inside] .- a) ./ (b-a)))
+    target_design = basis_matrix(basis, (targets[inside] .- a) ./ (b-a))
+    out[inside] = vec(reshape(coefs, 1, :) * transpose(target_design))
     (; values=out, lambda, spar, knots=copy(cubic.breakpoints))
 end

@@ -193,45 +193,43 @@ function smooth_curves(fd::Union{GridFunctionalData,IrregularFunctionalData},
     GridFunctionalData(out, x; ids=fd.ids, metadata)
 end
 
+# Score an already prepared curve. Invalid candidates retain GCV's Inf policy;
+# direct spline fits still diagnose singular systems in to_basis.
+function _spline_gcv_score(X, y, XtX, P, Xty, lambda)
+    T = eltype(X)
+    n, k = size(X)
+    if lambda == 0
+        factor = qr(X, ColumnNorm())
+        diagonal = abs.(diag(factor.R))
+        tol = max(size(X)...) * eps(T) * maximum(diagonal)
+        (n < k || count(>(tol), diagonal) < k) && return T(Inf)
+        c = factor \ y
+        df = T(k)
+    else
+        factor = cholesky(Symmetric(XtX + T(lambda) * P); check=false)
+        isposdef(factor) || return T(Inf)
+        c = factor \ Xty
+        df = tr(factor \ XtX)
+    end
+    residual_df = n - df
+    residual_df <= sqrt(eps(T)) * n ? T(Inf) :
+        n * sum(abs2, y - X * c) / residual_df^2
+end
+
 function _gcv_selection(fd, basis, order, candidates)
     T = promote_type(eltype(fd), eltype(basis), eltype(candidates))
     scores = zeros(T, length(candidates))
     P = Matrix{T}(penalty(basis, order))
-    k = nbasis(basis)
     for i in 1:nobs(fd)
         t, y = fd[i]
         isempty(t) && throw(ArgumentError("curve $i has no observed values for GCV"))
         X = Matrix{T}(basis_matrix(basis, t))
         yy = Vector{T}(y)
-        n = length(y)
         XtX = transpose(X) * X
+        Xty = transpose(X) * yy
         for (j, lambda) in enumerate(candidates)
             isfinite(scores[j]) || continue
-            if lambda == 0
-                factor = qr(X, ColumnNorm())
-                diagonal = abs.(diag(factor.R))
-                tol = max(size(X)...) * eps(T) * maximum(diagonal)
-                if n < k || count(>(tol), diagonal) < k
-                    scores[j] = T(Inf)
-                    continue
-                end
-                c = factor \ yy
-                df = T(k)
-            else
-                factor = cholesky(Symmetric(XtX + T(lambda) * P); check=false)
-                if !isposdef(factor)
-                    scores[j] = T(Inf)
-                    continue
-                end
-                c = factor \ (transpose(X) * yy)
-                df = tr(factor \ XtX)
-            end
-            residual_df = n - df
-            if residual_df <= sqrt(eps(T)) * n
-                scores[j] = T(Inf)
-            else
-                scores[j] += n * sum(abs2, yy - X * c) / residual_df^2
-            end
+            scores[j] += _spline_gcv_score(X, yy, XtX, P, Xty, lambda)
         end
     end
     j = argmin(scores)

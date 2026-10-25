@@ -210,7 +210,9 @@ Do not combine a supplied mean with a mean smoother or `center=false`.
 
 Missing values initialize curve by curve with the default reduced knot count
 and spar GCV search of R **stats 4.5.1** `smooth.spline`. The implementation
-reuses `smooth_curves` with an internal initialization basis. Its penalty
+uses the same integrated-penalty fitting and GCV algebra as `smooth_curves`,
+preparing each curve's design and matrix products once for the scalar search
+and final fit. Its internal initialization basis penalty
 preserves `stats/src/sgram.f`'s legacy `0.3330` coefficient in place of exact
 `1/3`; ordinary spline fits retain exact integrated penalties. Outside a
 curve's observed time range, refund initializes with that curve's observed
