@@ -68,8 +68,8 @@ function _dataset_artifact()
     try
         artifact"fda_datasets"
     catch err
-        throw(ErrorException("could not install the FDA datasets artifact. Its release URL may " *
-            "still be a placeholder; see data/DATASETS_REPORT.md for publishing steps. " *
+        throw(ErrorException("could not download the FDA datasets artifact from the " *
+            "datasets-v1 GitHub release. " *
             "Use load_dataset(name; sample=true) for offline samples. Original error: " *
             sprint(showerror, err)))
     end

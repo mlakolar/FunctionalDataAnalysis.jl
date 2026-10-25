@@ -26,6 +26,15 @@ using Pkg
 Pkg.add(url = "https://github.com/mlakolar/FunctionalDataAnalysis.jl")
 ```
 
+## Licence
+
+The package code is MIT-licensed (see `LICENSE`). The datasets loaded by
+`load_dataset` keep their upstream terms: growth, Canadian weather and gait
+(R fda 6.3.0), CD4 and DTI (R refund 0.1-40) are GPL (>= 2), and Tecator
+(fda.usc 2.2.0, GPL-2) is redistributed under its original StatLib permission
+note. The licence texts and notes ship with the data in `data/licenses` and in
+the artifact.
+
 ## Roadmap
 
 - Milestone 0: package skeleton, CI, docs.
