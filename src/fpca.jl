@@ -109,6 +109,38 @@ those scores, correcting refund's use of eigenvalues in place of their
 inverses. Simultaneous FACE bands are unsupported. See the FPCA documentation
 for the source audit and exact scale and variance formulas.
 
+For `IrregularFunctionalData`, `method=:face` fits sparse FACE (Xiao, Li,
+Checkley and Crainiceanu, 2018), following face 0.1-8 `face.sparse`.
+`:auto` still selects PACE. Sparse `face` defaults are `knots=7` equal
+intervals (six strictly interior knots), `p=3`, `m=2`, `center=true`,
+`lambda=nothing`, and `loglambda=range(-3,10; length=14)`. Knots span the
+observed range expanded by 0.1% at each end. `grid=nothing` uses 100 equally
+spaced points across the observed range; an override must cover all observations
+and stay within that range, with full spline rank. `maxK` defaults to `knots+p`.
+The reference's `gcv` approximates leave-one-subject-out squared prediction
+error to first order, omitting the constant sum of squared raw products.
+It fits the covariance and noise jointly, including diagonal raw products.
+Its explicit covariance ridge is `1e-6*maximum(eigvals(X'X))`, recorded in
+`settings.covariance_ridge`. Negative noise estimates are truncated at zero;
+face resets estimates at or below `1e-6` to `1e-6`.
+
+Sparse FACE's estimated mean uses the shared P-spline building block with the
+same interval count, cubic degree, second differences, and observation weights
+`1/N_i`. Its independent `lambda_mean=nothing` selects among
+`exp.(mean_loglambda)`, where `mean_loglambda=range(-20,20; length=100)`;
+these defaults come from face's `pspline`. A fixed `lambda_mean` or a supplied
+PACE-style `mean` is accepted. The mean's reference ridge rule adds `1e-6`
+when its Gram matrix has an eigenvalue at most `1e-7`; its value is stored.
+Sparse scores use exact spline evaluations and the full positive spline
+covariance in the shared conditional-expectation solver, as in
+`predict.face.sparse`. Both data representations can be predicted inside the
+work grid. Pointwise `fitted_bands` describe the selected-component posterior.
+FVE consistently uses weighted functional eigenvalues; face's component count
+instead uses coefficient-space eigenvalues. Non-default `m` consistently means
+the requested difference order; face's covariance penalty is always second
+order despite its `m` argument. `two_step` is unsupported and throws.
+All grids, criteria, ridges, signs, and component choices are stored and shown.
+
 PACE implements the conditional-expectation method of Yao, Müller, and Wang
 (2005). Its work `grid` defaults to 51 equally spaced points over the observed
 time range (fdapace 0.6.0 `nRegGrid`, `SetOptions.R`). An override must cover
@@ -398,14 +430,21 @@ Base.@constprop :aggressive function fit(::Type{FPCA}, fd::GridFunctionalData; m
         nothing, deepcopy(fd.ids), deepcopy(presmooth), settings, _convert_component(T, fd))
 end
 
-function fit(::Type{FPCA}, fd::IrregularFunctionalData; method=:auto, grid=nothing,
+Base.@constprop :aggressive function fit(::Type{FPCA}, fd::IrregularFunctionalData; method=:auto, grid=nothing,
         ncomponents=FVE(0.99), maxK=nothing, presmooth=nothing,
         mean=nothing, covariance=nothing, noise_variance=nothing,
         mean_bandwidth=nothing, covariance_bandwidth=nothing, diagonal_bandwidth=nothing,
         kernel=nothing, weighting=:obs, binning=:auto, face=(;),
         eigen_tol=_FPCA_EIGEN_TOL, sign_tol=_FPCA_SIGN_TOL)
-    method == :face && throw(ArgumentError("FACE requires GridFunctionalData; sparse FACE is not implemented"))
-    face isa NamedTuple && isempty(face) || throw(ArgumentError("face settings require method=:face and GridFunctionalData"))
+    face isa NamedTuple || throw(ArgumentError("face must be a named tuple of FACE settings"))
+    if method == :face
+        (presmooth === nothing && covariance === nothing && noise_variance === nothing &&
+            mean_bandwidth === nothing && covariance_bandwidth === nothing &&
+            diagonal_bandwidth === nothing && kernel === nothing && weighting == :obs &&
+            binning === :auto) || throw(ArgumentError("sparse FACE uses its own smoothing and noise estimates; presmooth and PACE tuning are unsupported"))
+        return _fit_face_sparse(fd; grid, ncomponents, maxK, mean, eigen_tol, sign_tol, face...)
+    end
+    isempty(face) || throw(ArgumentError("face settings require method=:face"))
     method in (:auto, :dense, :pace) || throw(ArgumentError("FPCA method must be :auto, :dense, :pace, or :face"))
     method == :dense && throw(ArgumentError("dense FPCA requires complete GridFunctionalData"))
     presmooth === nothing || throw(ArgumentError("presmooth is only supported by dense FPCA; PACE smooths the pooled mean and covariance"))
@@ -494,17 +533,21 @@ mean, eigenfunctions, full projected covariance up to `maxK`, and noise
 variance. Every observation time must lie inside the work grid. Predicting
 the training data reproduces [`scores`](@ref) and [`score_covariances`](@ref).
 
-FACE returns the same named tuple, requires common-grid data on exactly the
+Common-grid FACE returns the same named tuple, requires grid data on exactly the
 training grid, and uses the selected-K posterior. New masked curves use their
 observed points; training predictions reproduce the stored completed-data
 scores. No mean or covariance is refitted.
+Sparse FACE accepts either representation within its work grid, evaluates
+the fitted splines at observation times, and uses the full positive spline
+covariance in its BLUP and selected-score covariance.
 """
 function predict(f::FPCA, fd::GridFunctionalData)
     _fpca_predict(f, fd, f.noise_variance)
 end
 
 _fpca_predict(f, fd::GridFunctionalData, ::Real) =
-    f.method === :face ? _face_predict(f, fd) : _pace_predict(f, fd)
+    f.method === :face ? (f.training_data isa IrregularFunctionalData ?
+        _face_sparse_predict(f, fd) : _face_predict(f, fd)) : _pace_predict(f, fd)
 
 function _fpca_predict(f, fd::GridFunctionalData, ::Nothing)
     length(fd.grid) == length(f.grid) || throw(DimensionMismatch("prediction grid length must match the FPCA training grid"))
@@ -517,7 +560,10 @@ function _fpca_predict(f, fd::GridFunctionalData, ::Nothing)
 end
 
 function predict(f::FPCA, fd::IrregularFunctionalData)
-    f.method === :face && throw(ArgumentError("FACE prediction requires GridFunctionalData on the training grid"))
+    if f.method === :face
+        f.training_data isa IrregularFunctionalData || throw(ArgumentError("common-grid FACE prediction requires GridFunctionalData on the training grid"))
+        return _face_sparse_predict(f, fd)
+    end
     f.noise_variance === nothing && throw(ArgumentError("irregular prediction requires a PACE FPCA fit"))
     _pace_predict(f, fd)
 end

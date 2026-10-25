@@ -6,7 +6,8 @@ Irregular and masked grid data use PACE, including designs classified as
 `:dense_irregular`. `method=:pace` also permits conditional-expectation scores
 for complete grid data. `method=:dense` requires complete common-grid data.
 Use `method=:face` explicitly for fast covariance smoothing on long common
-grids, including grids with missing observations.
+grids, including grids with missing observations, or for sparse curve-specific
+times with the sparse FACE estimator.
 
 For `GridFunctionalData`, automatic routing depends on its observed-mask
 field at runtime, so inference includes both dense and PACE result types.
@@ -116,7 +117,8 @@ FACE (Xiao, Zipunnikov, Ruppert and Crainiceanu, 2016,
 smooths covariance through a small P-spline basis. It suits densely sampled
 EEG, imaging and wearable trajectories when the ordinary grid-square
 covariance is too large. It is an explicit route; `:auto` retains its
-dense/PACE dispatch. Sparse curve-specific times need PACE.
+dense/PACE dispatch. Sparse curve-specific times can opt into sparse FACE,
+described below.
 
 ```julia
 model = StatsAPI.fit(FPCA, data; method=:face)
@@ -316,6 +318,154 @@ input, the mean and the reference imputed entries; fitted curves cover all four
 missing-data patterns and one complete curve. Variance is checked
 against an independent posterior calculation, with the refund discrepancy
 kept visible. CI reads the CSVs and does not require R.
+
+### Sparse FACE
+
+For irregular observations, `method=:face` implements Xiao, Li, Checkley and
+Crainiceanu (2018), [doi:10.1007/s11222-017-9744-8](https://doi.org/10.1007/s11222-017-9744-8).
+`:auto` continues to choose PACE. The reference implementation is **face 0.1-8**:
+[`face.sparse.inner.r`](https://github.com/cran/face/blob/0.1-8/R/face.sparse.inner.r),
+[`pspline.r`](https://github.com/cran/face/blob/0.1-8/R/pspline.r),
+`pspline.setting`, `raw.construct`, `select.knots`, and `predict.face.sparse`.
+Sparse FACE fits a symmetric tensor-product P-spline covariance and a
+constant measurement-error variance jointly from within-subject residual
+products, including the diagonal. This is a different estimator from the
+sandwich smoother for common grids.
+
+```julia
+cd4 = load_dataset(:cd4).data
+sparse_face = StatsAPI.fit(FPCA, cd4; method=:face, ncomponents=2)
+pace = StatsAPI.fit(FPCA, cd4; method=:pace, grid=sparse_face.grid,
+    ncomponents=2)
+# Both use the same grid and quadrature; align signs when comparing functions.
+face_phi = basismatrix(eigenfunctions(sparse_face), sparse_face.grid)
+pace_phi = basismatrix(eigenfunctions(pace), sparse_face.grid)
+for k in axes(pace_phi, 2)
+    if sum(sparse_face.weights .* face_phi[:, k] .* pace_phi[:, k]) < 0
+        pace_phi[:, k] .*= -1
+    end
+end
+# With Plots.jl loaded, compare the two aligned eigenfunction pairs.
+plot(sparse_face.grid, face_phi; label=["FACE 1" "FACE 2"])
+plot!(pace.grid, pace_phi; label=["PACE 1" "PACE 2"], linestyle=:dash)
+prediction = predict(sparse_face, new_irregular_data) # scores, covariances
+intervals = fitted_bands(sparse_face; curves=[1, 3])
+```
+
+| Setting | Sparse default and source |
+|:--|:--|
+| `face.knots` | `7`, from `face.sparse`. The source counts equal intervals, so there are six strictly interior knots and `c=knots+p=10` basis functions. |
+| Knot range | Observed minimum and maximum, expanded at each end by `0.001` times the observed width; simple knots extend `p` intervals further, from `select.knots`. |
+| `face.p`, `face.m` | Cubic degree `3`, second coefficient differences `2`. The requested difference order is honored for other `m`; the reference hardcodes second differences in its covariance penalty. |
+| `face.lambda` | `nothing`: minimize the subject-deletion criterion below; a finite nonnegative number fixes smoothing. |
+| `face.loglambda` | 14 equally spaced values from `-3` to `10`, from `lower`, `upper`, `search.length`. Candidates are `exp.(loglambda)`; the first minimum wins. The full criterion is recorded even at fixed lambda (R returns zero placeholders then). |
+| `face.center` | `true`, from `face.sparse`; false uses a zero mean. A supplied mean requires true. |
+| `face.lambda_mean` | `nothing`, from `face.sparse` / `pspline`; a finite nonnegative number fixes mean smoothing. It cannot be combined with a supplied mean or `center=false`. |
+| `face.mean_loglambda` | 100 equally spaced values from `-20` to `20`, from `pspline`; independent of the covariance grid. |
+| Mean basis and weights | Same interval count and expanded range as covariance; always cubic with second differences, as `face.sparse` calls `pspline` without passing `p,m`. Each observation receives weight `1/N_i`. |
+| `grid` | 100 equally spaced points across the observed range, from `argvals.new`. An explicit finite increasing grid must span all observation times, remain in the observed range, and have full spline rank. |
+| `ncomponents`, `maxK` | `FVE(0.99)`; cap `c`, the spline dimension. Shared fixed-K and numerical cutoff rules apply. The package selects from functional eigenvalues; R's source uses coefficient-space eigenvalues for its component count. AIC/BIC throw. |
+| Ridges | Covariance always adds `1e-6*maximum(eigvals(X'X))` to the Gram spectrum. Mean adds `1e-6` if its smallest weighted Gram eigenvalue is at most `1e-7`. Both reference rules and realized values are stored. |
+| Noise | Joint fitted diagonal coefficient, truncated at zero if negative. R resets every estimate at or below `1e-6` to `1e-6`, including in prediction; the package adds no noise floor. |
+| Signs and quadrature | The same mean-alignment sign rule and stored trapezoidal weights as other routes; `eigen_tol=1e-10`, `sign_tol=1e-12`. |
+
+A supplied `mean=(; grid, values)` or value-valued `SmoothedMean` uses the
+existing PACE validation and evaluation rules. Inputs and fitted settings are
+copied. A custom `mean_loglambda` requires an estimated mean. The mean's
+selected lambda, candidate grid, criterion, coefficients,
+knots, weighting, and ridge are stored under `settings.mean`. The covariance
+has its own criterion, knots, lambda, realized ridge, and raw noise estimate.
+`show` reports these choices. `two_step` is unsupported and throws: its second
+fit needs subject-specific covariance-of-products weights, beyond the
+identity-weighted default implemented here.
+
+#### What the reference calls `gcv`
+
+Write `y_i` for a subject's vector of upper-triangular residual products,
+including its squared observations. Let `X` be the symmetric tensor-product
+design augmented by the diagonal indicator. The covariance penalty is
+
+```math
+Q=\operatorname{blockdiag}\{G^\top(I_c\otimes D_m^\top D_m)G,0\},
+```
+
+where `G` duplicates the lower triangle into a symmetric coefficient matrix.
+The reference diagonalizes the ridge-adjusted Gram matrix and penalty to
+obtain coordinates `A=X A_0` and penalty spectrum `s`. For
+`d_j=(1+lambda*s_j)^(-1)`, its smoothing matrix is
+`S=A*Diagonal(d)*A'`. With `r=y-S*y`, its actual criterion is
+
+```math
+\|r\|^2-\|y\|^2+2\sum_i r_i^\top S_{ii}r_i.
+```
+
+This is the first-order approximation to leave-one-subject-out squared
+prediction error: replace `(I-S_ii)^(-1)` by `I+S_ii` in the deleted-subject
+residual and retain the first-order term. It is neither exact deletion nor
+the usual trace-denominator GCV. The omitted `y'y` is constant across lambda.
+The mean uses the same criterion with `S=A*Diagonal(d)*A'*W`, where each
+subject's weights are `1/N_i`; squared prediction errors remain unweighted.
+The covariance uses identity weights on the unique within-subject pairs.
+
+The fitted symmetric coefficient matrix is projected to its positive
+semidefinite part before weighted functional eigenanalysis. The known
+`m*(m+1)/2+1` null penalty directions are set to zero numerically; their count
+is stored as `penalty_nullity`. Normal matrices and their decompositions use
+at least Float64 precision before converting coordinates to the input floating
+type; `normal_matrix_type` records that precision. Only spline-sized matrices
+are diagonalized. The covariance is stored as a grid-by-rank factor;
+plotting or requesting `Matrix(model.covariance)` materializes the surface.
+For `P=sum_i N_i*(N_i+1)/2` and `q=c*(c+1)/2+1`, the tensor design uses `O(P*q)`
+storage; normal-matrix formation takes `O(P*q^2)` and decomposition takes
+`O(q^3)`. This avoids a grid-square covariance during fitting, but subjects
+with many observations still contribute quadratically many raw products.
+
+#### Scale, scores, prediction, and uncertainty
+
+R reports functional eigenvalues using the average-grid metric `B'B/J`.
+With constant quadrature weight `w`, convert its eigenvalues by `J*w`,
+eigenfunctions by `1/sqrt(J*w)`, and scores by `sqrt(J*w)`. With trapezoidal
+or nonuniform weights, diagonalize the small weighted operator instead; a
+single scalar conversion is insufficient. Noise stays on the measurement
+scale. The tests independently perform this conversion from R's fitted
+coefficient covariance.
+
+At arbitrary training or prediction observation times, the fitted spline
+mean, eigenfunctions, and full positive coefficient covariance are evaluated
+exactly. For selected eigenfunctions `Phi_i`, selected eigenvalues `Lambda`,
+and full spline covariance `C_i`, the shared conditional-expectation solver
+computes
+
+```math
+\widehat\xi_i=\Lambda\Phi_i^\top(C_i+\sigma^2 I)^{-1}(y_i-\mu_i),\qquad
+\Omega_i=\Lambda-\Lambda\Phi_i^\top(C_i+\sigma^2 I)^{-1}\Phi_i\Lambda.
+```
+
+This is the coefficient BLUP in `predict.face.sparse`, expressed in the
+weighted functional eigenbasis. All positive spline directions enter `C_i`,
+including directions beyond `maxK` or the selected K. New grid or irregular
+data must lie within the work grid. Zero-noise singular observation
+covariances throw without adding a ridge or noise floor to the score solve.
+`predict` returns the usual `(scores,covariances)` tuple. Reconstruction and
+pointwise `fitted_bands` use the selected components, with variance
+`diag(Phi*Omega_i*Phi')`; omitted components and estimation uncertainty are
+excluded. R's direct curve predictions and standard errors use its full
+coefficient covariance, irrespective of `pve`; they coincide with this
+projection when all positive components are retained. Reconstruction on a
+new grid uses the shared piecewise-linear `FPCBasis` interface.
+
+Reference values are recreated with `Rscript test/reference/face_m6.R` using
+face 0.1-8, refund 0.1-40, mgcv 1.9-3, Matrix 1.7-3, and R 4.5.1. Fixtures
+cover the milestone-3 sparse inputs and all 366 CD4 subjects (1,888 observed
+counts), exported with the same native months, positional IDs, and missing-cell
+convention as `load_dataset(:cd4)`. Default selections and fixed covariance
+lambda `2.5` / mean lambda `0.75` are checked. Mean curves, weighted spectra,
+eigenfunctions, noise, tuning, both criterion curves, scores, their
+covariances, and selected fitted values and variances are compared at relative
+error below `1e-8`. R's full coefficient predictions and standard errors are
+also checked after retaining all positive components. The CD4 fixture keeps
+score and posterior outputs for a small set of subjects, including a singleton;
+it does not store full covariance surfaces. CI consumes CSVs without R.
 
 ## PACE for sparse observations
 

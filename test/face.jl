@@ -233,7 +233,6 @@ import RecipesBase
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd; face=(; lambda=2.5))
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd; method=:face, presmooth=:bad)
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd; method=:face, noise_variance=1)
-        @test_throws ArgumentError StatsAPI.fit(FPCA, to_irregular(fd); method=:face)
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd; method=:face, face=[1])
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd; method=:face,
             mean=(; grid, values=zeros(J)), face=(; center=false))
