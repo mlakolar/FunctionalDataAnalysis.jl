@@ -63,12 +63,31 @@ struct GCV{T<:AbstractFloat}
 end
 
 """
+    REML()
+
+Select one common spline penalty continuously by restricted maximum likelihood,
+with the solver of [`PenalizedLeastSquares`](@ref). The curves are independent
+blocks with their own coefficients, one smoothing parameter and one noise
+variance; the criterion is the REML score of that stacked model, optimized on
+`log λ` over `[0, ∞)` with the solver's defaults (`tol=1e-8`, `maxiter=200`,
+`rank_tol=eps()^(3/4)` in the working precision). The smoothed data's
+`metadata.selection` named tuple records the criterion value (`score`),
+`lambda`, its `status`, the noise variance `sigma2`, the effective degrees of
+freedom `edf`, the null-space dimension of the stacked model, the initial
+lambda, the tolerances, the number of iterations and the convergence reason.
+Unlike [`GCV`](@ref), no candidate grid is involved.
+"""
+struct REML end
+
+"""
     PenalizedSpline(basis; lambda, order=2)
 
 Per-curve unweighted penalized least squares through [`to_basis`](@ref).
-`lambda` is a finite nonnegative number or [`GCV`](@ref) selecting a common
-penalty. `order` is the nonnegative derivative order in the integrated squared
-roughness penalty. The basis and settings are copied.
+`lambda` is a finite nonnegative number, [`GCV`](@ref) selecting a common
+penalty from candidates, or [`REML`](@ref)`()` selecting a common penalty
+continuously by restricted likelihood. `lambda` has no default. `order` is the
+nonnegative derivative order in the integrated squared roughness penalty. The
+basis and settings are copied.
 Use [`smooth_curves`](@ref), or `StatsAPI.fit(PenalizedSpline, fd; basis, lambda, order=2)`.
 """
 struct PenalizedSpline{B<:AbstractBasis,L}
@@ -76,8 +95,8 @@ struct PenalizedSpline{B<:AbstractBasis,L}
     lambda::L
     order::Int
     function PenalizedSpline(basis::AbstractBasis; lambda, order=2)
-        lambda isa GCV || (lambda isa Real && isfinite(lambda) && lambda >= 0) ||
-            throw(ArgumentError("lambda must be finite and nonnegative, or GCV(lambdas)"))
+        lambda isa Union{GCV,REML} || (lambda isa Real && isfinite(lambda) && lambda >= 0) ||
+            throw(ArgumentError("lambda must be finite and nonnegative, GCV(lambdas), or REML()"))
         new{typeof(basis),typeof(lambda)}(deepcopy(basis), deepcopy(lambda),
             _derivative_order(order))
     end
@@ -96,7 +115,7 @@ and point and suggesting a larger bandwidth.
 
 Penalized splines return `BasisFunctionalData` through `to_basis`. Both results
 store their method and all settings in `metadata`, shown by `show`. Spline GCV
-also stores `metadata.selection`; fixed lambda uses `selection=nothing`.
+and REML also store `metadata.selection`; fixed lambda uses `selection=nothing`.
 All fits use equal observation weights, no binning, and no folds. GCV is a
 within-curve prediction criterion, not a cluster-robust inference procedure.
 Complete data on their original grid use one matrix multiplication for all
@@ -240,6 +259,15 @@ end
 
 function smooth_curves(fd::Union{GridFunctionalData,IrregularFunctionalData},
         method::PenalizedSpline)
+    if method.lambda isa REML
+        # The solver's coefficients use its stable factorization, which stays
+        # accurate when REML drives lambda towards infinity.
+        selection, coefs = _spline_reml_selection(fd, method.basis, method.order)
+        metadata = (; method=:penalized_spline, basis=method.basis, selection.lambda,
+            order=method.order, weighting=:equal_observations, grid=:observed_times,
+            binning=:none, folds=0, selection)
+        return BasisFunctionalData(coefs, deepcopy(method.basis); ids=fd.ids, metadata)
+    end
     selection = method.lambda isa GCV ?
         _gcv_selection(fd, method.basis, method.order, method.lambda.lambdas) : nothing
     lambda = selection === nothing ? method.lambda : selection.lambda
@@ -262,6 +290,7 @@ end
 function Base.show(io::IO, method::GCV)
     print(io, "GCV(", method.lambdas, ")")
 end
+Base.show(io::IO, ::REML) = print(io, "REML()")
 function Base.show(io::IO, method::PenalizedSpline)
     print(io, "PenalizedSpline(", method.basis, "; lambda=", method.lambda,
         ", order=", method.order, ")")

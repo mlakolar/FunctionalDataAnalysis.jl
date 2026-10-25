@@ -51,6 +51,13 @@ scores raise an error. Exact ties choose the first supplied candidate.
 This criterion concerns prediction within curves and does not account for
 within-curve error correlation.
 
+`lambda=REML()` instead selects one common lambda continuously by the
+restricted likelihood of the stacked model in which curves share the
+smoothing parameter and the noise variance, using the
+[penalized solver](penalized.md#Penalized-splines-with-REML). Its
+`metadata.selection` records the criterion value, status, noise variance,
+effective degrees of freedom and optimizer settings.
+
 Pooled-mean uncertainty is available through [`mean_bands`](@ref):
 whole-curve bootstrap intervals and simultaneous bands, or analytic pointwise
 intervals using KernelSmoothing's curve-cluster sandwich variance. See
@@ -75,6 +82,7 @@ KernelSmoothing must be registered before FunctionalDataAnalysis can be register
 LocalPolynomial
 PenalizedSpline
 GCV
+REML
 smooth_curves
 ```
 
