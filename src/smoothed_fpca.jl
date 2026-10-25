@@ -83,13 +83,16 @@ function _basis_cholesky(matrix, label)
     factor
 end
 
-# Reuse the common eigenvalue cutoff, spectrum accounting, and FVE machinery.
-function _basis_pca(residuals::Matrix{T}, G, P, lambda, max_k, eigen_tol,
-        sign_tol) where {T}
-    n, k = size(residuals)
+function _basis_pca_geometry(G, P, lambda)
     U = _basis_cholesky(G + lambda * P, "FPCA penalized Gram matrix").U
-    J = transpose(U) \ G
-    covariance = transpose(residuals) * residuals / n
+    (; U, J=transpose(U) \ G)
+end
+
+# Reuse the common eigenvalue cutoff, spectrum accounting, and FVE machinery.
+function _basis_pca_covariance(covariance::Matrix{T}, G, geometry, max_k,
+        eigen_tol, sign_tol) where {T}
+    k = size(covariance, 1)
+    U, J = geometry.U, geometry.J
     transformed = J * covariance * transpose(J)
     transformed = Matrix(Symmetric((transformed + transpose(transformed)) / 2))
     system = _fpca_eigen(transformed, ones(T, k), zeros(T, k); max_k,
@@ -100,6 +103,19 @@ function _basis_pca(residuals::Matrix{T}, G, P, lambda, max_k, eigen_tol,
         throw(ArgumentError("FPCA harmonic L² norms must be finite and positive"))
     (; system..., coefs=raw ./ transpose(norms), normalization=norms,
         coefficient_covariance=covariance)
+end
+
+function _basis_pca(residuals::Matrix{T}, G, P, lambda, max_k, eigen_tol, sign_tol) where {T}
+    geometry = _basis_pca_geometry(G, P, lambda)
+    covariance = transpose(residuals) * residuals / size(residuals, 1)
+    _basis_pca_covariance(covariance, G, geometry, max_k, eigen_tol, sign_tol)
+end
+
+function _basis_cv_training!(train, values, i)
+    n = size(values, 1)
+    copyto!(view(train, 1:i-1, :), view(values, 1:i-1, :))
+    copyto!(view(train, i:n-1, :), view(values, i+1:n, :))
+    train
 end
 
 function _basis_cv_error(err, lambda, i)
@@ -122,21 +138,34 @@ function _basis_pca_lambda(cv::LambdaCV, residuals::Matrix{T}, G, P,
         throw(ArgumentError("LambdaCV candidates must remain finite and distinct in the data element type"))
     errors = zeros(T, length(candidates))
     # §9.3.3 centers once using the overall mean, before leaving curves out.
-    for (c, lam) in enumerate(candidates), i in 1:n
-        try
-            train = residuals[[j for j in 1:n if j != i], :]
-            system = _basis_pca(train, G, P, lam, max_k, eigen_tol, sign_tol)
-            chosen = _fpca_selection(rule, system.fve, max_k).chosen
-            for m in 1:chosen
-                H = system.coefs[:, 1:m]
-                rhs = transpose(H) * G * residuals[i, :]
-                projection = H * (_basis_cholesky(transpose(H) * G * H,
-                    "FPCA CV subspace Gram matrix") \ rhs)
-                r = residuals[i, :] - projection
-                errors[c] += max(zero(T), dot(r, G * r))
-            end
+    # Refill one contiguous training buffer in the original row order, so its
+    # cross product keeps the existing reduction rather than a rank-one update.
+    train = similar(residuals, n-1, size(residuals, 2))
+    for (c, lam) in enumerate(candidates)
+        geometry = try
+            _basis_pca_geometry(G, P, lam)
         catch err
-            _basis_cv_error(err, lam, i)
+            _basis_cv_error(err, lam, 1)
+        end
+        for i in 1:n
+            try
+                _basis_cv_training!(train, residuals, i)
+                covariance = transpose(train) * train / (n-1)
+                system = _basis_pca_covariance(covariance, G, geometry, max_k,
+                    eigen_tol, sign_tol)
+                chosen = _fpca_selection(rule, system.fve, max_k).chosen
+                heldout = residuals[i, :]
+                for m in 1:chosen
+                    H = system.coefs[:, 1:m]
+                    rhs = transpose(H) * G * heldout
+                    projection = H * (_basis_cholesky(transpose(H) * G * H,
+                        "FPCA CV subspace Gram matrix") \ rhs)
+                    r = heldout - projection
+                    errors[c] += max(zero(T), dot(r, G * r))
+                end
+            catch err
+                _basis_cv_error(err, lam, i)
+            end
         end
     end
     all(isfinite, errors) || throw(ArgumentError("FPCA LambdaCV scores must be finite; rescale data"))
@@ -342,14 +371,20 @@ function _cca_subjects(fd1, fd2; minobs=2)
     fd1.ids == fd2.ids || throw(ArgumentError("functional CCA subject IDs must match in order on both sides"))
     nobs(fd1) >= minobs || throw(ArgumentError("functional CCA requires at least $minobs paired curves"))
 end
-function _cca_system(X::Matrix{T}, Y::Matrix{T}, P, Q, lambdas, ncan) where {T}
+function _cca_moments(X, Y)
     n = size(X, 1)
-    U = _basis_cholesky(transpose(X) * X / n + lambdas[1] * P,
+    (; first_covariance=transpose(X) * X / n,
+        second_covariance=transpose(Y) * Y / n,
+        cross_covariance=transpose(X) * Y / n)
+end
+
+function _cca_system(moments, penalties, ncan)
+    T = eltype(moments.cross_covariance)
+    U = _basis_cholesky(moments.first_covariance + penalties[1],
         "CCA first penalized covariance").U
-    V = _basis_cholesky(transpose(Y) * Y / n + lambdas[2] * Q,
+    V = _basis_cholesky(moments.second_covariance + penalties[2],
         "CCA second penalized covariance").U
-    cross = transpose(X) * Y / n
-    whitened = (transpose(U) \ cross) / V
+    whitened = (transpose(U) \ moments.cross_covariance) / V
     all(isfinite, whitened) || throw(ArgumentError("CCA whitened cross-covariance must be finite"))
     decomposition = svd(whitened)
     A = U \ decomposition.U[:, 1:ncan]
@@ -365,6 +400,22 @@ function _cca_system(X::Matrix{T}, Y::Matrix{T}, P, Q, lambdas, ncan) where {T}
     all(isfinite, A) && all(isfinite, B) && all(isfinite, decomposition.S) ||
         throw(ArgumentError("CCA results must be finite; rescale data"))
     (; weights1=A, weights2=B, correlations=decomposition.S[1:ncan])
+end
+
+function _cca_system(X::Matrix{T}, Y::Matrix{T}, P, Q, lambdas, ncan) where {T}
+    _cca_system(_cca_moments(X, Y), (lambdas[1] * P, lambdas[2] * Q), ncan)
+end
+
+function _cca_cv_fold(C, D, G, H, center, i)
+    n = size(C, 1)
+    index = [j for j in 1:n if j != i]
+    A, B = C[index, :], D[index, :]
+    T = eltype(C)
+    mu = center ? sum(A; dims=1)/(n-1) : zeros(T, 1, size(A, 2))
+    nu = center ? sum(B; dims=1)/(n-1) : zeros(T, 1, size(B, 2))
+    (; moments=_cca_moments((A .- mu)*G, (B .- nu)*H),
+        first_holdout=C[i:i, :] .- mu,
+        second_holdout=D[i:i, :] .- nu)
 end
 
 function _squared_correlation(x, y)
@@ -385,17 +436,24 @@ function _cca_lambda(cv::LambdaCV, C::Matrix{T}, D, G, H, P, Q, center) where {T
     all(isfinite, candidates) && length(unique(candidates)) == length(candidates) ||
         throw(ArgumentError("LambdaCV candidates must remain finite and distinct in the data element type"))
     criteria = zeros(T, length(candidates))
+    # Only CCA uses training-fold means. Each fold's exact reductions are
+    # independent of lambda; retain them rather than recomputing or downdating.
+    folds = map(1:n) do i
+        try
+            _cca_cv_fold(C, D, G, H, center, i)
+        catch err
+            _basis_cv_error(err, first(candidates), i)
+        end
+    end
     for (c, lam) in enumerate(candidates)
+        penalties = (lam * P, lam * Q)
         x, y = zeros(T, n), zeros(T, n)
         for i in 1:n
             try
-                index = [j for j in 1:n if j != i]
-                A, B = C[index, :], D[index, :]
-                mu = center ? sum(A; dims=1)/(n-1) : zeros(T, 1, size(A, 2))
-                nu = center ? sum(B; dims=1)/(n-1) : zeros(T, 1, size(B, 2))
-                system = _cca_system((A .- mu)*G, (B .- nu)*H, P, Q, (lam, lam), 1)
-                x[i] = only((C[i:i, :] .- mu) * G * system.weights1)
-                y[i] = only((D[i:i, :] .- nu) * H * system.weights2)
+                fold = folds[i]
+                system = _cca_system(fold.moments, penalties, 1)
+                x[i] = only(fold.first_holdout * G * system.weights1)
+                y[i] = only(fold.second_holdout * H * system.weights2)
             catch err
                 _basis_cv_error(err, lam, i)
             end
