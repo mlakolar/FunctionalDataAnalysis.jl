@@ -21,6 +21,7 @@ export GridFunctionalData, IrregularFunctionalData, BasisFunctionalData,
     ncomponents, component, to_array, to_irregular, to_grid, to_basis
 export SmoothedMean, SmoothedCovariance, CurveCV
 export CrossCovariance, SmoothedCrossCovariance, cross_covariances
+export FSVD, concurrent_correlation, dynamic_correlation
 export FPCA, FPCBasis, FVE, AIC, BIC, eigenfunctions, eigvals, scores,
     score_covariances, fve, noise_variance, reconstruct, predict, pace_bandwidth_candidates
 export MultivariateFPCA, MFPCA, score_array
@@ -55,6 +56,7 @@ include("pace.jl")
 include("multivariate_fpca.jl")
 include("mfpca.jl")
 include("cross_covariance.jl")
+include("cross_structure.jl")
 include("derivatives.jl")
 include("bands.jl")
 include("plot_data.jl")

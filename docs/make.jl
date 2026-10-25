@@ -17,6 +17,7 @@ makedocs(;
         "Smoothing" => "smoothing.md",
         "FPCA" => "fpca.md",
         "Multivariate FPCA (MFPCA)" => "mfpca.md",
+        "Cross-structure" => "cross_structure.md",
         "Plotting" => "plotting.md",
         "Uncertainty" => "uncertainty.md",
         "Datasets" => "datasets.md",
