@@ -18,6 +18,7 @@ makedocs(;
         "FPCA" => "fpca.md",
         "Multivariate FPCA (MFPCA)" => "mfpca.md",
         "Plotting" => "plotting.md",
+        "Uncertainty" => "uncertainty.md",
         "Comparison with fdapace" => "fdapace.md",
         "Multivariate FPCA validation" => "m4_report.md",
         "Cross-covariance validation" => "m4_cross_report.md",

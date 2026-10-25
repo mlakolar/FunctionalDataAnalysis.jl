@@ -132,7 +132,8 @@ prediction error divided by total held-out weight, at actual observation
 times. An undefined fit, including any CV prediction, throws with its point
 and a suggestion to increase bandwidth. No observation or candidate is dropped.
 Use [`evaluate`](@ref) to interpolate linearly within the stored grid range;
-queries outside it throw. No confidence bands are provided.
+queries outside it throw. Use [`mean_bands`](@ref) for whole-curve bootstrap
+intervals and simultaneous bands with the selected bandwidth held fixed.
 """
 struct SmoothedMean{T<:AbstractFloat,H<:AbstractFloat,K,S}
     grid::Vector{T}

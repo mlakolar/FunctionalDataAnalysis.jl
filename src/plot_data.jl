@@ -311,3 +311,40 @@ results return `(; nodes)`. No resmoothing is performed.
 """
 mean_data(d::FPCADerivative) = _plot_mean(d.mean)
 mean_data(d::MultivariateFPCADerivative) = (; nodes=mean_data.(d.nodes))
+
+"""
+    band_data(b::FittedBands)
+    band_data(b::MeanBands; coverage=b.coverage)
+    band_data(b::NamedTuple{(:nodes,)})
+
+Return copied plotting coordinates and settings for precomputed uncertainty
+results. No model fitting or resampling occurs. Fitted results contain
+curve-by-grid `values`, `lower`, and `upper` matrices plus `curves` and `grid`.
+Mean results contain one row per band type. For a mean result holding both
+types, `coverage=:both` returns two series, labeled by `types`; select
+`:interval` or `:band` to display one. Requesting an uncomputed type throws.
+Multivariate fitted results return `(; nodes)` for separate node panels.
+"""
+function band_data(b::FittedBands)
+    (; grid=copy(b.grid), values=copy(b.fitted), lower=copy(b.lower),
+        upper=copy(b.upper), curves=copy(b.curves), types=fill(b.coverage, length(b.curves)),
+        alpha=b.alpha, target=:fitted, ncomponents=b.ncomponents, settings=b.settings)
+end
+
+function band_data(b::MeanBands; coverage=b.coverage)
+    coverage in (:interval, :band, :both) ||
+        throw(ArgumentError("coverage must be :interval, :band, or :both"))
+    types = coverage === :both ? [:interval, :band] : [coverage]
+    lower, upper = similar(b.bootstrap, length(types), length(b.grid)),
+        similar(b.bootstrap, length(types), length(b.grid))
+    for (i, type) in enumerate(types)
+        limits = type === :interval ? b.interval : b.band
+        limits === nothing && throw(ArgumentError("mean result does not contain $type coverage"))
+        lower[i, :], upper[i, :] = limits.lower, limits.upper
+    end
+    (; grid=copy(b.grid), values=repeat(permutedims(b.fitted), length(types), 1),
+        lower, upper, curves=fill(1, length(types)), types, alpha=b.alpha,
+        target=:mean, ncomponents=nothing, settings=b.settings)
+end
+
+band_data(b::NamedTuple{(:nodes,)}) = (; nodes=band_data.(b.nodes))

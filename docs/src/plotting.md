@@ -195,6 +195,12 @@ displays their settings; no new fitted estimator is introduced.
 
 ## API
 
+Precomputed fitted-curve and mean uncertainty results also support
+[`band_data`](@ref) and [`bandplot`](@ref). See [Uncertainty](uncertainty.md)
+for the covered targets and assumptions. Plotting bands never runs a new fit
+or bootstrap. Multivariate fitted bands use node panels, and `coverage` on
+mean-band plots selects among the types already computed.
+
 ```@docs
 curve_data
 mean_data

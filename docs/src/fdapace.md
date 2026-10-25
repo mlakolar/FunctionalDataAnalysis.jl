@@ -601,3 +601,68 @@ on `10*nbasis+1` equally spaced points and calls `project.basis` into the
 functions and original coefficients, as required by the derivative API;
 it does not perform this projection. Analytic polynomial, Fourier, and
 in-span B-spline tests validate this deliberately different quantity.
+
+## [Confidence bands (milestone 5 task 3)](@id fdapace-confidence-bands)
+
+Audited executable source: fdapace **0.6.0**
+[`R/fitted.FPCA.R`](https://github.com/cran/fdapace/blob/0.6.0/R/fitted.FPCA.R),
+[`R/SubsetFPCA.R`](https://github.com/cran/fdapace/blob/0.6.0/R/SubsetFPCA.R),
+[`R/GetCEScores.R`](https://github.com/cran/fdapace/blob/0.6.0/R/GetCEScores.R),
+[`src/GetIndCEScoresCPP.cpp`](https://github.com/cran/fdapace/blob/0.6.0/src/GetIndCEScoresCPP.cpp),
+and [`R/GetMeanCI.R`](https://github.com/cran/fdapace/blob/0.6.0/R/GetMeanCI.R).
+The installed R function bodies and versioned archive agree. There is no
+`GetCIs` helper in this version; fitted bands are calculated inline.
+
+| Item | fdapace 0.6.0 behavior | FDA behavior |
+|:--|:--|:--|
+| Alpha | `NULL`: no bands unless explicitly supplied; accepts values in (0,1). | Explicit uncertainty API defaults to 0.05 per milestone 5. |
+| Coverage | Missing/NULL means `"band"`; `"interval"` is pointwise. Every other string falls through to the band formula without validation. | `:interval` default per task; `:band` supported; other values throw. |
+| K | Defaults to `length(object$lambda)`, the selected rank. Explicit K changes the reconstruction and χ² degrees of freedom but does not subset `phi` or `xiVar` in the variance calculation. | Always selected K for the reconstruction, variance basis and critical value. |
+| Conditional covariance | `xiVar`: Λ − ΛΦᵢᵀΣᵢ⁻¹ΦᵢΛ, from the CE score solve. Σᵢ uses the full retained PSD covariance and measurement-error variance, not just the selected components. | Reuses the stored selected-score covariance; the full retained covariance was already used by PACE. No new solve is run. |
+| PSD adjustment | Eigendecompose `xiVar` and replace all negative eigenvalues by zero. | Clip only roundoff-negative eigenvalues; materially indefinite stored covariances throw. |
+| Pointwise formula | Reconstruction ± `qnorm(1-alpha/2)` times `sqrt(diag(phi %*% omega %*% t(phi)))`. | Same formula. |
+| Simultaneous formula | Reconstruction ± `sqrt(qchisq(1-alpha,K))` times the same standard deviation. | Same formula, separate per curve and per node. |
+| Dense data | Returns only fitted values even when alpha is supplied. | Throws because integration scores have no conditional covariance; suggests `method=:pace`. |
+| Mean helper | `GetMeanCI(level=.95,R=999)` resamples curves and returns type-7 percentile intervals. Sparse samples can lose unsupported grid points; it warns. | Gap Map default B=1000, pointwise percentiles and/or a finite-grid sup-t band; fixed smoother choices; any undefined draw throws without dropping points. |
+
+Two source issues require explicit corrections to exercise native
+`fitted.FPCA` on the milestone 3 supplied-input sparse fixture:
+
+1. `SubsetFPCA` truncates `phi`, `xiEst`, and `lambda`, but leaves `xiVar`
+   at the full retained rank. With selected K smaller than `maxK`, native
+   fitted bands fail with nonconformable matrices. The reference script
+   verifies that failure and subsets only `xiVar` to its selected upper-left
+   block. The CE denominator still contains all five retained components.
+2. Supplied `userMu` leaves `bwMu=NULL`. `fitted.FPCA` nevertheless smooths
+   `muObs` and `phiObs` using `bwMu` and then discards both intermediates.
+   The reference sets `bwMu=.3` solely to make these unused calculations
+   defined. It does not change the reconstruction or band variance.
+
+`test/reference/fdapace_m5_bands.R` records these corrections and generates
+`m5_fdapace_bands.csv` at K=1,3,5 for both coverage types. K=5 needs no
+covariance subsetting. Tests compare native fitted values and both endpoint
+matrices at relative error below `1e-8`. `m5_chisq.csv` separately records
+R `qchisq` values for integer ranks 1–200 and central/tail probabilities.
+FDA uses an integer/half-integer gamma recurrence, a positive lower-tail
+series, and bracketed inversion, starting from KernelSmoothing's public
+Gaussian CDF. No transitive package internals or additional runtime
+dependencies are used.
+
+For interpretation, refund **0.1-40**
+[`R/fpca.sc.R`](https://github.com/cran/refund/blob/0.1-40/R/fpca.sc.R)
+labels its fitted-curve covariance as model-based. Its `VarMats` expression
+is `sigma2 * Z * inv(Zobs'Zobs + sigma2*inv(D)) * Z'`, the corresponding
+conditional prediction-error covariance under its truncated model. It does
+not represent uncertainty from estimating the FPCA model. FDA uses the
+same conditional interpretation, not refund's separate corrected-band
+procedures or its simulated-max critical values.
+
+KernelSmoothing **0.1.0**, source tree
+`3178afc11653d934bdb8aec4a68539fe1473ec46`, provides
+`ClusterVariance(1)` and `cluster` observation labels in
+`src/locpoly.jl`. Its default CR1 multiplies the sum of squared cluster
+influences by `(N-1)/(N-k) * G/(G-1)`, with N observations, k local
+polynomial coefficients and G clusters in the window. FDA's
+`method=:sandwich` supplies subject labels, the stored smoothing choices,
+`minobs=0`, and conventional standard errors, keeping the original mean
+estimate as the interval center. Insufficient clusters produce an error.
