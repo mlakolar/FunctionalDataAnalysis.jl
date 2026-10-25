@@ -32,6 +32,7 @@ component count, and `K_j` the selected count for node `j`.
 | `fit(MFPCA, multivariate; ...)` | `MFPCA` (joint multivariate components) | One `n × K` score matrix. |
 | `fit(FSVD, fd1, fd2; ...)` | `FSVD` | No prediction method; paired training scores are available through accessors. |
 | `fit(FunctionalCCA, basis1, basis2; ...)` | `FunctionalCCA` | Named tuple `(variates1, variates2)`, each `n × K`. |
+| `fit(PenalizedLeastSquares, X, y; penalties, ...)` | `PenalizedLeastSquares` | `predict(fit, Xnew)` returns `Xnew * coef(fit)`; see [Penalized fitting](penalized.md). |
 
 For raw univariate data, `method=:auto` selects dense FPCA for complete
 common-grid data and PACE for irregular or masked data. `method=:face` is

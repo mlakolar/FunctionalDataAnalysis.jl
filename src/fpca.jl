@@ -285,7 +285,7 @@ Silverman (2005), chapter 8. Noisy dense data should use `presmooth` or
 `method=:pace`. A [`LocalPolynomial`](@ref) or [`PenalizedSpline`](@ref)
 is applied through `smooth_curves`, evaluated on the original data grid, and
 recorded with its selected tuning metadata. Prediction applies the same fitted
-preprocessing; a spline GCV choice is fixed at its training-selected lambda.
+preprocessing; a spline GCV or REML choice is fixed at its training-selected lambda.
 All choices are stored and shown. `training_data` retains a copy of the original
 observations (before presmoothing) for [`fitted_curve_data`](@ref).
 Inputs are copied. Dense noise variance and
@@ -584,7 +584,7 @@ ids(f::FPCA) = f.ids === nothing ? nothing : deepcopy(f.ids)
 
 function _fpca_prediction_method(f)
     method = f.presmooth
-    if method isa PenalizedSpline && method.lambda isa GCV
+    if method isa PenalizedSpline && !(method.lambda isa Real)
         return PenalizedSpline(method.basis; lambda=f.settings.preprocessing.lambda, order=method.order)
     end
     method

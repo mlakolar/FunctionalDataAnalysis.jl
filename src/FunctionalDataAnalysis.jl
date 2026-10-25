@@ -31,7 +31,8 @@ export MultivariateFPCA, MFPCA, score_array
 export ScorePrediction, project_scores, predict_scores, fitted, residuals, coef
 export LambdaCV, FunctionalCCA, canonical_weights, canonical_variates,
     canonical_correlations, squared_canonical_correlations
-export LocalPolynomial, PenalizedSpline, GCV, smooth_curves
+export LocalPolynomial, PenalizedSpline, GCV, REML, smooth_curves
+export PenalizedLeastSquares, vcov, dof, dof_residual
 export ids, RegularSampling, SparseSampling, simulate_kl,
     fourier_eigenfunctions, legendre_eigenfunctions
 export curve_data, mean_data, modes_of_variation, scree_data, covariance_data,
@@ -62,6 +63,7 @@ include("smoothed_fpca.jl")
 include("pace_defaults.jl")
 include("pace.jl")
 include("psplines.jl")
+include("penalized.jl")
 include("face.jl")
 include("face_sparse.jl")
 include("multivariate_fpca.jl")

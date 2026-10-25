@@ -109,6 +109,8 @@
   regression supports multiple dense, sparse or basis covariates, optional
   scalar covariates, supplied marginal FPCA fits, leading-count selection,
   prediction and conditional pointwise intervals. See [Regression](regression.md).
-  Gaussian multi-penalty REML/GCV and penalized regression are subsequent tasks.
+  The Gaussian multi-penalty REML/GCV solver [`PenalizedLeastSquares`](penalized.md),
+  validated against mgcv 1.9-3, also gives `PenalizedSpline` REML selection.
+  Penalized regression on it is a subsequent task.
 - Milestone 8: depth, outliers, and clustering.
 - Milestone 9: registration.
