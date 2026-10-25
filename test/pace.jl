@@ -47,6 +47,11 @@ import StatsAPI
         @test model.settings.mean_source == :supplied
         @test model.settings.covariance_source == :supplied
         @test model.settings.noise_variance_source == :supplied
+        @test model.settings.noise_floor === nothing
+        @test model.settings.noise_floor_relative === nothing
+        @test model.settings.noise_floor_scale === nothing
+        @test model.settings.noise_floor_scale_source === nothing
+        @test !model.settings.noise_floor_applied
 
         expected_scores = zeros(4, 1)
         expected_covariances = zeros(1, 1, 4)
@@ -88,7 +93,8 @@ import StatsAPI
         displayed = sprint(show, model)
         for choice in ("pace", "sparse", "selection", "max_k", "mean_source",
                 "covariance_source", "noise_variance_source", "kernel", "weighting",
-                "binning", "eigen_tol", "sign_tol", "dropped", "noise_variance")
+                "binning", "eigen_tol", "sign_tol", "dropped", "noise_variance",
+                "noise_floor_relative", "noise_floor_scale", "noise_floor_scale_source")
             @test occursin(choice, displayed)
         end
         scale = 1e-6
@@ -108,6 +114,100 @@ import StatsAPI
         @test model.settings.mean_input.values != supplied_mean.values
         @test model.settings.covariance_input.surface != supplied_covariance.surface
         @test StatsAPI.predict(model, fd)[1] == scores(model)
+    end
+
+    @testset "Estimated noise floor and explicit overrides" begin
+        grid = collect(0.0:0.25:1.0)
+        mean = (; grid, values=zeros(5))
+        times = [[0.0, 0.4, 1.0], [0.1, 0.9]]
+        observations = [[1.0, 2.0, 3.0], [-1.0, -2.0]]
+        data = IrregularFunctionalData(times, observations)
+        # A fitted covariance with an analytic rank-one surface isolates the
+        # noise policy from smoothing. Its raw estimates cover the boundary.
+        function covariance(raw; value_scale=1.0, time_scale=1.0)
+            local_grid = time_scale .* grid
+            SmoothedCovariance(local_grid, fill(value_scale^2, 5, 5),
+                quadrature_weights(local_grid), 1.0, 1.0,
+                KernelSmoothing.GaussianKernel(), :obs, nothing, 1,
+                :sparse, 0, nothing, max(raw, 0.0), (; raw_variance=raw))
+        end
+        reference = StatsAPI.fit(FPCA, data; grid, mean,
+            covariance=covariance(0.0), ncomponents=1, maxK=1)
+        # Obtain the exact floating-point threshold to exercise equality,
+        # while checking its independently known analytic value below.
+        threshold = reference.settings.noise_floor
+        @test threshold ≈ 0.025 rtol=1e-12
+        for raw in (-0.2, 0.0, 1e-12, threshold/2, threshold, 0.2)
+            fitted_covariance = covariance(raw)
+            model = @inferred StatsAPI.fit(FPCA, data; grid, mean,
+                covariance=fitted_covariance, ncomponents=1, maxK=1)
+            used = max(raw, threshold)
+            @test noise_variance(model) == used
+            @test model.settings.raw_noise_variance == raw
+            @test model.settings.noise_floor == threshold
+            @test model.settings.noise_floor_relative == 0.025
+            @test model.settings.noise_floor_scale ≈ 1.0 rtol=1e-12
+            @test model.settings.noise_floor_scale_source == :maximum_fitted_pointwise_variance
+            @test model.settings.noise_floor_applied == (raw < threshold)
+            @test model.settings.noise_variance_source == :estimated
+            @test fitted_covariance.noise_variance == max(raw, 0.0)
+            for i in 1:nobs(data)
+                _, y = data[i]
+                # For C=11', the posterior mean is sum(y)/(m+sigma2)
+                # and the posterior score variance is sigma2/(m+sigma2).
+                @test scores(model)[i, 1] ≈ sum(y)/(length(y)+used) rtol=1e-8
+                @test score_covariances(model)[1, 1, i] ≈ used/(length(y)+used) rtol=1e-8
+            end
+            prediction = StatsAPI.predict(model, data)
+            @test prediction.scores == scores(model)
+            @test prediction.covariances == score_covariances(model)
+        end
+        # Changing observation units scales variances quadratically and the
+        # posterior reconstruction linearly, including when the floor binds.
+        for value_scale in (1e-6, 1e6)
+            scaled = IrregularFunctionalData(times,
+                [value_scale .* y for y in observations])
+            model = StatsAPI.fit(FPCA, scaled; grid, mean,
+                covariance=covariance(0.0; value_scale), ncomponents=1, maxK=1)
+            @test model.settings.noise_floor_applied
+            @test noise_variance(model) ≈ value_scale^2 * noise_variance(reference) rtol=1e-12
+            @test reconstruct(model).values ≈ value_scale .* reconstruct(reference).values rtol=1e-12
+            @test score_covariances(model) ≈ value_scale^2 .* score_covariances(reference) rtol=1e-10
+        end
+        # Changing time units changes integrated eigenvalues but leaves the
+        # pointwise variance scale and posterior reconstruction unchanged.
+        time_scale = 10.0
+        time_grid = time_scale .* grid
+        time_data = IrregularFunctionalData([time_scale .* t for t in times], observations)
+        time_model = StatsAPI.fit(FPCA, time_data; grid=time_grid,
+            mean=(; grid=time_grid, values=zeros(5)),
+            covariance=covariance(0.0; time_scale), ncomponents=1, maxK=1)
+        @test noise_variance(time_model) ≈ noise_variance(reference) rtol=1e-12
+        @test time_model.settings.noise_floor_scale ≈ 1.0 rtol=1e-12
+        @test only(eigvals(time_model)) ≈ time_scale * only(eigvals(reference)) rtol=1e-12
+        @test reconstruct(time_model).values ≈ reconstruct(reference).values rtol=1e-12
+        # The floor also precedes the candidate likelihood solves, whose
+        # one-component observation covariances are rank deficient at zero.
+        for rule in (AIC(), BIC())
+            model = StatsAPI.fit(FPCA, data; grid, mean, covariance=covariance(0.0),
+                ncomponents=rule, maxK=2)
+            @test model.settings.noise_floor_applied
+            @test all(isfinite, model.selection.scores)
+        end
+        single = IrregularFunctionalData([[0.3], [0.7]], [[2.0], [-1.0]])
+        for supplied in (0.0, 1e-12)
+            model = @inferred StatsAPI.fit(FPCA, single; grid, mean,
+                covariance=covariance(-0.2), noise_variance=supplied,
+                ncomponents=1, maxK=1)
+            @test noise_variance(model) == supplied
+            @test model.settings.noise_floor === nothing
+            @test model.settings.noise_floor_relative === nothing
+            @test model.settings.noise_floor_scale === nothing
+            @test model.settings.noise_floor_scale_source === nothing
+            @test !model.settings.noise_floor_applied
+            @test model.settings.noise_variance_source == :supplied
+            @test vec(scores(model)) ≈ [2.0, -1.0] ./ (1+supplied) rtol=1e-12
+        end
     end
 
     @testset "AIC and BIC: complete likelihood curve and first increase" begin

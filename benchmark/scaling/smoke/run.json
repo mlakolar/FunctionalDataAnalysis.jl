@@ -1,0 +1,67 @@
+{
+  "run_id": "20261025-scaling-local-smoke",
+  "purpose": "Validate the paired-route benchmark harness on two tiny cells; no benchmark evidence or route crossover claim.",
+  "kind": "development",
+  "status": "validated_local_smoke",
+  "created_utc": "2026-10-25T11:16:30.771376+00:00",
+  "source": {
+    "base_revision": "9198e5e3f8a6430e97de281f7e8ab1d83467254c",
+    "changes": "The accompanying task diff supplies the harness and route note. The loop controller assigns the final source commit.",
+    "sha256": {
+      "benchmark/scaling/common.jl": "1d0a6ae1dd79981e2480747f2591638443de75bf1ee52c0bf360559a77f0d12d",
+      "benchmark/scaling/run.jl": "869bfcd74ee62f3cb364e877f32a41f6296762c524c0fe59701daf61a3db12cb",
+      "benchmark/scaling/check.jl": "35a3096ee8b76cb1c85f37e3d50e91bac260178d202397c1f35a37fb754f43d2",
+      "benchmark/scaling/configs.py": "0ca6e6c1b714a239dd2638f342c736652c803c775573e0afcf46ac94d192c3cf",
+      "benchmark/scaling/configurations.csv": "5ac69930dcc866a14b90b3307e26cd9d2c60641ca45a80b2e3e172a299f35750",
+      "benchmark/scaling/summarize.py": "3ae7eaac32f75eafe52c71c9dd7d10bf467325a13b769a6d1e0e4a1c294bd53b",
+      "benchmark/scaling/discovery.sbatch": "ae4ee5280f1a9a8b1574d8eea0af96105577525d0649b432733c9866bed0edad",
+      "benchmark/scaling/README.md": "37d2e6d6d3d418d8ff67a3ecad170b9fa475954bb6de687f092aab6ec06c5d5a",
+      "docs/src/fpca.md": "6814b1115df22b22469cbf9bd3da108904b64d62fb84c47c97f2ff01be806ddc"
+    }
+  },
+  "environment": {
+    "julia": "1.13.2",
+    "platform": "aarch64-apple-darwin14",
+    "FunctionalDataAnalysis": "0.1.0",
+    "KernelSmoothing": "0.1.0",
+    "KernelSmoothing_source": "https://github.com/mlakolar/KernelSmoothing.jl",
+    "KernelSmoothing_ref": "master",
+    "KernelSmoothing_tree": "0d7ba3b7f71d2f6c660d232980da1180c7f094ab",
+    "julia_threads": 1,
+    "blas_threads": 1
+  },
+  "configuration": "benchmark/scaling/smoke/configurations.csv",
+  "recreation": {
+    "working_directory": "repository root",
+    "command": [
+      "julia --project=. benchmark/scaling/check.jl",
+      "python3 -B benchmark/scaling/configs.py /tmp/scaling-smoke.csv --smoke",
+      "julia --project=. benchmark/scaling/run.jl /tmp/scaling-smoke.csv 1 /tmp/scaling-smoke/cell-001.csv",
+      "julia --project=. benchmark/scaling/run.jl /tmp/scaling-smoke.csv 2 /tmp/scaling-smoke/cell-002.csv",
+      "python3 -B benchmark/scaling/summarize.py /tmp/scaling-smoke.csv /tmp/scaling-smoke /tmp/scaling-smoke-summary"
+    ]
+  },
+  "outputs": [
+    "cell-001.csv",
+    "cell-001.replicates.csv",
+    "cell-001.failures.csv",
+    "cell-002.csv",
+    "cell-002.replicates.csv",
+    "cell-002.failures.csv",
+    "summary.csv",
+    "summary.md"
+  ],
+  "validation": {
+    "analytic_metric_checks": "28 passed; no FPCA fits",
+    "smoke": "2 cells, 1 replicate per cell, both routes; 4 successes, 0 failures",
+    "summary": "4 route rows; aggregates, seeds, paired metadata, versions and complete coverage validated",
+    "summary_adverse_checks": "7 temporary positive/adverse scenarios passed: baseline, missing row, duplicate row, mismatched paired grid, wrong outcome count, explicit failed attempt retaining resources, missing failure diagnostic",
+    "configuration_grid": "Generated CSV exactly recreated; 20 cells and 8000 production fits",
+    "syntax": "Python AST and bash -n passed",
+    "full_package_suite": "Not run; controller responsibility",
+    "docs_build": "Not run; controller responsibility",
+    "Discovery": "Not submitted; owner-run full study"
+  },
+  "jobs": [],
+  "retention": "Keep these small smoke outputs and recreation recipe. No cluster artifacts or cleanup."
+}

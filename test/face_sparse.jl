@@ -35,6 +35,7 @@ using DelimitedFiles
         @test relerr(f.settings.gcv_scores,vec(q("gcv"))) < 1e-8
         @test relerr(f.settings.mean.gcv_scores,vec(q("mean_gcv"))) < 1e-8
         @test noise_variance(f) ≈ only(q("sigma2")) rtol=1e-8
+        @test !f.settings.noise_floor_applied
         @test f.settings.raw_noise_variance ≈ only(q("raw_sigma2")) rtol=1e-8
         @test relerr(f.all_eigenvalues,vec(q("eigenvalue"))) < 1e-8
         @test relerr(f.basis.values,q("eigenfunction")) < 1e-8
@@ -109,25 +110,36 @@ using DelimitedFiles
         @test eltype(eigvals(f32)) == Float32
         @test f32.basis.values'*(f32.weights .* f32.basis.values) ≈ I atol=1e-5
         # A deterministic example with a negative joint diagonal coefficient:
-        # the estimator's zero truncation must survive fitting and prediction.
+        # the positive floor must survive fitting and prediction.
         times = [collect(range(0,1;length=5)) for i in 1:8]
         values = [[sin(.4i)*(1+t)+cos(.9i)*cospi(t)+.1sin(i+5t) for t in ti]
             for (i,ti) in enumerate(times)]
         noiseless = StatsAPI.fit(FPCA,IrregularFunctionalData(times,values);method=:face,
             ncomponents=1,face=(;knots=3,center=false,lambda=.01))
         @test noiseless.settings.raw_noise_variance < 0
-        @test noise_variance(noiseless) == 0
-        @test noiseless.settings.noise_truncation == :zero
+        @test noise_variance(noiseless) == noiseless.settings.noise_floor
+        @test noise_variance(noiseless) == 0.025 * noiseless.settings.noise_floor_scale
+        @test noiseless.settings.noise_floor_scale > 0
+        @test noiseless.settings.noise_floor_relative == 0.025
+        @test noiseless.settings.noise_floor_scale_source == :maximum_fitted_pointwise_variance
+        @test noiseless.settings.noise_floor_applied
+        @test noiseless.settings.noise_truncation == :positive_floor
+        for value_scale in (1e-6, 1e6)
+            scaled = StatsAPI.fit(FPCA,
+                IrregularFunctionalData(times, [value_scale .* y for y in values]);
+                method=:face, ncomponents=1, face=(;knots=3,center=false,lambda=.01))
+            @test scaled.settings.noise_floor_applied
+            @test scaled.settings.raw_noise_variance ≈ value_scale^2 * noiseless.settings.raw_noise_variance rtol=1e-8
+            @test noise_variance(scaled) ≈ value_scale^2 * noise_variance(noiseless) rtol=1e-8
+            @test reconstruct(scaled).values ≈ value_scale .* reconstruct(noiseless).values rtol=1e-8
+            @test score_covariances(scaled) ≈ value_scale^2 .* score_covariances(noiseless) rtol=1e-8
+        end
         single = IrregularFunctionalData([[.37]],[[1.]];domain=(0.,1.))
         @test all(isfinite,StatsAPI.predict(noiseless,single).scores)
         rank_deficient = IrregularFunctionalData([collect(range(0,1;length=20))],[ones(20)])
-        failure = try
-            StatsAPI.predict(noiseless,rank_deficient)
-        catch e
-            e
-        end
-        @test failure isa ArgumentError
-        @test occursin("sparse FACE covariance for curve 1",sprint(showerror,failure))
+        predicted = StatsAPI.predict(noiseless,rank_deficient)
+        @test all(isfinite, predicted.scores)
+        @test all(isfinite, predicted.covariances)
         # Irregular margins pass through the existing multivariate interfaces.
         multivariate = MultivariateFunctionalData([fd,irregular(x)])
         marginal = StatsAPI.fit(FPCA,multivariate;method=:face,ncomponents=2,
@@ -203,5 +215,42 @@ end
         @test cv.rhs ≈ A' * observation_weights * y rtol=tolerance
         @test FDA._face_subject_gcv(A,y,groups,weights,spectrum,reverse(candidates)).scores == reverse(cv.scores)
         @test A == oldA && y == oldy
+    end
+end
+
+@testset "Low-noise sparse regression: cell 17 observation design" begin
+    # Like scaling cell 17: 100 curves, 2:10 observations and a 101-point grid.
+    # Deterministic smooth curves avoid reliance on version-specific RNGs.
+    # Before the floor, sparse FACE failed on curve 7 with this design.
+    curve(i, t) = 1+t+sin(.4i)*(1+t)+cos(.9i)*cospi(t)+.1sin(i+5t)
+    times = [collect(range(0.0, 1.0; length=2+mod(i-1, 9))) for i in 1:100]
+    data = IrregularFunctionalData(times,
+        [[curve(i, t) for t in ti] for (i, ti) in enumerate(times)])
+    grid = collect(range(0.0, 1.0; length=101))
+    truth = [curve(i, t) for i in 1:100, t in grid]
+    observed_range = maximum(data.values) - minimum(data.values)
+    for method in (:pace, :face)
+        model = StatsAPI.fit(FPCA, data; method, grid)
+        @test model.settings.raw_noise_variance < 0
+        @test model.settings.noise_floor_applied
+        @test noise_variance(model) == model.settings.noise_floor
+        @test noise_variance(model) == 0.025 * model.settings.noise_floor_scale
+        reconstructed = reconstruct(model).values
+        @test all(isfinite, reconstructed)
+        @test all(isfinite, score_covariances(model))
+        @test sum(abs2.(reconstructed-truth) .* transpose(model.weights))/100 < 0.1
+        # Control individual spikes as well as the integrated average error.
+        @test maximum(abs, reconstructed-truth) < observed_range
+        @test minimum(reconstructed) >= minimum(data.values) - observed_range/2
+        @test maximum(reconstructed) <= maximum(data.values) + observed_range/2
+        prediction = StatsAPI.predict(model, data)
+        @test prediction.scores == scores(model)
+        @test prediction.covariances == score_covariances(model)
+        displayed = sprint(show, model)
+        @test occursin("noise_floor_applied = true", displayed)
+        @test occursin("raw_noise_variance", displayed)
+        for choice in ("noise_floor_relative", "noise_floor_scale", "noise_floor_scale_source")
+            @test occursin(choice, displayed)
+        end
     end
 end
