@@ -674,8 +674,10 @@ times and combines within-curve cell products with their original weights;
 it does not discard observations. It uses the existing covariance smoother,
 rather than fdapace's separate preprocessing of each curve. The pooled mean
 and work-grid length are unchanged by this aggregation. With `b` bins,
-`Q=sum(min(N_i*(N_i-1),b^2))` bounds its occupied cells. Covariance smoothing
-then costs `O(g^2*Q)`, and pair storage costs `O(Q)`, after `O(P)` work to form
+`Q=sum(min(N_i*(N_i-1),b^2))` bounds its occupied cells. Exact duplicate pair
+coordinates are also combined across subjects for a fixed-bandwidth fit,
+without moving times or combining the original diagonal observations. Thus
+`O(g^2*Q)` smoothing and `O(Q)` pair storage remain upper bounds, after `O(P)` work to form
 the products. Most sparse curves have at most 20 observations, so automatic
 binning does not turn on, even when `n` is large.
 
@@ -683,7 +685,10 @@ The candidate helper's covariance nearest-neighbor calculation itself takes
 `O(U^2)` time and `O(U)` storage for `U` unique time pairs, including diagonal
 pairs. It is optional and is not run by a default fit.
 
-A 2D `CurveCV` with `H` candidate bandwidths and `F` folds costs
+A 2D `CurveCV` with `H` candidate bandwidths and `F` folds splits subjects
+before combining exact duplicate coordinates separately in training and held-out
+pools. Per candidate and fold, smoothing costs the product of those pools'
+distinct-coordinate counts. Without duplicates, the bounds remain
 `O(H*P^2 + H*F*P)` without binning, or `O(H*Q^2 + H*F*Q)` with binning. The held-out
 products are evaluated at their pool coordinates (snapped when binning is
 enabled), rather than only at the work grid. Ten candidate bandwidths can therefore cost much more than a

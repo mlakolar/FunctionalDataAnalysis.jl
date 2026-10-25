@@ -13,6 +13,10 @@ or a [`CurveCV`](@ref) with explicit candidates. KernelSmoothing selectors and
 pilot-based CurveCV are univariate and cannot select this 2D bandwidth.
 `:obs` gives each pair weight one; `:subj` gives weight `1/(N_i*(N_i-1))`.
 Every curve must have at least two observations. Stored data weights are unused.
+Exact duplicate pair coordinates are combined with their total weight and
+weighted mean product. This does not move times. CV splits subjects before
+combining training and held-out pairs separately; within-cell scatter retains
+the raw-product loss. Original diagonal observations remain separate.
 The supplied mean (`SmoothedMean` or one complete `GridFunctionalData` curve,
 including a multivariate FPCA mean) is interpolated at original observation
 times and held fixed through CV. Its grid must cover those times, and a
@@ -134,7 +138,32 @@ function _covariance_add_pair!(pool, cells, binning, s, t, product, weight, subj
     nothing
 end
 
-function _covariance_pool(fd, mean, weighting, binning)
+# _mean_pool appends observations in subject order, including for masked grids.
+function _pooled_subject_offsets(subjects, n)
+    offsets = zeros(Int, n+1)
+    offsets[1] = 1
+    for subject in subjects
+        offsets[subject+1] += 1
+    end
+    cumsum!(offsets, offsets)
+end
+
+# Moved from benchmark/sigma2/common.jl: exact-coordinate sufficient moments.
+# Call only after splitting subjects for CV; these labels no longer identify
+# individual subjects. First-occurrence coordinate order and scatter are kept.
+function _covariance_collapse_pairs(pool, indices=eachindex(pool.z))
+    T = promote_type(eltype(pool.x), eltype(pool.y), eltype(pool.z), eltype(pool.weights))
+    grouped = (; x=T[], y=T[], z=T[], weights=T[], scatter=T[], subjects=Int[])
+    cells = Dict{Tuple{T,T},Int}()
+    for i in indices
+        _covariance_add_pair!(grouped, cells, true, pool.x[i], pool.y[i],
+            pool.z[i], pool.weights[i], 1)
+        grouped.scatter[cells[(pool.x[i], pool.y[i])]] += pool.scatter[i]
+    end
+    grouped
+end
+
+function _covariance_pool(fd, mean, weighting, binning; aggregate=false)
     t, y, w, subjects = _mean_pool(fd, weighting)
     residual = y - _covariance_mean_values(mean, t)
     all(isfinite, residual) || throw(ArgumentError("covariance residuals must be finite"))
@@ -144,16 +173,19 @@ function _covariance_pool(fd, mean, weighting, binning)
     x, yy, z, pw, scatter = T[], T[], T[], T[], T[]
     ps = Int[]
     pool = (; x, y=yy, z, weights=pw, scatter, subjects=ps)
+    offsets = _pooled_subject_offsets(subjects, nobs(fd))
+    cells = Dict{Tuple{T,T},Int}()
     for i in 1:nobs(fd)
-        ix = findall(==(i), subjects)
+        ix = offsets[i]:(offsets[i+1]-1)
         n = length(ix)
         n >= 2 || throw(ArgumentError("curve $i needs at least two observations for covariance"))
-        cells = Dict{Tuple{T,T},Int}()
+        aggregate || empty!(cells)
         for j in ix, k in ix
             j == k && continue
             product = residual[j]*residual[k]
             weight = weighting == :obs ? one(T) : one(T)/(n*(n-1))
-            _covariance_add_pair!(pool, cells, binning, t[j], t[k], product, weight, i)
+            _covariance_add_pair!(pool, cells, aggregate ? true : binning,
+                t[j], t[k], product, weight, i)
         end
     end
     squares = residual.^2
@@ -176,11 +208,22 @@ function _covariance_selection(selector::CurveCV, fd, pool, kernel)
     # Leaving out a fold of curves is leaving out a group of pairs. The within-cell
     # scatter of binned products adds the same constant to every candidate.
     hs = Float64.(selector.bandwidths)
-    cv = KernelSmoothing.select_bandwidth(KernelSmoothing.CrossValidation(), (pool.x, pool.y), pool.z;
-        kernel, weights=pool.weights, groups=assignments[pool.subjects], bandwidths=hs)
-    scatter = sum(pool.scatter) / sum(pool.weights)
+    errors = zeros(Float64, length(hs))
+    pair_folds = assignments[pool.subjects]
+    for fold in 1:selector.folds
+        # Split first: aggregating across held-out subjects would leak responses.
+        train = _covariance_collapse_pairs(pool, findall(!=(fold), pair_folds))
+        held = _covariance_collapse_pairs(pool, findall(==(fold), pair_folds))
+        queries = hcat(held.x, held.y)
+        for (j, h) in enumerate(hs)
+            predicted = KernelSmoothing.local_polynomial((train.x, train.y), train.z, queries;
+                bandwidth=h, kernel, weights=train.weights)
+            errors[j] += sum(held.weights .* abs2.(held.z - predicted) + held.scatter)
+        end
+    end
+    errors ./= sum(pool.weights)
     T = promote_type(eltype(pool.z), eltype(selector.bandwidths))
-    errors = T[cv.details.criterion[searchsortedfirst(cv.details.grid, h)] + scatter for h in hs]
+    errors = T.(errors)
     for (h, e) in zip(selector.bandwidths, errors)
         isfinite(e) || throw(ArgumentError(
             "covariance has a singular or undefined local linear fit with curves held out at bandwidth $h; use larger CurveCV bandwidths"))
@@ -210,9 +253,12 @@ function fit(::Type{SmoothedCovariance}, fd::Union{GridFunctionalData,IrregularF
     method = LocalPolynomial(; bandwidth=_initial_bandwidth(bandwidth), kernel)
     diagonal_bandwidth === nothing ||
         LocalPolynomial(; bandwidth=_initial_bandwidth(diagonal_bandwidth), kernel=method.kernel)
-    pool = _covariance_pool(fd, mean, weighting, binning)
+    selecting = bandwidth isa CurveCV
+    pool = _covariance_pool(fd, mean, weighting, binning; aggregate=!selecting)
     selection = bandwidth isa CurveCV ? _covariance_selection(bandwidth, fd, pool, method.kernel) : nothing
     h = selection === nothing ? method.bandwidth : selection.bandwidths[argmin(selection.errors)]
+    # Diagonal observations and their subject labels remain unaggregated.
+    selecting && (pool = merge(pool, _covariance_collapse_pairs(pool)))
     diagonal_h, diagonal_selection = if diagonal_bandwidth === nothing
         h, nothing
     else

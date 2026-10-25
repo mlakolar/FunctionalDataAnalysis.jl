@@ -13,17 +13,7 @@ const ESTIMATORS = (:surface_middle_half, :surface_full, :rotated_middle_half,
 
 # Exact duplicate grouping, never time snapping. Reuse the package's weighted
 # product aggregator, including within-cell RSS, and its local smoother.
-function collapse_pairs(pool, indices=eachindex(pool.z))
-    grouped = (; x=Float64[], y=Float64[], z=Float64[], weights=Float64[],
-        scatter=Float64[], subjects=Int[])
-    cells = Dict{Tuple{Float64,Float64},Int}()
-    for i in indices
-        FDA._covariance_add_pair!(grouped, cells, true, pool.x[i], pool.y[i],
-            pool.z[i], pool.weights[i], 1)
-        grouped.scatter[cells[(pool.x[i], pool.y[i])]] += pool.scatter[i]
-    end
-    grouped
-end
+collapse_pairs(pool, indices=eachindex(pool.z)) = FDA._covariance_collapse_pairs(pool, indices)
 
 # Same whole-curve CurveCV loss as the package, using sufficient statistics
 # at exact duplicate coordinates within each training/held-out fold. On dense

@@ -77,9 +77,10 @@ remain fixed across folds. All retained raw products contribute to CV.
 `binning=nothing` disables snapping; integer `binning>=2` uses the existing
 covariance convention separately on each observed axis range. Aggregation
 preserves weights and within-cell squared errors; CV queries the snapped
-pair coordinates. This explicit snapping differs from fdapace's automatic
-aggregation of exact duplicate pairs, which leaves fixed-bandwidth fits
-unchanged. No nearest-neighbor bandwidth floor or hidden bandwidth selection
+pair coordinates. Exact duplicate pair coordinates are also combined without
+snapping, preserving total weights, weighted products and within-cell scatter.
+CV splits subjects before combining training and held-out pairs separately.
+This leaves fixed-bandwidth fits unchanged. No nearest-neighbor bandwidth floor or hidden bandwidth selection
 is used. All grids, weights, means, settings, and CV results are stored and
 shown. Use [`evaluate`](@ref) for bilinear interpolation inside the grids.
 """
@@ -102,7 +103,7 @@ struct SmoothedCrossCovariance{T<:AbstractFloat,H,K,B,S,M1,M2}
     mean2::M2
 end
 
-function _cross_pool(fd1, fd2, mean1, mean2, weighting, exclude_same_time, binning)
+function _cross_pool(fd1, fd2, mean1, mean2, weighting, exclude_same_time, binning; aggregate=false)
     t1, y1, _, subjects1 = _mean_pool(fd1, weighting)
     t2, y2, _, subjects2 = _mean_pool(fd2, weighting)
     r1 = y1 - _covariance_mean_values(mean1, t1)
@@ -112,16 +113,22 @@ function _cross_pool(fd1, fd2, mean1, mean2, weighting, exclude_same_time, binni
     x1, x2 = _covariance_snap(t1, binning), _covariance_snap(t2, binning)
     T = promote_type(eltype(r1), eltype(r2), eltype(t1), eltype(t2))
     pool = (; x=T[], y=T[], z=T[], weights=T[], scatter=T[], subjects=Int[])
+    offsets1 = _pooled_subject_offsets(subjects1, nobs(fd1))
+    offsets2 = _pooled_subject_offsets(subjects2, nobs(fd2))
+    cells = Dict{Tuple{T,T},Int}()
     for i in 1:nobs(fd1)
-        ix1, ix2 = findall(==(i), subjects1), findall(==(i), subjects2)
-        count_before = length(pool.z)
+        ix1 = offsets1[i]:(offsets1[i+1]-1)
+        ix2 = offsets2[i]:(offsets2[i+1]-1)
+        has_pair = false
         weight = weighting == :obs ? one(T) : one(T)/(length(ix1)*length(ix2))
-        cells = Dict{Tuple{T,T},Int}()
+        aggregate || empty!(cells)
         for j in ix1, k in ix2
             exclude_same_time && t1[j] == t2[k] && continue
-            _covariance_add_pair!(pool, cells, binning, x1[j], x2[k], r1[j]*r2[k], weight, i)
+            has_pair = true
+            _covariance_add_pair!(pool, cells, aggregate ? true : binning,
+                x1[j], x2[k], r1[j]*r2[k], weight, i)
         end
-        length(pool.z) > count_before || throw(ArgumentError(
+        has_pair || throw(ArgumentError(
             exclude_same_time ? "subject $i has no cross-covariance pairs after excluding same-time observations" : "subject $i has no cross-covariance pairs; it lacks observations on one of the nodes"))
     end
     all(isfinite, pool.z) && all(isfinite, pool.scatter) || throw(ArgumentError(
@@ -164,9 +171,12 @@ function fit(::Type{SmoothedCrossCovariance},
         "pilot CurveCV is univariate; cross-covariance requires explicit candidates"))
     initial = _cross_bandwidth(_initial_bandwidth(bandwidth), kernel)
     chosen_kernel = deepcopy(kernel)
-    pool = _cross_pool(fd1, fd2, mean1, mean2, weighting, exclude_same_time, binning)
+    selecting = bandwidth isa CurveCV
+    pool = _cross_pool(fd1, fd2, mean1, mean2, weighting, exclude_same_time, binning;
+        aggregate=!selecting)
     selection = bandwidth isa CurveCV ? _covariance_selection(bandwidth, fd1, pool, chosen_kernel) : nothing
     h = selection === nothing ? initial : selection.bandwidths[argmin(selection.errors)]
+    selecting && (pool = _covariance_collapse_pairs(pool))
     surface = T.(_local_linear_surface(pool, g1, g2, h, chosen_kernel))
     all(isfinite, surface) || throw(ArgumentError("cross-covariance must remain finite after conversion"))
     SmoothedCrossCovariance(g1, g2, surface, w1, w2, h, chosen_kernel, weighting,
