@@ -12,7 +12,7 @@ using Random: AbstractRNG, rand, randn, randperm
 export AbstractFunctionalData, AbstractBasis, nobs, domain, evaluate,
     sampling_design, quadrature_weights
 export nbasis, basismatrix, gram, penalty, BSplineBasis, FourierBasis,
-    MonomialBasis
+    MonomialBasis, DerivativeBasis, derivative, FPCADerivative, MultivariateFPCADerivative
 export GridFunctionalData, IrregularFunctionalData, BasisFunctionalData,
     MultivariateFunctionalData, PiecewiseLinear, NoInterpolation, nobs_per_curve,
     ncomponents, component, to_array, to_irregular, to_grid, to_basis
@@ -49,6 +49,7 @@ include("pace.jl")
 include("multivariate_fpca.jl")
 include("mfpca.jl")
 include("cross_covariance.jl")
+include("derivatives.jl")
 include("plot_data.jl")
 include("recipes.jl")
 

@@ -11,6 +11,10 @@ of grids (or `nothing`) for per-node grids. Supplied means and covariances use
 the same fitted-object or named-tuple forms as univariate FPCA. Wrong vector
 lengths throw `DimensionMismatch`.
 
+Pooled fits retain copied original observations in `training_data` for nodewise
+derivative covariance and score estimation. Marginal fits retain observations
+in their individual univariate fits.
+
 Pooled FPCA requires complete grid data on the same grid; pooled PACE is not
 implemented. It averages node sample covariances with denominator `n-1`, then
 reuses the weighted univariate eigenstep. Each node is centered by its own
@@ -46,6 +50,7 @@ struct MultivariateFPCA{T<:AbstractFloat}
     means::Vector{GridFunctionalData{T}}
     ids::Union{Nothing,Vector{Any}}
     settings::NamedTuple
+    training_data::Union{Nothing,MultivariateFunctionalData{T}}
 end
 
 function _multivariate_keyword(value, name, p)
@@ -89,7 +94,7 @@ function _multivariate_marginal(mfd, options)
         GridFunctionalData(Matrix{T}(f.mean.values), Vector{T}(f.grid)) for f in fitted]
     settings = (; requested=deepcopy(options), node_settings=[deepcopy(f.settings) for f in fitted])
     MultivariateFPCA(:marginal, FPCA[f for f in fitted], nothing, projected, uncertainties,
-        eigenvalues, bases, means, ids(mfd), settings)
+        eigenvalues, bases, means, ids(mfd), settings, nothing)
 end
 
 function _multivariate_pooled(mfd::MultivariateFunctionalData{T};
@@ -157,10 +162,11 @@ function _multivariate_pooled(mfd::MultivariateFunctionalData{T};
         grid_source=:data, quadrature=:stored_trapezoidal,
         covariance_denominator=n-1, score_variance_denominator=n-1,
         covariance_pooling=:equal_nodes, sign_reference=:average_node_mean,
-        presmooth=nothing)
+        presmooth=nothing, observations=:copied_original)
     MultivariateFPCA(:pooled, FPCA[], pooled, projected,
         Union{Nothing,Array{T,3}}[nothing for _ in 1:p], eigenvalues,
-        fill(shared, p), means, ids(mfd), settings)
+        fill(shared, p), means, ids(mfd), settings,
+        MultivariateFunctionalData{T}(mfd.components))
 end
 
 Base.@constprop :aggressive function fit(::Type{FPCA}, mfd::MultivariateFunctionalData;

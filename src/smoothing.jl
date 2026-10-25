@@ -1,26 +1,34 @@
 """
-    LocalPolynomial(; bandwidth, degree=1, kernel=KernelSmoothing.EpanechnikovKernel())
+    LocalPolynomial(; bandwidth, derivative=0, degree=derivative+1,
+        kernel=KernelSmoothing.EpanechnikovKernel())
 
 Per-curve local polynomial settings. Supply a finite positive scalar bandwidth;
-no automatic selector or nearest-neighbour bandwidth floor is used. Degree is
-a nonnegative integer. Kernels are `KernelSmoothing.AbstractKernel` instances.
+no automatic selector or nearest-neighbour bandwidth floor is used. `derivative`
+is a nonnegative integer and `degree >= derivative`. The default degree is
+ν + 1 (odd degree minus derivative order; Fan and Gijbels, 1996), as in
+KernelSmoothing.jl. Estimates are derivatives, not finite differences. Kernels
+are `KernelSmoothing.AbstractKernel` instances.
 Use [`smooth_curves`](@ref), or `StatsAPI.fit(LocalPolynomial, fd; grid, bandwidth, ...)`.
 """
 struct LocalPolynomial{T<:AbstractFloat,K<:KernelSmoothing.AbstractKernel}
     bandwidth::T
     degree::Int
+    derivative::Int
     kernel::K
-    function LocalPolynomial(; bandwidth, degree=1,
+    function LocalPolynomial(; bandwidth, derivative=0, degree=nothing,
             kernel=KernelSmoothing.EpanechnikovKernel())
         bandwidth isa Real && isfinite(bandwidth) && bandwidth > 0 ||
             throw(ArgumentError("bandwidth must be a finite positive number"))
+        nu = _derivative_order(derivative)
+        degree = degree === nothing ? _derivative_sum(nu, 1) : degree
         degree isa Integer && 0 <= degree <= typemax(Int) ||
             throw(ArgumentError("degree must be a nonnegative integer representable as Int"))
+        degree >= nu || throw(ArgumentError("degree must be at least derivative order"))
         kernel isa KernelSmoothing.AbstractKernel ||
             throw(ArgumentError("kernel must be a KernelSmoothing.AbstractKernel"))
         h = float(bandwidth)
         isfinite(h) || throw(ArgumentError("bandwidth must remain finite after conversion"))
-        new{typeof(h),typeof(kernel)}(h, Int(degree), deepcopy(kernel))
+        new{typeof(h),typeof(kernel)}(h, Int(degree), nu, deepcopy(kernel))
     end
 end
 
@@ -102,7 +110,8 @@ function smooth_curves(fd::Union{GridFunctionalData,IrregularFunctionalData},
         indices = findall(z -> first(t) <= z <= last(t), x)
         isempty(indices) && continue
         model = KernelSmoothing.fit(KernelSmoothing.LocalPolynomialRegression, t, y;
-            degree=method.degree, kernel=method.kernel, bandwidth=method.bandwidth,
+            degree=method.degree, derivative=method.derivative,
+            kernel=method.kernel, bandwidth=method.bandwidth,
             points=x[indices], weights=ones(length(t)), minobs=0)
         estimates = KernelSmoothing.coef(model)
         for (j, value) in zip(indices, estimates)
@@ -112,7 +121,8 @@ function smooth_curves(fd::Union{GridFunctionalData,IrregularFunctionalData},
         end
     end
     metadata = (; method=:local_polynomial, bandwidth=method.bandwidth,
-        degree=method.degree, kernel=method.kernel, weighting=:equal_observations,
+        degree=method.degree, derivative=method.derivative,
+        kernel=method.kernel, weighting=:equal_observations,
         grid=copy(x), minobs=0, binning=:none, folds=0)
     GridFunctionalData(out, x; ids=fd.ids, metadata)
 end
@@ -183,7 +193,7 @@ fit(::Type{PenalizedSpline}, fd::Union{GridFunctionalData,IrregularFunctionalDat
 
 function Base.show(io::IO, method::LocalPolynomial)
     print(io, "LocalPolynomial(bandwidth=", method.bandwidth, ", degree=", method.degree,
-        ", kernel=", method.kernel, ")")
+        ", derivative=", method.derivative, ", kernel=", method.kernel, ")")
 end
 function Base.show(io::IO, method::GCV)
     print(io, "GCV(", method.lambdas, ")")

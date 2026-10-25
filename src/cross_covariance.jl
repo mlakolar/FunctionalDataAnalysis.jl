@@ -57,8 +57,9 @@ bivariate local linear smoother on `grid1 × grid2`. Nodes are grid or
 irregular data with equal subject counts and matching IDs when both have
 them. Means are [`SmoothedMean`](@ref) fits or one-curve complete
 [`GridFunctionalData`](@ref) (including multivariate FPCA means). Means are
-interpolated at original times and must cover every observation. Work grids
-must cover their respective observations. Inputs and means are copied.
+interpolated at original times and must cover every observation. `SmoothedMean`
+fits must have `derivative=0`. Work grids must cover their respective
+observations. Inputs and means are copied.
 
 The Gaussian kernel and `exclude_same_time=false` follow fdapace 0.6.0's
 `GetCrCovYX`. Keeping equal-time pairs assumes independent measurement errors
@@ -143,6 +144,8 @@ function fit(::Type{SmoothedCrossCovariance},
         grid1::AbstractVector{<:Real}, grid2::AbstractVector{<:Real}=grid1,
         bandwidth, kernel=KernelSmoothing.GaussianKernel(), weighting=:obs,
         exclude_same_time=false, binning=nothing)
+    mean1 isa SmoothedMean && _require_value_mean(mean1)
+    mean2 isa SmoothedMean && _require_value_mean(mean2)
     _cross_subjects(fd1, fd2)
     weighting in (:obs, :subj) || throw(ArgumentError("weighting must be :obs or :subj"))
     exclude_same_time isa Bool || throw(ArgumentError("exclude_same_time must be a Bool"))
@@ -263,6 +266,11 @@ function cross_covariances(mfd::MultivariateFunctionalData; bandwidth, grid=noth
         throw(DimensionMismatch("means must contain one mean per node"))
     means === nothing || all(m -> m isa Union{SmoothedMean,GridFunctionalData}, means) ||
         throw(ArgumentError("means must contain SmoothedMean fits or one-curve GridFunctionalData"))
+    if means !== nothing
+        for mean in means
+            mean isa SmoothedMean && _require_value_mean(mean)
+        end
+    end
     means === nothing || mean_bandwidth === nothing || throw(ArgumentError(
         "mean_bandwidth is unused with supplied means or fpca"))
     split_grid = _multivariate_keyword(grid, :grid, p)

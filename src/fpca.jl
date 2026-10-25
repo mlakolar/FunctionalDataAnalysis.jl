@@ -1,5 +1,8 @@
 abstract type _ComponentSelector end
 
+const _FPCA_EIGEN_TOL = 1e-10
+const _FPCA_SIGN_TOL = 1e-12
+
 """
     FVE(threshold=0.99)
 
@@ -62,7 +65,7 @@ PACE implements the conditional-expectation method of Yao, Müller, and Wang
 (2005). Its work `grid` defaults to 51 equally spaced points over the observed
 time range (fdapace 0.6.0 `nRegGrid`, `SetOptions.R`). An override must cover
 every observation time. A missing `mean` estimates [`SmoothedMean`](@ref);
-a supplied `SmoothedMean` is copied and used as given, or supply
+a supplied `SmoothedMean` must have `derivative=0` and is copied, or supply
 `(; grid, values)` for a linearly interpolated mean. Its grid must cover the
 work grid and every observation. A missing `covariance` estimates
 [`SmoothedCovariance`](@ref), using an estimated
@@ -186,8 +189,8 @@ end
 # rectangular eigenvalue scaling, followed by trapezoidal column normalization.
 # Both weights coincide in every public fit.
 function _fpca_eigen(surface::AbstractMatrix{<:Real}, weights::AbstractVector{<:Real},
-        mean::AbstractVector{<:Real}; maxK=length(weights), eigen_tol=1e-10,
-        sign_tol=1e-12, normalization_weights=weights)
+        mean::AbstractVector{<:Real}; maxK=length(weights), eigen_tol=_FPCA_EIGEN_TOL,
+        sign_tol=_FPCA_SIGN_TOL, normalization_weights=weights)
     Base.require_one_based_indexing(surface, weights, mean, normalization_weights)
     m = length(weights)
     size(surface) == (m, m) || throw(DimensionMismatch("covariance surface must be square with one row per weight"))
@@ -276,7 +279,7 @@ Base.@constprop :aggressive function fit(::Type{FPCA}, fd::GridFunctionalData; m
         mean=nothing, covariance=nothing, noise_variance=nothing,
         mean_bandwidth=nothing, covariance_bandwidth=nothing, diagonal_bandwidth=nothing,
         kernel=nothing, weighting=:obs, binning=:auto,
-        eigen_tol=1e-10, sign_tol=1e-12)
+        eigen_tol=_FPCA_EIGEN_TOL, sign_tol=_FPCA_SIGN_TOL)
     method in (:auto, :dense, :pace) || throw(ArgumentError("FPCA method must be :auto, :dense, or :pace"))
     design = sampling_design(fd)
     if method == :pace || (method == :auto && design != :regular)
@@ -332,7 +335,7 @@ function fit(::Type{FPCA}, fd::IrregularFunctionalData; method=:auto, grid=nothi
         mean=nothing, covariance=nothing, noise_variance=nothing,
         mean_bandwidth=nothing, covariance_bandwidth=nothing, diagonal_bandwidth=nothing,
         kernel=nothing, weighting=:obs, binning=:auto,
-        eigen_tol=1e-10, sign_tol=1e-12)
+        eigen_tol=_FPCA_EIGEN_TOL, sign_tol=_FPCA_SIGN_TOL)
     method in (:auto, :dense, :pace) || throw(ArgumentError("FPCA method must be :auto, :dense, or :pace"))
     method == :dense && throw(ArgumentError("dense FPCA requires complete GridFunctionalData"))
     presmooth === nothing || throw(ArgumentError("presmooth is only supported by dense FPCA; PACE smooths the pooled mean and covariance"))

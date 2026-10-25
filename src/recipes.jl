@@ -214,3 +214,10 @@ end
     end
     nothing
 end
+
+@recipe function f(d::Union{FPCADerivative,MultivariateFPCADerivative})
+    grid = pop!(plotattributes, :evaluation_grid, nothing)
+    curves = pop!(plotattributes, :curves, :all)
+    ylabel --> "Derivative"
+    _plot_payload(Val(:curves), curve_data(d; grid, curves))
+end

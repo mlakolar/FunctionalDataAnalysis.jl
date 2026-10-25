@@ -510,3 +510,80 @@ reconstruct
 MultivariateFPCA
 score_array
 ```
+
+## Derivatives
+
+`derivative(model)` estimates velocity curves from a fitted FPCA. It returns
+an `FPCADerivative` with a mean derivative, derivative functions on the stored
+work grid, scores, bandwidths, kernel, and all choices. `reconstruct(d)` returns
+functional data; `curve_data(d)` and `plot(d)` draw the reconstructed derivative
+curves. `mean_data(d)` returns the mean derivative. These operations do not
+refit the model.
+
+```julia
+velocity_fit = derivative(model; mean_bandwidth=0.08,
+    covariance_bandwidth=0.10)
+velocity_curves = reconstruct(velocity_fit)
+velocity_mean = mean_data(velocity_fit)
+# With Plots loaded:
+# plot(velocity_fit; curves=1:3)
+```
+
+The default `method=:FPC` differentiates the stored mean and each selected
+eigenfunction by local polynomial fitting, then combines them with the original
+scores. Orders one and two are supported. Derivative functions need not be
+orthogonal, and the retained eigenvalues describe the original curves. The
+default degree equals the derivative order, matching fdapace 0.6.0 `FPCAder`;
+this differs from the `ν+1` default for standalone polynomial derivatives.
+fdapace labels second derivatives experimental. Accuracy still depends on the
+work-grid resolution, bandwidth, and smoothness of the fitted functions.
+
+`method=:DPC` (Dai, Müller and Tao, 2018) instead estimates principal components
+of the derivative process, with its own eigenvalues and scores. It supports
+first derivatives and defaults to degree two and `FVE(0.9999)`. Pass an integer
+or `FVE` via `ncomponents` to change that choice. It applies the polynomial
+derivative operator in both arguments of the covariance and reuses the usual
+weighted eigenstep. Dense fits use the sample covariance and project the
+correspondingly differentiated centered training curves. PACE uses the full
+projected covariance and conditional-expectation scores from the original
+observations. The curve/derivative-score cross-covariance supplies the CE
+numerator. No noise ridge is introduced. Conditional score covariances omit
+uncertainty from fitting mean, covariance, and noise.
+
+DPC here uses stored quadrature weights, including nonuniform grids, and the
+same differentiated covariance for its derivative eigenvalues and score prior.
+fdapace's native DPC mixes finite differences, polynomial smoothing,
+rectangular quadrature, and an unsmoothed score-prior spectrum. Its DPC mean is
+also re-estimated from raw observations, whereas this package differentiates
+the fitted mean supplied by the user. The
+[fdapace audit](fdapace.md#Derivative-source-audit) describes the resulting
+reference quantities and their validation. `FPC1` is not implemented.
+
+For either method the default kernel is Gaussian. With derivative order `ν`
+and domain width `r`, both default bandwidths are `ν*0.10r` when the fitted
+noise variance divided by the sum of selected original eigenvalues is at least
+0.01, and `ν*0.05r` otherwise (including dense fits without a noise estimate).
+These rules follow fdapace 0.6.0 `SetDerOptions`. Supply a common `bandwidth`,
+or both `mean_bandwidth` and `covariance_bandwidth`. A partial pair or mixed
+forms throw. There is no bandwidth search. `show` reports resolved bandwidths,
+rule, degree, kernel, component selection and numerical tolerances.
+
+For `MultivariateFPCA`, differentiation runs in node order and returns a
+`MultivariateFPCADerivative`. Shared or per-node keyword settings work as for
+marginal FPCA; `component(d,j)` retrieves the node result. Reconstruction,
+plotting, and mean data work nodewise, with shared or per-node grids. Both marginal
+and pooled fits support the two methods. Pooled FPC differentiates the shared
+basis and retains node scores. Pooled DPC uses each node's sample covariance
+and copied original training observations; its derivative components are
+node-specific.
+
+Fixed-seed Fourier checks use `simulate_kl` with dense or sparse sampling. They
+check relative weighted derivative-function error and relative derivative-curve
+error below 0.12. Sparse checks supply the known mean, covariance and noise to
+isolate differentiation and CE reconstruction from covariance-smoothing bias.
+These are finite simulation checks, not general recovery guarantees.
+
+```@docs
+FPCADerivative
+MultivariateFPCADerivative
+```

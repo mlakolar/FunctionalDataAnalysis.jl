@@ -47,6 +47,7 @@ function _pace_mean(fd, ::Nothing, grid, bandwidth, kernel, weighting)
 end
 
 function _pace_mean(fd, mean::SmoothedMean, grid, bandwidth, kernel, weighting)
+    _require_value_mean(mean)
     _pace_validate_mean(mean, grid, fd)
     deepcopy(mean), :supplied
 end
@@ -61,7 +62,10 @@ end
 _pace_mean(fd, mean, grid, bandwidth, kernel, weighting) = throw(ArgumentError(
     "mean must be nothing, SmoothedMean, or a named tuple with grid and values"))
 
-_pace_mean_values(mean::SmoothedMean, points) = evaluate(mean, points)
+function _pace_mean_values(mean::SmoothedMean, points)
+    _require_value_mean(mean)
+    evaluate(mean, points)
+end
 function _pace_mean_values(mean::NamedTuple, points)
     T = _floattype(promote_type(eltype(mean.grid), eltype(mean.values), eltype(points)))
     _evaluate_curve!(Vector{T}(undef, length(points)), mean.grid, mean.values,
@@ -250,7 +254,7 @@ function _pace_selection(rule::Union{AIC,BIC}, fd, grid, mu, system, maxK, sigma
 end
 
 _pace_mean_settings(mean::SmoothedMean) = (; bandwidth=mean.bandwidth,
-    kernel=deepcopy(mean.kernel), degree=mean.degree, weighting=mean.weighting,
+    kernel=deepcopy(mean.kernel), degree=mean.degree, derivative=mean.derivative, weighting=mean.weighting,
     design=mean.design, minobs=mean.minobs, binning=mean.binning, folds=mean.folds,
     selection=deepcopy(mean.selection), grid=copy(mean.grid))
 _pace_mean_settings(mean::NamedTuple) = (; interpolation=:piecewise_linear, grid=copy(mean.grid))
@@ -268,7 +272,7 @@ _pace_covariance_settings(covariance::NamedTuple) =
 function _fit_pace(fd; method=:auto, grid=nothing, ncomponents=FVE(0.99), maxK=nothing,
         mean=nothing, covariance=nothing, noise_variance=nothing, mean_bandwidth=nothing,
         covariance_bandwidth=nothing, diagonal_bandwidth=nothing, kernel=nothing,
-        weighting=:obs, binning=:auto, eigen_tol=1e-10, sign_tol=1e-12)
+        weighting=:obs, binning=:auto, eigen_tol=_FPCA_EIGEN_TOL, sign_tol=_FPCA_SIGN_TOL)
     nobs(fd) >= 2 || throw(ArgumentError("PACE FPCA requires at least two curves"))
     mean === nothing || mean_bandwidth === nothing || throw(ArgumentError(
         "mean_bandwidth cannot be used with a supplied mean; supply a fitted SmoothedMean or let FPCA estimate the mean"))
