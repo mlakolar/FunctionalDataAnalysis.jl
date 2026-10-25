@@ -367,14 +367,11 @@ function reconstruct(f::MultivariateFPCA{T}, projected::AbstractVector=scores(f)
     for j in 1:p
         s = projected[j]
         Base.require_one_based_indexing(s)
-        size(s, 2) == size(f.scores[j], 2) || throw(DimensionMismatch(
-            "reconstruction score columns must equal ncomponents at node $j"))
-        all(isfinite, s) || throw(ArgumentError("reconstruction scores at node $j must be finite"))
+        _validate_reconstruction_scores(s, size(f.scores[j], 2);
+            column_message="reconstruction score columns must equal ncomponents at node $j",
+            finite_message="reconstruction scores at node $j must be finite")
         points = grids[j]
-        quadrature_weights(points)
-        functions = basis_matrix(f.bases[j], points)
-        mu = evaluate(f.means[j], points, PiecewiseLinear())
-        values = s * transpose(functions) .+ mu
+        values = _reconstruction_values(s, f.bases[j], f.means[j], points)
         push!(nodes, GridFunctionalData(Matrix{R}(values), Vector{R}(points);
             ids=training ? f.ids : nothing))
     end

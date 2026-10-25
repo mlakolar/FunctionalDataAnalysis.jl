@@ -656,6 +656,23 @@ function _predict_result(f::FPCA, fd::IrregularFunctionalData)
     _pace_predict(f, fd)
 end
 
+function _validate_reconstruction_scores(projected, k;
+        row_message="reconstruction requires at least one score row",
+        column_message="reconstruction score columns must equal ncomponents",
+        finite_message="reconstruction scores must be finite")
+    size(projected, 1) >= 1 || throw(ArgumentError(row_message))
+    size(projected, 2) == k || throw(DimensionMismatch(column_message))
+    all(isfinite, projected) || throw(ArgumentError(finite_message))
+    nothing
+end
+
+function _reconstruction_values(projected, basis, mean, grid)
+    _validate_strict_grid(grid)
+    functions = basis_matrix(basis, grid)
+    mu = _fpca_mean_values(mean, grid)
+    projected * transpose(functions) .+ mu
+end
+
 """
     reconstruct(f::FPCA, scores=scores(f); grid=f.grid)
 
@@ -670,13 +687,8 @@ no inferred ids. Scores must be finite with one column per selected component.
 function reconstruct(f::FPCA, projected::AbstractMatrix{<:Real}=scores(f);
         grid::AbstractVector{<:Real}=f.grid)
     Base.require_one_based_indexing(projected, grid)
-    size(projected, 1) >= 1 || throw(ArgumentError("reconstruction requires at least one score row"))
-    size(projected, 2) == ncomponents(f) || throw(DimensionMismatch("reconstruction score columns must equal ncomponents"))
-    all(isfinite, projected) || throw(ArgumentError("reconstruction scores must be finite"))
-    quadrature_weights(grid)
-    functions = basis_matrix(f.basis, grid)
-    mu = _fpca_mean_values(f.mean, grid)
-    reconstructed = projected * transpose(functions) .+ mu
+    _validate_reconstruction_scores(projected, ncomponents(f))
+    reconstructed = _reconstruction_values(projected, f.basis, f.mean, grid)
     GridFunctionalData(reconstructed, grid; ids=projected === f.scores ? f.ids : nothing)
 end
 

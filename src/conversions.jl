@@ -36,7 +36,7 @@ Basis data evaluate exactly on the supplied grid and need no evaluator.
 function to_grid(fd::Union{GridFunctionalData,IrregularFunctionalData},
         grid::AbstractVector{<:Real}, ::NoInterpolation)
     x = _evaluation_points(fd, grid)
-    quadrature_weights(x)
+    _validate_strict_grid(x)
     T = eltype(x)
     out = Matrix{Union{Missing,T}}(missing, nobs(fd), length(x))
     for i in 1:nobs(fd)
@@ -54,7 +54,7 @@ end
 function to_grid(fd::Union{GridFunctionalData,IrregularFunctionalData},
         grid::AbstractVector{<:Real}, evaluator::PiecewiseLinear)
     x = _evaluation_points(fd, grid)
-    quadrature_weights(x)
+    _validate_strict_grid(x)
     values = evaluate(fd, x, evaluator)
     T = eltype(values)
     out = Matrix{Union{Missing,T}}(values)
@@ -64,7 +64,7 @@ end
 
 function to_grid(fd::BasisFunctionalData, grid::AbstractVector{<:Real})
     x = _evaluation_points(fd, grid)
-    quadrature_weights(x)
+    _validate_strict_grid(x)
     GridFunctionalData(evaluate(fd, x), x; ids=fd.ids)
 end
 

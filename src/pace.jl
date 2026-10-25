@@ -129,14 +129,7 @@ end
 _pace_covariance(fd, mean, covariance, grid, bandwidth, diagonal_bandwidth, kernel, weighting, binning) =
     throw(ArgumentError("covariance must be nothing, SmoothedCovariance, or a named tuple with grid and surface"))
 
-function _pace_bilinear(grid, surface, s, t)
-    i = min(searchsortedlast(grid, s), length(grid)-1)
-    j = min(searchsortedlast(grid, t), length(grid)-1)
-    u = (s-grid[i])/(grid[i+1]-grid[i])
-    v = (t-grid[j])/(grid[j+1]-grid[j])
-    (1-u)*(1-v)*surface[i, j] + u*(1-v)*surface[i+1, j] +
-        (1-u)*v*surface[i, j+1] + u*v*surface[i+1, j+1]
-end
+_pace_bilinear(grid, surface, s, t) = _bilinear_surface(grid, grid, surface, s, t)
 
 function _pace_surface(covariance, points)
     T = _floattype(promote_type(eltype(covariance.grid), eltype(covariance.surface), eltype(points)))

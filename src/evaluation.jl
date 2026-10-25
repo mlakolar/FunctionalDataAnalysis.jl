@@ -26,6 +26,17 @@ function _evaluation_points(fd, t::AbstractVector{S}) where {S<:Real}
     points
 end
 
+# Callers validate their own closed ranges; preserve the scalar expression's
+# operation order for both square and rectangular covariance surfaces.
+function _bilinear_surface(grid1, grid2, surface, s, t)
+    i = min(searchsortedlast(grid1, s), length(grid1)-1)
+    j = min(searchsortedlast(grid2, t), length(grid2)-1)
+    u = (s-grid1[i])/(grid1[i+1]-grid1[i])
+    v = (t-grid2[j])/(grid2[j+1]-grid2[j])
+    (1-u)*(1-v)*surface[i,j] + u*(1-v)*surface[i+1,j] +
+        (1-u)*v*surface[i,j+1] + u*v*surface[i+1,j+1]
+end
+
 function evaluate(fd::BasisFunctionalData, t::AbstractVector{<:Real}; derivative=0)
     fd.coefs * transpose(basis_matrix(fd.basis, t; derivative))
 end

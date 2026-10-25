@@ -140,7 +140,7 @@ function _grid_from_columns(labels, times::AbstractVector{S}, values::AbstractVe
     T = promote_type(_floattype(S), _floattype(Base.nonmissingtype(V)))
     t = Vector{T}(times) .+ zero(T)
     grid = sort!(unique(t))
-    quadrature_weights(grid)
+    _validate_strict_grid(grid)
     out = Matrix{Union{Missing,T}}(missing, length(labels), length(grid))
     seen = falses(size(out))
     for i in eachindex(rows), row in rows[i]

@@ -232,18 +232,16 @@ IDs are retained only for the stored training score object.
 function reconstruct(f::MFPCA{T}, projected::AbstractMatrix{S}=scores(f);
         grid=nothing) where {T,S<:Real}
     Base.require_one_based_indexing(projected)
-    size(projected, 1) >= 1 || throw(ArgumentError("MFPCA reconstruction requires at least one score row"))
-    size(projected, 2) == ncomponents(f) || throw(DimensionMismatch("MFPCA reconstruction score columns must equal ncomponents"))
-    all(isfinite, projected) || throw(ArgumentError("MFPCA reconstruction scores must be finite"))
+    _validate_reconstruction_scores(projected, ncomponents(f);
+        row_message="MFPCA reconstruction requires at least one score row",
+        column_message="MFPCA reconstruction score columns must equal ncomponents",
+        finite_message="MFPCA reconstruction scores must be finite")
     grids = _multivariate_grids(f.univariate, grid)
     R = promote_type(T, _floattype(S), _multivariate_grid_type(T, grid))
     nodes = AbstractFunctionalData{R}[]
     for j in eachindex(f.eigenfunctions)
         points = grids[j]
-        quadrature_weights(points)
-        functions = basis_matrix(f.eigenfunctions[j], points)
-        mu = evaluate(f.univariate.means[j], points, PiecewiseLinear())
-        values = projected * transpose(functions) .+ mu
+        values = _reconstruction_values(projected, f.eigenfunctions[j], f.univariate.means[j], points)
         push!(nodes, GridFunctionalData(Matrix{R}(values), Vector{R}(points);
             ids=projected === f.scores ? f.ids : nothing))
     end

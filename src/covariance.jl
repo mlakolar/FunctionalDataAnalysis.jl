@@ -199,15 +199,7 @@ function _covariance_pool(fd, mean, weighting, binning; aggregate=false)
 end
 
 function _covariance_selection(selector::CurveCV, fd, pool, kernel)
-    n = nobs(fd)
-    selector.folds <= n || throw(ArgumentError("CurveCV folds must not exceed the number of curves ($n)"))
-    assignments = collect(1:n)
-    if selector.folds != n
-        selector.rng === nothing && throw(ArgumentError("CurveCV rng is required unless folds equals the number of curves"))
-        for (j, i) in enumerate(randperm(deepcopy(selector.rng), n))
-            assignments[i] = mod1(j, selector.folds)
-        end
-    end
+    assignments = _curve_folds(selector, fd)
     # Leaving out a fold of curves is leaving out a group of pairs. The within-cell
     # scatter of binned products adds the same constant to every candidate.
     hs = Float64.(selector.bandwidths)
@@ -340,10 +332,7 @@ function evaluate(c::SmoothedCovariance, s::Real, t::Real)
     g = c.grid
     all(v -> isfinite(v) && first(g) <= v <= last(g), (s, t)) ||
         throw(ArgumentError("covariance evaluation times must be finite and inside the stored grid range"))
-    i, j = min(searchsortedlast(g, s), length(g)-1), min(searchsortedlast(g, t), length(g)-1)
-    u, v = (s-g[i])/(g[i+1]-g[i]), (t-g[j])/(g[j+1]-g[j])
-    (1-u)*(1-v)*c.surface[i,j] + u*(1-v)*c.surface[i+1,j] +
-        (1-u)*v*c.surface[i,j+1] + u*v*c.surface[i+1,j+1]
+    _bilinear_surface(g, g, c.surface, s, t)
 end
 
 function Base.show(io::IO, c::SmoothedCovariance)

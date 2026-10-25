@@ -37,7 +37,7 @@ function FPCBasis(grid::AbstractVector{G}, values::AbstractMatrix{V};
         throw(DimensionMismatch("FPCBasis weights must match the grid length"))
     T = promote_type(_floattype(G), _floattype(V), _floattype(W))
     x, w, y = Vector{T}(grid), Vector{T}(weights), Matrix{T}(values)
-    quadrature_weights(x)
+    _validate_strict_grid(x)
     _interval((first(x), last(x)))
     all(v -> isfinite(v) && v > 0, w) ||
         throw(ArgumentError("FPCBasis weights must be finite and positive"))
