@@ -1,6 +1,6 @@
 # Uncertainty
 
-`fitted_bands` describes uncertainty in individual latent PACE curves.
+`fitted_bands` describes uncertainty in individual latent PACE or FACE curves.
 `mean_bands` describes uncertainty in the population mean estimated from
 independent curves. These have different targets and assumptions.
 
@@ -48,6 +48,17 @@ The stored settings record the selected-score variance source, latent target,
 interpolation and PSD cleanup rule. Negative conditional eigenvalues are
 clipped only within `100eps(T) * max(1, maximum(abs, eigenvalues))`, where T
 is the score-covariance element type; larger negative values throw.
+
+## FACE curves
+
+FACE supports the same pointwise `fitted_bands(model; coverage=:interval)`
+interface. Its posterior covariance agrees with its shrinkage scores and
+corrects refund 0.1-40's multiplication by eigenvalues in place of their
+inverses. The formula, numerical example, and source audit are on the
+[FPCA page](fpca.md).
+Masked training values are treated as completed observations, so these
+intervals exclude imputation uncertainty. FACE `coverage=:band` throws;
+simultaneous FACE bands are outside this interface.
 
 ## The mean
 

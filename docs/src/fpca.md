@@ -5,10 +5,12 @@ With `method=:auto`, fully observed common-grid data use the dense route.
 Irregular and masked grid data use PACE, including designs classified as
 `:dense_irregular`. `method=:pace` also permits conditional-expectation scores
 for complete grid data. `method=:dense` requires complete common-grid data.
+Use `method=:face` explicitly for fast covariance smoothing on long common
+grids, including grids with missing observations.
 
 For `GridFunctionalData`, automatic routing depends on its observed-mask
 field at runtime, so inference includes both dense and PACE result types.
-Compiled callers that request a fixed `method=:dense` or `method=:pace` can
+Compiled callers that request a fixed `method=:dense`, `:pace`, or `:face` can
 infer that route's concrete result type. No-keyword irregular-data fits and
 the bandwidth candidate helper retain their inference checks.
 
@@ -106,6 +108,214 @@ The implementation resolves these details left unspecified by the milestone:
   are the adjustable package choices listed above.
 - Reconstruction preserves IDs when the score object is the training score
   matrix. A copied or different score matrix has no inferred IDs.
+
+## FACE for long common grids
+
+FACE (Xiao, Zipunnikov, Ruppert and Crainiceanu, 2016,
+[doi:10.1007/s11222-014-9485-x](https://doi.org/10.1007/s11222-014-9485-x))
+smooths covariance through a small P-spline basis. It suits densely sampled
+EEG, imaging and wearable trajectories when the ordinary grid-square
+covariance is too large. It is an explicit route; `:auto` retains its
+dense/PACE dispatch. Sparse curve-specific times need PACE.
+
+```julia
+model = StatsAPI.fit(FPCA, data; method=:face)
+fixed = StatsAPI.fit(FPCA, data; method=:face, ncomponents=4,
+    face=(; knots=35, p=3, m=2, lambda=2.5))
+prediction = predict(model, new_grid_data)  # (scores, covariances)
+recovered = reconstruct(model)
+intervals = fitted_bands(model; curves=[1, 3])
+```
+
+The `face` named tuple groups settings specific to this route. Marginal
+multivariate FPCA accepts the same keywords. For joint MFPCA, pass
+`univariate=(; method=:face, face=(; lambda=2.5))`. Each node retains its own
+fit. Pooled multivariate FACE is unsupported.
+
+### Defaults and refund source audit
+
+The audited sources are CRAN **refund 0.1-40**:
+[`fpca.face.R`](https://github.com/cran/refund/blob/0.1-40/R/fpca.face.R) and
+[`pspline.setting.R`](https://github.com/cran/refund/blob/0.1-40/R/pspline.setting.R).
+Here `J` is grid length, `n` is subject count, and `c=knots+p`.
+
+| Setting | Default and source |
+|:--|:--|
+| `face.knots` | `35`, from `fpca.face`. The source counts **equal intervals**, with 34 strictly interior knots, despite calling this the number of knots. |
+| `face.p`, `face.m` | Cubic degree `p=3`, second coefficient differences `m=2`, from `fpca.face` / `pspline.setting`. |
+| `face.lambda` | `nothing`: closed-form pooled GCV, from `fpca.face`. A supplied finite nonnegative value fixes smoothing. |
+| `face.loglambda` | 100 equally spaced values in `[-20,20]`; candidate lambda is `exp(loglambda)`, from `search.length`, `lower`, and `upper` with `search.grid=TRUE`. First minimum wins. |
+| `face.alpha` | `1`, the GCV trace multiplier in `fpca.face`. |
+| `face.center` | `true`, from `fpca.face`. False uses a zero mean. |
+| `face.mean_smoother` | `nothing`: the existing `PenalizedSpline` with a clamped cubic basis of `min(38,J)` functions, integrated squared second derivative, and `GCV(exp.(range(-20,20; length=100))*domain_width^3)`. Package choice described below. |
+| `ncomponents` | `FVE(0.99)`, from refund's `pve=.99`. Fixed K also works; excess requests throw instead of refund's warning and truncation. AIC/BIC throw. |
+| `maxK` | `min(n,c)`, the source's maximum spectrum size. The shared package relative `eigen_tol=1e-10` removes numerical zeros. |
+| Missing data | At most 100 passes; stop when the Frobenius relative change of smoothed coordinates is at most 0.02, from `fpca.face`. |
+| Signs and quadrature | Shared package mean-alignment sign rule (`sign_tol=1e-12`) and stored trapezoidal weights, including nonuniform grids. |
+
+For interval count `k`, the simple knot sequence is
+`a + (b-a)*(-p:k+p)/k`. It extends `p` intervals beyond both endpoints;
+endpoints are not clamped. The design uses the existing `BSplineBasis`
+wrapper and BSplineKit backend with this unaugmented sequence. The internal
+P-spline building block penalizes `D_m' D_m`, where `D_m` takes coefficient
+differences. This is distinct from `PenalizedSpline`'s integrated derivative
+penalty. It is not exported. Require `knots+p < J`. Refund adds `1e-6` to all
+design Gram eigenvalues if the minimum is at most `1e-7`. FDA throws in that
+case, asking for fewer knots or a smaller degree, so no ridge is added silently.
+
+Write `A=B(B'B)^(-1/2)U`, where `U` diagonalizes the transformed difference
+penalty with eigenvalues `s`. For centered completed observations `Y`, let
+`Z=A'Y'` and `h_j=1/(1+lambda*s_j)`. The GCV curve is
+
+```math
+\frac{\sum_j \|Z_{j\cdot}\|^2(1-h_j)^2-\|Z\|_F^2+\|Y\|_F^2}
+     {(1-\alpha\sum_j h_j/[J(1-f_{\rm miss})])^2}.
+```
+
+The curve is unnormalized, matching refund. FDA retains all candidates and
+scores even when lambda is fixed. With `H=Diagonal(h)Z`, the covariance is
+`C=A*H*H'*A'/n`, with denominator **n**, rather than dense FPCA's `n-1`.
+Fitting and scoring do not form `C`. For fixed basis size the main work is
+`O(J*c^2 + n*J*c + n*c^2 + c^3)`, plus the bounded-dimension mean smoother
+and any missing-curve initialization. For selected rank `K`, the shared
+per-curve posterior solver adds `O(n*J*K^2 + n*K^3)` for complete curves
+(replace `J` by each observed count for masked predictions).
+Each missing-data pass repeats the
+data transformation and small eigenanalysis. The fit stores `C` as a
+`J` by `min(n,c)` factor obtained by QR of `H'`, retaining its full surface
+independently of component selection. The projected covariance factor has
+one column per retained positive component up to `maxK`.
+`covariance_data` materializes a copied matrix only when requested.
+These are algorithmic costs, not measured benchmark results.
+
+### Mean, missing observations, and recorded choices
+
+Refund smooths column means with `stats::smooth.spline(all.knots=TRUE)`.
+FDA uses the existing cubic `PenalizedSpline` smoother with a bounded basis
+to preserve scaling on long grids and share the smoothing implementation.
+The basis dimension, penalty, selected lambda and full GCV curve are stored
+in `model.settings.mean`. To choose another mean smoother, set
+`face=(; mean_smoother=PenalizedSpline(...))`. A supplied PACE-style
+`SmoothedMean` or `(; grid, values)` is copied, retained in
+`model.settings.mean.input`, and evaluated on the data grid.
+Do not combine a supplied mean with a mean smoother or `center=false`.
+
+Missing values initialize curve by curve with the default reduced knot count
+and spar GCV search of R **stats 4.5.1** `smooth.spline`. The implementation
+reuses `smooth_curves` with an internal initialization basis. Its penalty
+preserves `stats/src/sgram.f`'s legacy `0.3330` coefficient in place of exact
+`1/3`; ordinary spline fits retain exact integrated penalties. Outside a
+curve's observed time range, refund initializes with that curve's observed
+centered mean. Incomplete curves need at least four observations; fully
+missing curves throw. Estimating a column mean needs an observed value at
+every grid point; a supplied mean can cover an entirely missing column.
+Strictly increasing times are used as supplied; FDA does not apply R's
+tolerance-based grouping of nearby times. Singular spline fits throw rather
+than replacing a curve with a constant after a failed smoothing solve.
+
+Only the first imputation pass selects lambda. Each pass updates missing
+entries using refund's Euclidean component selection and shrinkage, keeping
+observed entries unchanged. As in the source, the stopping check compares
+smoothed coordinates, and missing entries are updated once more before
+returning. The final covariance comes from that pass's smoothed coordinates;
+final scores use the updated data. This ordering is retained for compatibility.
+The shared FVE selector uses `>=` throughout FDA, whereas refund uses `>`;
+`FVE(1)` is therefore supported. Numerical zeros are removed using `eigen_tol`.
+
+`model.settings` records knots, degree, penalty order, candidates, GCV scores,
+lambda and its source, alpha, centering, mean tuning, quadrature and score
+rules. `settings.imputation` records iterations, convergence, relative
+changes, tolerance, cap, initial curve smoothing choices, missing fraction,
+and completed centered observations. A fit reaching 100 passes remains
+available with `converged=false`. `show` displays these settings.
+Original observed data and masks remain in `training_data` for plotting.
+
+### L² conversion, noise and shrinkage
+
+Refund returns Euclidean-unit eigenvectors `Phi_R`, eigenvalues `E_R` of
+`C`, and scores `S_R` in those coordinates. Its internal `Sigma=E_R/J`;
+returned `evalues=J*Sigma`, `efunctions=Phi_R`, and `scores=S_R`.
+With rectangular weights `Delta`, the L² conversion is
+
+```math
+\lambda=\Delta E_R,\qquad
+\phi=\Phi_R/\sqrt\Delta,\qquad \xi=\sqrt\Delta S_R.
+```
+
+FDA's stored trapezoidal weights are not constant, even on an equally spaced
+grid. They require the weighted operator `sqrt(W)*C*sqrt(W)`, rather than
+separate column rescaling. A thin QR decomposition of `sqrt(W)*A` transfers
+this calculation to a `c` by `c` matrix. Nonuniform grids use the same rule.
+Component selection, eigenvalues, functions and scores use this L² system.
+Thus selected fitted curves can differ from refund's after weighting changes
+the eigenspaces. The reference script independently converts the covariance
+and solves for the corresponding scores, and also retains refund's original
+outputs for a rectangular compatibility calculation.
+
+Noise remains on the **observation** scale:
+
+```math
+\widehat\sigma^2=\max\left\{
+\operatorname{mean}_{\rm observed}(Y^2)-\operatorname{tr}(C)/J,\ 0\right\}.
+```
+
+The trace includes the full smoothed covariance before truncation. This is
+refund's `max(mean(Y[observed]^2)-sum(Sigma),0)`; summing the L² eigenvalues
+without converting the integration scale would give the wrong noise variance.
+For selected functions `Phi` and diagonal L² eigenvalues `Lambda`, scores are
+
+```math
+\widehat\xi_i=(\Phi^\mathsf{T}\Phi+\widehat\sigma^2\Lambda^{-1})^{-1}
+\Phi^\mathsf{T}(y_i-\mu).
+```
+
+The low-rank extension of the existing conditional-expectation solver computes
+this expression without a grid-square solve. With Euclidean-unit functions
+it reduces to refund's shrinkage by `Sigma/(Sigma+sigma2/J)`. This is the
+Gaussian conditional expectation used by PACE, specialized to the selected
+FACE model; PACE additionally includes all components up to `maxK` in its
+observation-covariance denominator. New masked grid curves use their observed
+points in this posterior solve. Training predictions reproduce stored scores
+from completed data. Prediction requires exactly the training grid.
+
+### Pointwise variance: correction to refund
+
+Under `xi ~ N(0,Lambda)` and independent white noise, posterior curve covariance
+for complete observations is
+
+```math
+V=\widehat\sigma^2\Phi
+(\Phi^\mathsf{T}\Phi+\widehat\sigma^2\Lambda^{-1})^{-1}\Phi^\mathsf{T}.
+```
+
+`fitted_bands` uses `diag(V)`, consistent with shrinkage scores and the
+package's conditional-variance contract. In refund 0.1-40, the `var=TRUE`
+code instead inserts its internal `Diagonal(Sigma)` in place of the inverse
+score covariance. In its returned coordinates `Sigma=E_R/J`; this also
+introduces a scale inconsistency. For the default reference fixture's first
+grid point, the weighted posterior variance is approximately **0.01874790**.
+Replacing `Lambda^{-1}` by `Lambda` in the same weighted formula gives
+**0.01971711**. The test also preserves and verifies refund's actual unconverted
+`diag.var` (approximately **0.01906664** at this point), and shows that it
+differs from the corresponding posterior.
+
+The mean, covariance, selected rank and noise are treated as fixed. Training
+missing values are treated as completed observations, matching refund's
+design; imputation uncertainty is excluded. `coverage=:interval` supports
+custom evaluation grids and curve subsets through the existing band layer.
+Simultaneous FACE bands are unsupported; `coverage=:band` throws.
+
+Reference values are recreated with `Rscript test/reference/refund_m6.R`,
+using refund 0.1-40 and R 4.5.1. The committed fixtures have 40 curves on
+50 points, with default lambda selection, fixed lambda 2.5, missing values,
+and an independent calculation of FDA's mean-smoother departure. Tests compare
+means, spectra, eigenfunctions, scores, noise, lambda, GCV curves, completed
+data and five fitted curves at relative error below `1e-8`. The fixtures retain
+all eigenfunctions and scores. Completed data are recovered from the shared
+input, the mean and the reference imputed entries; fitted curves cover all four
+missing-data patterns and one complete curve. Variance is checked
+against an independent posterior calculation, with the refund discrepancy
+kept visible. CI reads the CSVs and does not require R.
 
 ## PACE for sparse observations
 
@@ -550,11 +760,17 @@ first derivatives and defaults to degree two and `FVE(0.9999)`. Pass an integer
 or `FVE` via `ncomponents` to change that choice. It applies the polynomial
 derivative operator in both arguments of the covariance and reuses the usual
 weighted eigenstep. Dense fits use the sample covariance and project the
-correspondingly differentiated centered training curves. PACE uses the full
-projected covariance and conditional-expectation scores from the original
-observations. The curve/derivative-score cross-covariance supplies the CE
+correspondingly differentiated centered training curves. PACE and FACE use
+the full projected covariance and conditional-expectation scores from the
+original observations. The curve/derivative-score cross-covariance supplies the CE
 numerator. No noise ridge is introduced. Conditional score covariances omit
 uncertainty from fitting mean, covariance, and noise.
+
+For FACE, DPC uses all retained components up to `maxK` in this denominator,
+including when the original fit selects fewer components. Masked training
+curves use their observed entries. This observation-space calculation forms
+grid-square derivative covariance matrices; it does not retain FACE's fitting
+and prediction costs on long grids.
 
 DPC here uses stored quadrature weights, including nonuniform grids, and the
 same differentiated covariance for its derivative eigenvalues and score prior.

@@ -86,12 +86,17 @@
   is now the default. Makie recipes are deferred.
   This scope follows the Tier 1 Gap Map and Mladen's 24 October decision,
   replacing the original milestone 5 scope.
-- Milestone 6: scale and cross-structure. The independent cross-structure
-  task adds weighted FSVD with dense integration and joint PACE scores,
-  concurrent correlation through five local linear smooths, and dynamic
-  correlation. See [Cross-structure](cross_structure.md) for defaults,
-  conventions and fdapace 0.6.0 reference validation. FACE, penalized FPCA/CCA
-  and the Discovery scaling study are separate tasks.
+- Milestone 6 (in progress): scale and cross-structure. Dense-grid FACE is
+  available through `fit(FPCA, data; method=:face, face=(; ...))`, including
+  an internal coefficient-difference P-spline building block, GCV, missing-data
+  iteration, shrinkage scores, pointwise posterior bands, and marginal/MFPCA
+  reuse. The source audit and scale/variance departures from refund 0.1-40
+  are documented on the [FPCA page](fpca.md). The cross-structure task adds
+  weighted FSVD with dense integration and joint PACE scores, concurrent
+  correlation through five local linear smooths, and dynamic correlation; see
+  [Cross-structure](cross_structure.md). Sparse FACE, roughness-penalized
+  FPCA and functional CCA, and the Discovery scaling study remain subsequent
+  tasks. Multi-penalty REML belongs to milestone 7.
 - Milestone 7: functional regression.
 - Milestone 8: depth, outliers, and clustering.
 - Milestone 9: registration.

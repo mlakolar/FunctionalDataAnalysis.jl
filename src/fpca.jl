@@ -51,7 +51,7 @@ Base.show(io::IO, rule::FVE) = print(io, "FVE(", rule.threshold, ")")
         maxK=nothing, presmooth=nothing, mean=nothing, covariance=nothing,
         noise_variance=nothing, mean_bandwidth=nothing,
         covariance_bandwidth=nothing, diagonal_bandwidth=nothing, kernel=nothing,
-        weighting=:obs, binning=:auto, eigen_tol=1e-10, sign_tol=1e-12)
+        weighting=:obs, binning=:auto, face=(;), eigen_tol=1e-10, sign_tol=1e-12)
 
 Univariate functional principal component analysis. Complete grid data use the
 dense route: cross-sectional mean and sample covariance with denominator `n-1`
@@ -60,6 +60,54 @@ route for `sampling_design(fd) == :regular`; irregular or masked data use
 PACE. `method=:pace` forces PACE on either data representation, while
 `method=:dense` requires complete `GridFunctionalData`. Pooled smoothing
 keywords are accepted only on the PACE route.
+
+`method=:face` explicitly selects fast covariance estimation for common-grid
+data, including masked observations (Xiao et al., 2016). Its `face` named tuple
+accepts `knots=35`, `p=3`, `m=2`, `lambda=nothing`, `alpha=1`, `center=true`,
+`loglambda=range(-20,20; length=100)`, and `mean_smoother=nothing`. These follow
+refund 0.1-40 `fpca.face`, except for the mean smoother described below.
+The audited `knots` counts equal intervals (34 strictly interior knots), and
+the simple knot sequence extends `p` intervals beyond each endpoint.
+`p` is spline degree, `m` is coefficient-difference order. Rank-deficient
+designs throw instead of refund's undocumented ridge. `lambda=nothing`
+minimizes refund's closed-form GCV over `exp.(loglambda)`; ties use the first
+candidate. A finite nonnegative fixed lambda is also accepted. The full
+candidate grid and criterion are stored even for a fixed lambda. `maxK`
+defaults to `min(nobs, knots+p)`; FVE uses the retained positive spectrum.
+Fixed K, FVE, numerical eigenvalue cutoff and sign rule reuse the other routes;
+AIC and BIC throw. Refund uses strict `FVE > threshold`, while the package
+consistently uses `>=` and supports `FVE(1)`.
+
+FACE's default mean reuses [`PenalizedSpline`](@ref) with a clamped cubic basis
+of `min(38, grid_length)` functions, integrated second-derivative penalty,
+and [`GCV`](@ref) over `exp.(range(-20,20; length=100))*domain_width^3`.
+This bounded basis preserves FACE's scaling and reuses the package smoother;
+refund uses `stats::smooth.spline(all.knots=TRUE)`. Override with an explicit
+`face=(; mean_smoother=PenalizedSpline(...))`, or supply `mean` as for PACE.
+A supplied mean cannot be combined with a mean smoother or `center=false`.
+Turning off centering uses a zero mean.
+
+Masked FACE curves initialize with R 4.5 `smooth.spline`'s default reduced
+knot scheme and GCV (including its legacy `sgram` quadrature), then follow
+refund's iteration: at most 100 passes, relative change of smoothed coordinates
+at most 0.02, lambda fixed after the first pass. Fully missing curves throw;
+incomplete curves need four observations for initialization. Estimating a mean
+requires at least one observation per grid column. Iterations, convergence,
+changes, initialization tuning, and completed centered data are stored.
+Training scores and uncertainties use the completed data as refund does.
+
+FACE covariance storage is low rank; fitting never forms the grid-square
+covariance. Weighted eigenanalysis gives the same stored-quadrature L² scale
+as dense/PACE. On rectangular weights Δ, refund's eigenvalues, eigenfunctions,
+and scores convert by Δ, `1/sqrt(Δ)`, and `sqrt(Δ)`, respectively; trapezoidal
+weights require diagonalizing the small weighted operator. Noise variance is
+`max(mean(observed_centered_y²) - tr(smoothed_covariance)/grid_length, 0)`
+on the measurement scale. Scores use Gaussian shrinkage under the selected
+covariance, computed by the low-rank conditional-expectation solver. FACE
+[`fitted_bands`](@ref) provides pointwise posterior variance consistent with
+those scores, correcting refund's use of eigenvalues in place of their
+inverses. Simultaneous FACE bands are unsupported. See the FPCA documentation
+for the source audit and exact scale and variance formulas.
 
 PACE implements the conditional-expectation method of Yao, Müller, and Wang
 (2005). Its work `grid` defaults to 51 equally spaced points over the observed
@@ -228,21 +276,31 @@ function _fpca_eigen(surface::AbstractMatrix{<:Real}, weights::AbstractVector{<:
     values = spectrum[indices]
     functions = decomposition.vectors[:, indices] ./ root
     normalization_root = sqrt.(normalization_weights)
-    mean_scale = maximum(abs, mean)
-    scaled_mean = mean_scale == 0 ? zeros(T, m) : mean ./ mean_scale
     for j in axes(functions, 2)
         phi = view(functions, :, j)
         phi ./= norm(normalization_root .* phi)
+    end
+    _fpca_orient!(functions, mean, sign_tol)
+    scaled_values = values ./ scale
+    cumulative = cumsum(scaled_values) ./ sum(scaled_values)
+    cumulative[end] = one(T)
+    (; eigenvalues=values, eigenfunctions=functions, fve=cumulative, dropped)
+end
+
+function _fpca_orient!(functions, mean, sign_tol)
+    m = length(mean)
+    mean_scale = maximum(abs, mean)
+    T = eltype(functions)
+    scaled_mean = mean_scale == 0 ? zeros(T, m) : mean ./ mean_scale
+    for j in axes(functions, 2)
+        phi = view(functions, :, j)
         scaled_phi = phi ./ maximum(abs, phi)
         alignment = dot(scaled_phi, scaled_mean)
         nearzero = abs(alignment) <= sign_tol * norm(scaled_phi) * norm(scaled_mean)
         orient = nearzero ? phi[argmax(abs.(phi))] : alignment
         orient < 0 && (phi .*= -one(T))
     end
-    scaled_values = values ./ scale
-    cumulative = cumsum(scaled_values) ./ sum(scaled_values)
-    cumulative[end] = one(T)
-    (; eigenvalues=values, eigenfunctions=functions, fve=cumulative, dropped)
+    functions
 end
 
 function _fpca_selection(rule::Integer, curve, maxK)
@@ -278,9 +336,19 @@ Base.@constprop :aggressive function fit(::Type{FPCA}, fd::GridFunctionalData; m
         ncomponents=FVE(0.99), maxK=nothing, presmooth=nothing,
         mean=nothing, covariance=nothing, noise_variance=nothing,
         mean_bandwidth=nothing, covariance_bandwidth=nothing, diagonal_bandwidth=nothing,
-        kernel=nothing, weighting=:obs, binning=:auto,
+        kernel=nothing, weighting=:obs, binning=:auto, face=(;),
         eigen_tol=_FPCA_EIGEN_TOL, sign_tol=_FPCA_SIGN_TOL)
-    method in (:auto, :dense, :pace) || throw(ArgumentError("FPCA method must be :auto, :dense, or :pace"))
+    method in (:auto, :dense, :pace, :face) || throw(ArgumentError("FPCA method must be :auto, :dense, :pace, or :face"))
+    face isa NamedTuple || throw(ArgumentError("face must be a named tuple of FACE settings"))
+    if method == :face
+        (grid === nothing && presmooth === nothing && covariance === nothing &&
+            noise_variance === nothing && mean_bandwidth === nothing &&
+            covariance_bandwidth === nothing && diagonal_bandwidth === nothing &&
+            kernel === nothing && weighting == :obs && binning === :auto) ||
+            throw(ArgumentError("FACE uses the data grid and its own smoothing and noise estimates; grid, presmooth and PACE tuning are unsupported"))
+        return _fit_face(fd; ncomponents, maxK, mean, eigen_tol, sign_tol, face...)
+    end
+    isempty(face) || throw(ArgumentError("face settings require method=:face"))
     design = sampling_design(fd)
     if method == :pace || (method == :auto && design != :regular)
         presmooth === nothing || throw(ArgumentError("presmooth is only supported by dense FPCA; PACE smooths the pooled mean and covariance"))
@@ -334,9 +402,11 @@ function fit(::Type{FPCA}, fd::IrregularFunctionalData; method=:auto, grid=nothi
         ncomponents=FVE(0.99), maxK=nothing, presmooth=nothing,
         mean=nothing, covariance=nothing, noise_variance=nothing,
         mean_bandwidth=nothing, covariance_bandwidth=nothing, diagonal_bandwidth=nothing,
-        kernel=nothing, weighting=:obs, binning=:auto,
+        kernel=nothing, weighting=:obs, binning=:auto, face=(;),
         eigen_tol=_FPCA_EIGEN_TOL, sign_tol=_FPCA_SIGN_TOL)
-    method in (:auto, :dense, :pace) || throw(ArgumentError("FPCA method must be :auto, :dense, or :pace"))
+    method == :face && throw(ArgumentError("FACE requires GridFunctionalData; sparse FACE is not implemented"))
+    face isa NamedTuple && isempty(face) || throw(ArgumentError("face settings require method=:face and GridFunctionalData"))
+    method in (:auto, :dense, :pace) || throw(ArgumentError("FPCA method must be :auto, :dense, :pace, or :face"))
     method == :dense && throw(ArgumentError("dense FPCA requires complete GridFunctionalData"))
     presmooth === nothing || throw(ArgumentError("presmooth is only supported by dense FPCA; PACE smooths the pooled mean and covariance"))
     _fit_pace(fd; method, grid, ncomponents, maxK, mean, covariance,
@@ -370,7 +440,7 @@ scores(f::FPCA) = f.scores
 """
     score_covariances(f::FPCA)
 
-Return conditional score covariance matrices of size `K × K × n` for PACE,
+Return conditional score covariance matrices of size `K × K × n` for PACE or FACE,
 quantifying each curve's remaining score uncertainty given its observations.
 These omit uncertainty from estimating the mean, covariance, or noise.
 Dense FPCA returns `nothing`. Use a copy for independent array storage.
@@ -423,12 +493,18 @@ named tuple, with an `n × K` matrix and `K × K × n` array. It uses the traini
 mean, eigenfunctions, full projected covariance up to `maxK`, and noise
 variance. Every observation time must lie inside the work grid. Predicting
 the training data reproduces [`scores`](@ref) and [`score_covariances`](@ref).
+
+FACE returns the same named tuple, requires common-grid data on exactly the
+training grid, and uses the selected-K posterior. New masked curves use their
+observed points; training predictions reproduce the stored completed-data
+scores. No mean or covariance is refitted.
 """
 function predict(f::FPCA, fd::GridFunctionalData)
     _fpca_predict(f, fd, f.noise_variance)
 end
 
-_fpca_predict(f, fd::GridFunctionalData, ::Real) = _pace_predict(f, fd)
+_fpca_predict(f, fd::GridFunctionalData, ::Real) =
+    f.method === :face ? _face_predict(f, fd) : _pace_predict(f, fd)
 
 function _fpca_predict(f, fd::GridFunctionalData, ::Nothing)
     length(fd.grid) == length(f.grid) || throw(DimensionMismatch("prediction grid length must match the FPCA training grid"))
@@ -441,6 +517,7 @@ function _fpca_predict(f, fd::GridFunctionalData, ::Nothing)
 end
 
 function predict(f::FPCA, fd::IrregularFunctionalData)
+    f.method === :face && throw(ArgumentError("FACE prediction requires GridFunctionalData on the training grid"))
     f.noise_variance === nothing && throw(ArgumentError("irregular prediction requires a PACE FPCA fit"))
     _pace_predict(f, fd)
 end

@@ -107,10 +107,21 @@ eigenfunctions or truncation is included. Omitted components are not covered.
 Roundoff-negative conditional eigenvalues are clipped within
 `100eps(T)*max(1, maximum(abs, eigenvalues))`, a package numerical tolerance
 recorded in `settings`; materially indefinite covariances throw.
+
+FACE supports `coverage=:interval` with the posterior covariance consistent
+with its shrinkage scores. For grid eigenfunctions `Phi`, eigenvalues `Lambda`
+and positive noise `sigma2`, its curve variance is the diagonal of
+`sigma2 * Phi * (Phi'Phi + sigma2 * inv(Lambda))^(-1) * Phi'`.
+This corrects refund 0.1-40's use of its internal scaled eigenvalues in
+place of the inverse score covariance; see the FPCA page for its scale.
+For masked training data, filled observations are treated as complete, as in
+refund; imputation uncertainty is excluded. Simultaneous FACE bands throw.
 """
 function fitted_bands(f::FPCA; alpha=0.05, coverage=:interval, grid=f.grid, curves=:all)
     a = _band_alpha(alpha)
     coverage in (:interval, :band) || throw(ArgumentError("coverage must be :interval or :band"))
+    f.method === :face && coverage !== :interval && throw(ArgumentError(
+        "FACE fitted_bands supports pointwise coverage=:interval only; simultaneous bands are not implemented"))
     f.score_covariances === nothing && throw(ArgumentError(
         "integration scores carry no conditional variance; fit with method = :pace for fitted_bands"))
     grid isa AbstractVector{<:Real} || throw(ArgumentError("fitted bands grid must be a real vector"))

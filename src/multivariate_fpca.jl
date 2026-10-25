@@ -4,7 +4,7 @@
 
 Multivariate FPCA with one fit per node (`basis=:marginal`, the package's
 default for nodewise analysis) or one shared basis (`basis=:pooled`). Marginal
-fits delegate to univariate [`FPCA`](@ref), including its dense/PACE routing
+fits delegate to univariate [`FPCA`](@ref), including its dense/PACE/FACE routing
 and all defaults. Each keyword can be shared or an `AbstractVector` of one
 value per node. A flat real `grid` vector is a shared work grid; use a vector
 of grids (or `nothing`) for per-node grids. Supplied means and covariances use
@@ -265,7 +265,7 @@ _multivariate_prediction(::Type{T}, predicted::NamedTuple) where {T} =
     predict(f::MultivariateFPCA, newmfd::MultivariateFunctionalData)
 
 Predict node by node with the training means and bases. Return a vector:
-dense nodes give score matrices and PACE nodes give `(scores, covariances)`
+dense nodes give score matrices and PACE/FACE nodes give `(scores, covariances)`
 named tuples, as in univariate FPCA. Node counts must match. Dense nodes
 require their training grids and complete observations.
 """

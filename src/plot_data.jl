@@ -183,7 +183,7 @@ function covariance_data(f::FPCA; surface=:stored)
     surface isa Symbol && surface in (:stored, :fitted) ||
         throw(ArgumentError("covariance surface must be :stored or :fitted"))
     values = surface === :stored ? f.covariance : f.settings.full_projected_covariance
-    (; grid1=copy(f.grid), grid2=copy(f.grid), values=copy(values), surface)
+    (; grid1=copy(f.grid), grid2=copy(f.grid), values=Matrix(values), surface)
 end
 
 """
