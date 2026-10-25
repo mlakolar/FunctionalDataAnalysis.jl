@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Mladen Kolar <mkolar@usc.edu>"]
 
 [deps]
+SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 Artifacts = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 LazyArtifacts = "4af54fe1-eca0-43a8-85a7-787d91b784e3"
 KernelSmoothing = "724a8e84-0a16-41a9-ba90-78f60180b487"
@@ -18,6 +19,7 @@ Tables = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
 KernelSmoothing = {path = "../KernelSmoothing.jl"}
 
 [compat]
+SpecialFunctions = "2"
 Artifacts = "1"
 LazyArtifacts = "1"
 DelimitedFiles = "1"

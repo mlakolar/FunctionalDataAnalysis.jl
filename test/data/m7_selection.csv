@@ -1,0 +1,14 @@
+# R version 4.5.1 (2025-06-13) ; fdapace 0.6.0 ; fda.usc 2.2.0 ; regression_m7.R
+# leading-count AIC/BIC; full-refit ordinary LOOCV and source-audited fda.usc scaled quantity
+AIC,1,0,-49.548682325777001
+BIC,1,0,-47.192574665081111
+loocv,1,0,0.13978692673508028
+fdausc_scaled_cv,1,0,0.00031697715812943373
+AIC,2,0,-63.09212452997977
+BIC,2,0,-59.557963038935931
+loocv,2,0,0.077809262030862567
+fdausc_scaled_cv,2,0,0.00019452315507715641
+AIC,3,0,-89.78900643822206
+BIC,3,0,-85.076791116830279
+loocv,3,0,0.02468074591066553
+fdausc_scaled_cv,3,0,6.8367717204059642e-05

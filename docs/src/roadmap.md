@@ -105,6 +105,10 @@
   including spline covariance/noise estimation, conditional scores and
   prediction; see [sparse FACE](fpca.md#Sparse-FACE).
   Multi-penalty REML belongs to milestone 7.
-- Milestone 7: functional regression.
+- Milestone 7 (in progress): functional regression. FPC scalar-on-function
+  regression supports multiple dense, sparse or basis covariates, optional
+  scalar covariates, supplied marginal FPCA fits, leading-count selection,
+  prediction and conditional pointwise intervals. See [Regression](regression.md).
+  Gaussian multi-penalty REML/GCV and penalized regression are subsequent tasks.
 - Milestone 8: depth, outliers, and clustering.
 - Milestone 9: registration.

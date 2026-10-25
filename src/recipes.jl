@@ -228,6 +228,7 @@ end
 
 Plot precomputed [`fitted_bands`](@ref) or [`mean_bands`](@ref) results as
 ribbons around their fitted curves or means, using [`band_data`](@ref).
+One coefficient interval from [`coefficient_bands`](@ref) uses the same recipe.
 For mean results `coverage` selects a computed type; the default shows all
 computed types. Multivariate results use one panel per node. Load Plots.jl
 first; `kwargs` override plot attributes. Default ribbon opacity is 0.2, a
@@ -241,12 +242,14 @@ band_plot(b::MeanBands; coverage=b.coverage, kwargs...) =
 @recipe function f(p::_FDAPlot{:band})
     d = p.data
     xlabel --> "Time"
-    ylabel --> "Value"
+    ylabel --> (d.target === :coefficient ? "Coefficient" : "Value")
     title --> _plot_title(p, "$(100*(1-d.alpha))% $(d.target) uncertainty")
     for i in axes(d.values, 1)
         @series begin
             seriestype --> :path
-            label --> (d.target === :mean ? "Mean ($(d.types[i]))" : "Curve $(d.curves[i]) ($(d.types[i]))")
+            label --> (d.target === :mean ? "Mean ($(d.types[i]))" :
+                d.target === :coefficient ? "Coefficient ($(d.types[i]))" :
+                "Curve $(d.curves[i]) ($(d.types[i]))")
             ribbon --> (d.values[i, :] - d.lower[i, :], d.upper[i, :] - d.values[i, :])
             fillalpha --> 0.2
             d.grid, d.values[i, :]

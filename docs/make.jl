@@ -16,6 +16,7 @@ makedocs(;
         "Table input and simulation" => "io.md",
         "Smoothing" => "smoothing.md",
         "FPCA" => "fpca.md",
+        "Regression" => "regression.md",
         "Functional CCA" => "cca.md",
         "Multivariate FPCA (MFPCA)" => "mfpca.md",
         "Cross-structure" => "cross_structure.md",
