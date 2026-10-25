@@ -200,7 +200,21 @@ import RecipesBase
         @test reconstruct(analytic).values ≈ analytic.training_data.values rtol=1e-12
         dense = StatsAPI.fit(FPCA, analytic.training_data; method=:dense, ncomponents=1)
         @test eigvals(dense) ≈ eigvals(analytic)*4/3 rtol=1e-12
-        @test dense.basis.values ≈ analytic.basis.values rtol=1e-12
+        # Roundoff-sized fitted means may legitimately select opposite signs.
+        orientation = dot(vec(dense.basis.values), vec(analytic.basis.values)) < 0 ? -1 : 1
+        @test dense.basis.values ≈ orientation .* analytic.basis.values rtol=1e-12
+        @test scores(dense) ≈ orientation .* scores(analytic) rtol=1e-12
+        for fitted in (dense, analytic)
+            phi = vec(fitted.basis.values)
+            mu = vec(fitted.mean.values)
+            alignment = dot(phi, mu)
+            threshold = fitted.sign_rule.tolerance * norm(phi) * norm(mu)
+            if abs(alignment) <= threshold
+                @test phi[argmax(abs.(phi))] > 0
+            else
+                @test alignment > 0
+            end
+        end
         @test reconstruct(dense).values ≈ analytic.training_data.values rtol=1e-12
         custom_smoother = PenalizedSpline(BSplineBasis(4, (0., 2.), 8); lambda=.1)
         custom = StatsAPI.fit(FPCA, fd; method=:face,
