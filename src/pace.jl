@@ -330,7 +330,7 @@ function _fit_pace(fd; method=:auto, grid=nothing, ncomponents=FVE(0.99), maxK=n
     basis = FPCBasis(workgrid, system.eigenfunctions[:, 1:k]; weights)
     predicted = _pace_ce(fd, workgrid, mu, basis.values, system.eigenvalues[1:k], projected, sigma2)
     settings = merge((; requested_method=method, grid_source, requested_maxK, maxK=Int(maxK),
-        ncomponents=deepcopy(ncomponents), observed_range=(a, b),
+        ncomponents=deepcopy(ncomponents), observed_range=(a, b), observations=:copied_original,
         eigen_tol, sign_tol, quadrature=:work_grid_trapezoidal,
         mean_source, covariance_source, noise_variance_source=noise_source,
         mean_input=resolved_mean, covariance_input=resolved_covariance,
@@ -354,7 +354,7 @@ function _fit_pace(fd; method=:auto, grid=nothing, ncomponents=FVE(0.99), maxK=n
         GridFunctionalData(reshape(mu, 1, :), workgrid), surface, sigma2,
         system.eigenvalues[1:k], system.eigenvalues, system.fve, basis, selection,
         system.dropped, sign_rule, predicted.scores, predicted.covariances,
-        deepcopy(fd.ids), nothing, settings)
+        deepcopy(fd.ids), nothing, settings, _convert_component(T, fd))
 end
 
 function _pace_predict(f::FPCA, fd::Union{GridFunctionalData,IrregularFunctionalData})

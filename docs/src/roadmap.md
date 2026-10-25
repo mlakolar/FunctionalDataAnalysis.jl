@@ -62,5 +62,16 @@
   See [Cross-covariance validation](m4_cross_report.md) for task 3.
   See [Multivariate FPCA (MFPCA)](mfpca.md) for task 4, its source audit,
   defaults, and validation.
-- Milestone 5: registration, functional regression, depth and outliers,
-  plotting recipes.
+- Milestone 5 (in progress): see and trust the fit. Task 1 implements a
+  plotting-library-independent coordinate layer and RecipesBase recipes for
+  Plots.jl, including observed data, means, modes, scree plots, covariance
+  surfaces, observation designs, and fitted paths. See [Plotting](plotting.md)
+  for defaults, simulated figures, and the fdapace 0.6.0 source audit.
+  Remaining tasks: derivatives, confidence bands, datasets, and the
+  noise-variance estimator benchmark (issue #17). Makie recipes are deferred.
+  This scope follows the Tier 1 Gap Map and Mladen's 24 October decision,
+  replacing the original milestone 5 scope.
+- Milestone 6: FACE and penalized FPCA.
+- Milestone 7: functional regression.
+- Milestone 8: depth, outliers, and clustering.
+- Milestone 9: registration.

@@ -411,6 +411,53 @@ This validates the documented fdapace quantity. It does not claim that our
 default trapezoidal eigendecomposition equals fdapace on a finite grid.
 Separate grid-refinement checks test convergence of the two conventions.
 
+## Plotting source audit
+
+Milestone 5 task 1 audits **fdapace 0.6.0**, using the CRAN source tag and
+the locally installed R package of that version. Relevant source files:
+[CreateModeOfVarPlot.R](https://github.com/cran/fdapace/blob/0.6.0/R/CreateModeOfVarPlot.R),
+[CreateScreePlot.R](https://github.com/cran/fdapace/blob/0.6.0/R/CreateScreePlot.R),
+[CreateDesignPlot.R](https://github.com/cran/fdapace/blob/0.6.0/R/CreateDesignPlot.R),
+[DesignPlotCount.R](https://github.com/cran/fdapace/blob/0.6.0/R/DesignPlotCount.R), and
+[CreatePathPlot.R](https://github.com/cran/fdapace/blob/0.6.0/R/CreatePathPlot.R).
+
+- Modes: the default `k=1`, `rainbowPlot=FALSE` route draws the mean and
+  shaded regions bounded by multipliers -2, -1, 1, and 2. It has no formal
+  multiplier argument. The optional rainbow route uses 257 values from -2
+  to 2, despite its prose mentioning -3 and 3. Its default y range instead
+  comes from ±3 standard deviations of the **first** component, even when
+  plotting another component. Our API requires k, returns the four default
+  boundary curves, and lets Plots scale to the actual curves; it does not
+  reproduce that clipping-prone y range or implement the rainbow option.
+- Scree: bars are `c(cumFVE[1], diff(cumFVE))`, with a cumulative line and
+  points, on a vertical range of 0 to 1.05. `CreateScreePlot` uses the
+  returned, selected-K `cumFVE`. Our stored full retained spectrum is
+  exposed instead, with selected K and its threshold recorded separately.
+- Design: defaults are `isColorPlot=TRUE`, `noDiagonal=TRUE`, and
+  `addLegend=TRUE`. `DesignPlotCount` adds one count per subject for every
+  **ordered** observed pair, then zeros the diagonal. The color path caps
+  displayed counts at four and uses categories 1, 2, 3, 4+; its default
+  colors are black, blue, green, red and marker sizes increase by category.
+  The noncolor path records pair presence only. Fully observed common
+  grids longer than 101 points take a special 101-square approximation
+  that bypasses diagonal removal. We keep exact pairs, omit the diagonal
+  uniformly by default, expose uncapped counts, and use Plots' color scale
+  with the same count categories, so backend themes and color overrides
+  remain available. There is no dense-grid approximation.
+- Paths: missing subset selects all curves; K defaults to the fitted
+  selection through `fitted.FPCA`, on `workGrid`. Original points are shown
+  when `inputData` exists; `obsOnly=FALSE` and `showMean=FALSE`. Our API
+  takes one curve index and returns its original points and existing
+  `reconstruct` output. Original input is copied onto FPCA fits, including
+  before dense presmoothing. Grid interpolation follows the existing
+  Julia reconstruction contract, rather than introducing a plotting solver.
+
+`Rscript test/reference/plotting_m5.R` regenerates `test/data/m5_design.csv`
+with R 4.5.1 and fdapace 0.6.0. It records exact ordered-pair counts with
+and without diagonals. Other plot-data checks use analytic rank-two curves
+and direct means, eigenvalues, eigenfunctions, and conditional expectations;
+they require no plotting package or R execution in CI.
+
 ## Task 2 development validation record
 
 The 2026-10-24 development checks used Julia 1.13.2 and a temporary project at
