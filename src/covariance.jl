@@ -169,20 +169,18 @@ function _covariance_selection(selector::CurveCV, fd, pool, kernel)
             assignments[i] = mod1(j, selector.folds)
         end
     end
-    errors = map(selector.bandwidths) do h
-        score = zero(promote_type(eltype(pool.z), typeof(h)))
-        for fold in 1:selector.folds
-            held = assignments[pool.subjects] .== fold
-            train = .!held
-            x, y, z, w = pool.x[train], pool.y[train], pool.z[train], pool.weights[train]
-            for i in findall(held)
-                predicted = _local_linear2d(x, y, z, w, pool.x[i], pool.y[i], h, kernel)
-                score += pool.weights[i] * abs2(pool.z[i] - predicted) + pool.scatter[i]
-            end
-        end
-        score / sum(pool.weights)
+    # Leaving out a fold of curves is leaving out a group of pairs. The within-cell
+    # scatter of binned products adds the same constant to every candidate.
+    hs = Float64.(selector.bandwidths)
+    cv = KernelSmoothing.selectbandwidth(KernelSmoothing.CrossValidation(), (pool.x, pool.y), pool.z;
+        kernel, weights=pool.weights, groups=assignments[pool.subjects], bandwidths=hs)
+    scatter = sum(pool.scatter) / sum(pool.weights)
+    T = promote_type(eltype(pool.z), eltype(selector.bandwidths))
+    errors = T[cv.details.criterion[searchsortedfirst(cv.details.grid, h)] + scatter for h in hs]
+    for (h, e) in zip(selector.bandwidths, errors)
+        isfinite(e) || throw(ArgumentError(
+            "covariance has a singular or undefined local linear fit with curves held out at bandwidth $h; use larger CurveCV bandwidths"))
     end
-    all(isfinite, errors) || throw(ArgumentError("CurveCV covariance errors are nonfinite; rescale observations"))
     (; bandwidths=copy(selector.bandwidths), errors, assignments)
 end
 
@@ -219,7 +217,7 @@ function fit(::Type{SmoothedCovariance}, fd::Union{GridFunctionalData,IrregularF
             prediction_times=pool.original_times, label="noise variance diagonal smoother")
     end
     T = eltype(grid)
-    surface = T[_local_linear2d(pool.x, pool.y, pool.z, pool.weights, s, t, h, method.kernel) for s in grid, t in grid]
+    surface = T.(_local_linear_surface(pool, grid, grid, h, method.kernel))
     surface = (surface + transpose(surface))/2
     diagonal = T.(_mean_predict(pool.times, pool.squares, pool.diagonal_weights, grid,
         LocalPolynomial(; bandwidth=diagonal_h, kernel=method.kernel); label="noise variance diagonal smoother"))

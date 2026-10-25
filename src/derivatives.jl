@@ -149,11 +149,14 @@ end
 
 function _differentiate_columns(grid, values, method)
     out = similar(values, promote_type(eltype(values), eltype(grid), typeof(method.bandwidth)))
-    for j in axes(values, 2)
-        out[:, j] = _mean_predict(grid, values[:, j], ones(eltype(grid), length(grid)),
-            grid, method; label="derivative function $j")
+    # Every column is observed on the same grid, so one smoother matrix serves all.
+    L = KernelSmoothing.smoothermatrix(grid, grid; bandwidth=method.bandwidth,
+        degree=method.degree, derivative=method.derivative, kernel=method.kernel)
+    for (point, row) in zip(grid, eachrow(L))
+        all(isfinite, row) || throw(ArgumentError(
+            "derivative function 1 has an undefined estimate at point $point; use a larger bandwidth"))
     end
-    out
+    mul!(out, L, values)
 end
 
 function _derivative_result(method, order, grid, weights, mu, functions, values,

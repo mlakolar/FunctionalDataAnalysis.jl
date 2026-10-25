@@ -293,8 +293,8 @@ end
             @test grouped.scatter[i] ≈ sum(w .* (z .- grouped.z[i]).^2) atol=1e-14
         end
         fit = StatsAPI.fit(SmoothedCovariance, fd, m; diagonal_bandwidth=.65, grid, bandwidth=1.2, weighting, binning=5)
-        expected = [FunctionalDataAnalysis._local_linear2d(x, y, raw.z, raw.weights,
-            a, b, 1.2, fit.kernel) for a in grid, b in grid]
+        expected = KernelSmoothing.localpolynomial((x, y), raw.z, (grid, grid);
+            bandwidth=1.2, kernel=fit.kernel, weights=raw.weights)
         @test fit.surface ≈ (expected + expected')/2
         selector = CurveCV([.8, 1.2]; folds=2, rng=MersenneTwister(3))
         selected = @inferred StatsAPI.fit(SmoothedCovariance, fd, m; diagonal_bandwidth=.65,
@@ -304,8 +304,8 @@ end
             score = 0.0
             for i in eachindex(raw.z)
                 train = assignments[raw.subjects] .!= assignments[raw.subjects[i]]
-                prediction = FunctionalDataAnalysis._local_linear2d(x[train], y[train],
-                    raw.z[train], raw.weights[train], x[i], y[i], h, fit.kernel)
+                prediction = only(KernelSmoothing.localpolynomial((x[train], y[train]),
+                    raw.z[train], [(x[i], y[i])]; bandwidth=h, kernel=fit.kernel, weights=raw.weights[train]))
                 score += raw.weights[i]*abs2(raw.z[i]-prediction)
             end
             score/sum(raw.weights)

@@ -104,16 +104,19 @@ function smooth_curves(fd::Union{GridFunctionalData,IrregularFunctionalData},
     quadrature_weights(x)
     T = eltype(x)
     out = Matrix{Union{Missing,T}}(missing, nobs(fd), length(x))
+    # Curves observed at the same times (complete grid data) share one smoother matrix.
+    smoothers = Dict{Vector{eltype(fd)},Tuple{Vector{Int},Matrix{Float64}}}()
     for i in 1:nobs(fd)
         t, y = fd[i]
         isempty(t) && throw(ArgumentError("curve $i has no observed values to smooth"))
-        indices = findall(z -> first(t) <= z <= last(t), x)
+        indices, L = get!(smoothers, t) do
+            indices = findall(z -> first(t) <= z <= last(t), x)
+            isempty(indices) && return indices, zeros(0, length(t))
+            indices, KernelSmoothing.smoothermatrix(t, x[indices]; bandwidth=method.bandwidth,
+                degree=method.degree, derivative=method.derivative, kernel=method.kernel)
+        end
         isempty(indices) && continue
-        model = KernelSmoothing.fit(KernelSmoothing.LocalPolynomialRegression, t, y;
-            degree=method.degree, derivative=method.derivative,
-            kernel=method.kernel, bandwidth=method.bandwidth,
-            points=x[indices], weights=ones(length(t)), minobs=0)
-        estimates = KernelSmoothing.coef(model)
+        estimates = L * y
         for (j, value) in zip(indices, estimates)
             isfinite(value) && isfinite(T(value)) || throw(ArgumentError(
                 "curve $i has an undefined local polynomial estimate at point $(x[j]); use a larger bandwidth"))

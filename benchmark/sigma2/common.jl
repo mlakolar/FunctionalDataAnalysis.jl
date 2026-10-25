@@ -28,7 +28,7 @@ end
 # Same whole-curve CurveCV loss as the package, using sufficient statistics
 # at exact duplicate coordinates within each training/held-out fold. On dense
 # data this avoids predicting the same pair once per subject. No smoother is
-# implemented here; every prediction uses _local_linear2d.
+# implemented here; every prediction uses KernelSmoothing.localpolynomial.
 function grouped_cv(selector::CurveCV, fd, pool, kernel, kind)
     assignments = collect(1:nobs(fd))
     if selector.folds != nobs(fd)
@@ -52,8 +52,8 @@ function grouped_cv(selector::CurveCV, fd, pool, kernel, kind)
 end
 
 cv_predictions(train, held, h, kernel, ::Val{:covariance}) =
-    [FDA._local_linear2d(train.x, train.y, train.z, train.weights,
-        held.x[i], held.y[i], h, kernel) for i in eachindex(held.z)]
+    KernelSmoothing.localpolynomial((train.x, train.y), train.z, hcat(held.x, held.y);
+        bandwidth=h, kernel, weights=train.weights)
 cv_predictions(train, held, h, kernel, ::Val{:mean}) =
     FDA._mean_predict(train.x, train.z, train.weights, held.x,
         LocalPolynomial(; bandwidth=h, kernel))
@@ -102,8 +102,7 @@ function prepare(config, replicate, fd)
     h = selection === nothing ? FDA._pace_default_covariance_bandwidth(a, b) :
         selection.bandwidths[argmin(selection.errors)]
     pool = merge(rawpool, collapse_pairs(rawpool))
-    surface = [FDA._local_linear2d(pool.x, pool.y, pool.z, pool.weights,
-        s, t, h, kernel) for s in grid, t in grid]
+    surface = FDA._local_linear_surface(pool, grid, grid, h, kernel)
     surface = (surface + surface')/2
     diagonal = FDA._mean_predict(rawpool.times, rawpool.squares, rawpool.diagonal_weights,
         grid, LocalPolynomial(; bandwidth=h, kernel); label="noise variance diagonal smoother")

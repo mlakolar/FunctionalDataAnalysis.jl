@@ -172,10 +172,8 @@ function _mean_pool(fd, weighting)
 end
 
 function _mean_predict(t, y, w, points, method; label="pooled mean")
-    model = KernelSmoothing.fit(KernelSmoothing.LocalPolynomialRegression, t, y;
-        bandwidth=method.bandwidth, kernel=method.kernel, degree=method.degree,
-        weights=w, points, derivative=method.derivative, minobs=0)
-    values = KernelSmoothing.coef(model)
+    values = KernelSmoothing.localpolynomial(t, y, points; bandwidth=method.bandwidth,
+        kernel=method.kernel, degree=method.degree, derivative=method.derivative, weights=w)
     for (point, value) in zip(points, values)
         isfinite(value) || throw(ArgumentError(
             "$label has an undefined estimate at point $point; use a larger bandwidth"))

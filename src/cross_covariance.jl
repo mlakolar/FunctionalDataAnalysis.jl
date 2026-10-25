@@ -167,8 +167,7 @@ function fit(::Type{SmoothedCrossCovariance},
     pool = _cross_pool(fd1, fd2, mean1, mean2, weighting, exclude_same_time, binning)
     selection = bandwidth isa CurveCV ? _covariance_selection(bandwidth, fd1, pool, chosen_kernel) : nothing
     h = selection === nothing ? initial : selection.bandwidths[argmin(selection.errors)]
-    surface = T[_local_linear2d(pool.x, pool.y, pool.z, pool.weights, s, t, h, chosen_kernel)
-        for s in g1, t in g2]
+    surface = T.(_local_linear_surface(pool, g1, g2, h, chosen_kernel))
     all(isfinite, surface) || throw(ArgumentError("cross-covariance must remain finite after conversion"))
     SmoothedCrossCovariance(g1, g2, surface, w1, w2, h, chosen_kernel, weighting,
         exclude_same_time, binning, 1, (sampling_design(fd1), sampling_design(fd2)),
