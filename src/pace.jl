@@ -173,13 +173,26 @@ function _pace_interpolated_basis(grid, functions, points)
     values
 end
 
+_pace_failure_advice(::Nothing, advice) = advice
+
+function _pace_failure_advice(interpolation::AbstractMatrix, advice)
+    rows = size(interpolation, 1)
+    row_rank = rank(interpolation)
+    summary = "interpolation matrix has numerical row rank $row_rank of $rows"
+    row_rank < rows && return "$summary; refine the work grids to separate observation times, or change the observation design; additional grid noise cannot restore interpolation row rank"
+    "$summary; $advice"
+end
+
 function _pace_cholesky(covariance, curve; criterion=false, label="PACE",
-        advice="supply a positive noise_variance")
+        advice="supply a positive noise_variance", interpolation=nothing)
     all(isfinite, covariance) || throw(ArgumentError(
         "$label covariance for curve $curve must be finite; rescale the observations"))
     factor = cholesky(Symmetric(covariance); check=false)
-    isposdef(factor) || throw(ArgumentError(
-        "$label covariance for curve $curve is not positive definite$(criterion ? " during component selection" : ""); $advice"))
+    if !isposdef(factor)
+        diagnostic = _pace_failure_advice(interpolation, advice)
+        throw(ArgumentError(
+            "$label covariance for curve $curve is not positive definite$(criterion ? " during component selection" : ""); $diagnostic"))
+    end
     factor
 end
 

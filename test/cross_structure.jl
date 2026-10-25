@@ -107,6 +107,51 @@ end
     @test norm(ls-f.left_scores) > .01
 end
 
+@testset "FSVD interpolation rank diagnostics" begin
+    FDA = FunctionalDataAnalysis
+    for T in (Float32,Float64)
+        grid = T[0,1]
+        # Three distinct times in one cell. With grid covariance 2I and
+        # positive grid noise 2I, H*(4I)*H' has exact zero Cholesky pivot:
+        # [4 2 0; 2 2 2; 0 2 4]. This avoids a roundoff-dependent failure.
+        times = T[0,.5,1]
+        fd = IrregularFunctionalData([times,times,times],
+            [T[1,2,3],T[2,3,4],T[3,4,5]])
+        h = FDA._pace_interpolated_basis(grid,Matrix{T}(I,2,2),times)
+        @test rank(h) == 2
+        @test T(4)*h*transpose(h) == T[4 2 0;2 2 2;0 2 4]
+        marginal = StatsAPI.fit(FPCA,fd;grid,method=:pace,ncomponents=1,max_k=2,
+            mean=(;grid,values=zeros(T,2)),
+            covariance=(;grid,surface=T(2)*Matrix{T}(I,2,2)),noise_variance=T(2))
+        @test marginal.covariance == T(2)*Matrix{T}(I,2,2)
+        @test marginal.noise_variance == T(2)
+        err = try
+            FDA._fsvd_joint_scores(fd,fd,marginal,marginal,(;surface=zeros(T,2,2)),
+                ones(T,2,1),ones(T,2,1),ones(T,1))
+        catch error
+            error
+        end
+        @test err isa ArgumentError
+        message = sprint(showerror,err)
+        @test occursin("FSVD covariance for curve 1",message)
+        @test occursin("numerical row rank 4 of 6",message)
+        @test occursin("refine the work grids",message)
+        @test occursin("additional grid noise cannot restore",message)
+
+        # Full row rank does not certify covariance positivity. Retain the
+        # noise advice in that case, together with the measured rank.
+        full_rank_error = try
+            FDA._pace_cholesky(T[-1 0;0 1],2;label="FSVD",
+                interpolation=Matrix{T}(I,2,2),advice="supply positive marginal noise variances")
+        catch error
+            error
+        end
+        @test full_rank_error isa ArgumentError
+        @test occursin("numerical row rank 2 of 2",sprint(showerror,full_rank_error))
+        @test occursin("supply positive marginal noise variances",sprint(showerror,full_rank_error))
+    end
+end
+
 @testset "FSVD mixed complete-grid and irregular marginals" begin
     rng = MersenneTwister(2026102501)
     g = _m6_read("dense_left")[:,1]

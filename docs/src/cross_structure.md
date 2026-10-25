@@ -60,8 +60,15 @@ scores condition jointly on both observed processes. The stacked marginal and
 cross-covariance surface is projected to be positive semidefinite using the
 existing eigen step. Marginal noise variances are then added before linear
 interpolation to observation times. The conditional solver requires a positive
-definite observation covariance; supply positive marginal noise variances if
-needed. No extra regularization or `rho` is introduced. All fits, tuning,
+definite observation covariance and a full-row-rank interpolation matrix.
+Three observations in one linear-interpolation cell have only two grid
+coordinates and lose row rank. Adding noise on the grid cannot repair that
+design: `H * A * H'` is singular whenever `H` lacks full row rank, even when
+the grid covariance `A` is positive definite. Refine the work grids to separate
+observation times, or change the observation design. On factorization failure,
+the error reports the numerical interpolation row rank; if it is full, positive
+marginal noise variances can address a singular signal covariance. Rank is
+computed only on failure. No extra regularization or `rho` is introduced. All fits, tuning,
 component selection and numerical conventions are retained on the result.
 
 ## Concurrent correlation
