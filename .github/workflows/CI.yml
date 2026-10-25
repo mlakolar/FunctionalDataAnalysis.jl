@@ -89,6 +89,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 20
         permissions:
+            actions: write
             contents: read
         steps:
             - uses: actions/checkout@v7
@@ -112,6 +113,7 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 15
         permissions:
+            actions: write
             contents: read
         env:
             JULIA_NUM_THREADS: '4'

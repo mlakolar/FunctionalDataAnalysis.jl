@@ -1,0 +1,43 @@
+[basis_cca]
+call = ["NonBooleanCondErrorReport:smoothed_fpca.jl:371"]
+opt = []
+
+[basis_fpca]
+call = []
+opt = ["RuntimeDispatchReport:smoothed_fpca.jl:262"]
+
+[curve_smoothing]
+call = []
+opt = []
+
+[dense]
+call = []
+opt = ["RuntimeDispatchReport:multivariate.jl:34"]
+
+[derivative]
+call = []
+opt = []
+
+[face]
+call = []
+opt = ["RuntimeDispatchReport:bases.jl:189", "RuntimeDispatchReport:multivariate.jl:34"]
+
+[fsvd]
+call = []
+opt = ["RuntimeDispatchReport:bases.jl:189", "RuntimeDispatchReport:multivariate.jl:34"]
+
+[mean]
+call = []
+opt = []
+
+[mfpca]
+call = []
+opt = ["OptimizationFailureReport:face_sparse.jl:100", "OptimizationFailureReport:face_sparse.jl:140", "OptimizationFailureReport:face_sparse.jl:140", "OptimizationFailureReport:face_sparse.jl:61", "OptimizationFailureReport:fpca.jl:497", "OptimizationFailureReport:fpca.jl:497", "OptimizationFailureReport:multivariate_fpca.jl:66", "OptimizationFailureReport:multivariate_fpca.jl:88", "RuntimeDispatchReport:bases.jl:189", "RuntimeDispatchReport:multivariate.jl:34", "RuntimeDispatchReport:multivariate.jl:59", "RuntimeDispatchReport:multivariate_fpca.jl:101", "RuntimeDispatchReport:multivariate_fpca.jl:101", "RuntimeDispatchReport:multivariate_fpca.jl:101", "RuntimeDispatchReport:multivariate_fpca.jl:101", "RuntimeDispatchReport:multivariate_fpca.jl:95", "RuntimeDispatchReport:multivariate_fpca.jl:98", "RuntimeDispatchReport:multivariate_fpca.jl:98", "RuntimeDispatchReport:multivariate_fpca.jl:98", "RuntimeDispatchReport:multivariate_fpca.jl:98", "RuntimeDispatchReport:multivariate_fpca.jl:98", "RuntimeDispatchReport:psplines.jl:28", "RuntimeDispatchReport:psplines.jl:29", "RuntimeDispatchReport:psplines.jl:32"]
+
+[pace]
+call = []
+opt = []
+
+[sparse_face]
+call = []
+opt = ["RuntimeDispatchReport:bases.jl:189", "RuntimeDispatchReport:face_sparse.jl:242", "RuntimeDispatchReport:face_sparse.jl:261", "RuntimeDispatchReport:face_sparse.jl:264"]
