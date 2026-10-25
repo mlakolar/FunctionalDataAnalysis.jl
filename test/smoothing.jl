@@ -249,6 +249,25 @@ end
     @test frommask.metadata == fromirregular.metadata
     @test ids(frommask) == ids(fd)
 
+    # The first curve is valid, while the second has a finite Float64
+    # derivative that overflows the Float32 output. Diagnose the same curve
+    # and point as the rowwise path after passing the preceding estimates.
+    overflow_grid = collect(range(0f0,.5f0;length=11))
+    overflow_values = vcat(zeros(Float32,1,11),
+        reshape(Float32.(4e38 .* Float64.(overflow_grid)),1,:))
+    overflow_fd = GridFunctionalData(overflow_values,overflow_grid)
+    overflow_method = LocalPolynomial(;bandwidth=.5f0,derivative=1)
+    errors = map((overflow_fd,to_irregular(overflow_fd))) do input
+        try
+            smooth_curves(input,overflow_method;grid=overflow_grid)
+        catch err
+            err
+        end
+    end
+    @test all(err -> err isa ArgumentError,errors)
+    @test all(err -> occursin("curve 2",sprint(showerror,err)),errors)
+    @test sprint(showerror,errors[1]) == sprint(showerror,errors[2])
+
     # More distinct grids than the bound, followed by a value-equal cache hit.
     cache = Dict{Vector{Float32},Tuple{Vector{Int},Matrix{Float64}}}()
     insertion_order = Vector{Float32}[]
