@@ -60,24 +60,35 @@ end
 # S_ii = w_i A_i diag(d) A_i'; no row-by-row CV or trace denominator.
 function _face_subject_gcv(A, y, groups, subject_weights, s, candidates)
     T = eltype(A)
-    f = zeros(T, size(A, 2))
-    moments = map(eachindex(groups)) do i
-        Ai, yi = view(A, groups[i], :), view(y, groups[i])
-        local_gram, local_rhs = transpose(Ai)*Ai, transpose(Ai)*yi
-        f .+= subject_weights[i] .* local_rhs
-        (; gram=local_gram, rhs=local_rhs)
+    k = size(A, 2)
+    f = zeros(T, k)
+    local_rhs = map(eachindex(groups)) do i
+        rhs = transpose(view(A, groups[i], :))*view(y, groups[i])
+        f .+= subject_weights[i] .* rhs
+        rhs
     end
     gram = transpose(A)*A
     rhs = transpose(A)*y
-    criterion = map(candidates) do lambda
-        d = inv.(1 .+ lambda .* s)
-        a = d .* f
-        value = dot(a, gram*a) - 2dot(a, rhs)
-        for i in eachindex(groups)
-            residual_rhs = moments[i].rhs - moments[i].gram*a
-            value += 2subject_weights[i]*sum(d .* residual_rhs.^2)
+    shrinkage = [inv.(1 .+ lambda .* s) for lambda in candidates]
+    coefficients = [d .* f for d in shrinkage]
+    criterion = map(coefficients) do a
+        dot(a, gram*a) - 2dot(a, rhs)
+    end
+    # Visit subjects in the same order for every criterion, consuming one
+    # local Gram at a time instead of retaining nsubjects parameter squares.
+    local_gram = Matrix{T}(undef, k, k)
+    product = Vector{promote_type(T, eltype(first(coefficients)))}(undef, k)
+    residual_rhs = Vector{promote_type(eltype(product), eltype(y))}(undef, k)
+    weighted = similar(residual_rhs)
+    for i in eachindex(groups)
+        Ai = view(A, groups[i], :)
+        mul!(local_gram, transpose(Ai), Ai)
+        for c in eachindex(candidates)
+            mul!(product, local_gram, coefficients[c])
+            residual_rhs .= local_rhs[i] .- product
+            weighted .= shrinkage[c] .* residual_rhs.^2
+            criterion[c] += 2subject_weights[i]*sum(weighted)
         end
-        value
     end
     (; scores=criterion, rhs=f)
 end
@@ -168,7 +179,8 @@ Base.@constprop :aggressive function _fit_face_sparse(fd::IrregularFunctionalDat
         G[j+(k-1)*c,l] = 1
         G[k+(j-1)*c,l] = 1
     end
-    group_sizes = [length(fd[i][1])*(length(fd[i][1])+1)÷2 for i in 1:nobs(fd)]
+    counts = diff(fd.offsets)
+    group_sizes = counts .* (counts .+ 1) .÷ 2
     X = zeros(T, sum(group_sizes), q+1)
     y = Vector{T}(undef, size(X,1))
     groups = UnitRange{Int}[]

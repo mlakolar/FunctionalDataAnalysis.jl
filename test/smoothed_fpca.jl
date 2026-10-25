@@ -324,3 +324,26 @@ end
         @test domain(stored.mean) == (0.,1.)
     end
 end
+
+@testset "Prepared LambdaCV candidates preserve order and input ownership" begin
+    b = MonomialBasis((0.,1.),2)
+    index = collect(1.:10.)
+    C = hcat(sin.(.2index) .+ 4, cos.(.7index) .- 2, sin.(1.3index) .+ 7)
+    D = .6C + hcat(cos.(.9index), sin.(.4index), cos.(1.1index))
+    left, right = BasisFunctionalData(C,b), BasisFunctionalData(D,b)
+    original_left, original_right = copy(left.coefs), copy(right.coefs)
+    candidates = [0.,.03,1.]
+    for center in (false,true)
+        f = StatsAPI.fit(FPCA,left;lambda=LambdaCV(candidates),center,ncomponents=2)
+        reversed = StatsAPI.fit(FPCA,left;lambda=LambdaCV(reverse(candidates)),center,ncomponents=2)
+        @test f.settings.lambda_selection.scores == reverse(reversed.settings.lambda_selection.scores)
+        @test f.settings.lambda == reversed.settings.lambda
+        @test f.settings.lambda_selection.centering == (center ? :overall_mean : :none)
+        cc = StatsAPI.fit(FunctionalCCA,left,right;lambda=LambdaCV(candidates),center,ncomponents=1)
+        reversed_cc = StatsAPI.fit(FunctionalCCA,left,right;lambda=LambdaCV(reverse(candidates)),center,ncomponents=1)
+        @test cc.settings.lambda_selection.scores == reverse(reversed_cc.settings.lambda_selection.scores)
+        @test cc.settings.lambda == reversed_cc.settings.lambda
+        @test cc.settings.lambda_selection.centering == (center ? :training_fold_mean : :none)
+        @test left.coefs == original_left && right.coefs == original_right
+    end
+end

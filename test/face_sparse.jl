@@ -174,3 +174,34 @@ using DelimitedFiles
         @test_throws ArgumentError StatsAPI.fit(FPCA,fd[1:1];method=:face)
     end
 end
+
+@testset "Sparse FACE subject criterion in observation space" begin
+    FDA = FunctionalDataAnalysis
+    for T in (Float32, Float64)
+        A = T[1 .1; .7 -.3; .8 .5; 1.2 -.2; .4 .9]
+        y = T[1, -.3, .7, 1.1, -.2]
+        groups = [1:2, 3:5]
+        weights, spectrum, candidates = T[.5, 1/3], T[0,2], T[0,.2,2]
+        oldA, oldy = copy(A), copy(y)
+        cv = FDA._face_subject_gcv(A,y,groups,weights,spectrum,candidates)
+        observation_weights = Diagonal(T[.5,.5,1/3,1/3,1/3])
+        expected = map(candidates) do lambda
+            d = inv.(1 .+ lambda .* spectrum)
+            # Independent observation-space hat matrices give face's
+            # first-order subject-deletion criterion without the y'y term.
+            fitted = A * Diagonal(d) * A' * observation_weights * y
+            value = dot(fitted,fitted)-2dot(fitted,y)
+            for (i,group) in enumerate(groups)
+                block = weights[i] .* (A[group,:] * Diagonal(d) * A[group,:]')
+                r = y[group]-fitted[group]
+                value += 2dot(r,block*r)
+            end
+            value
+        end
+        tolerance = T === Float32 ? 3e-6 : 1e-12
+        @test cv.scores ≈ expected rtol=tolerance
+        @test cv.rhs ≈ A' * observation_weights * y rtol=tolerance
+        @test FDA._face_subject_gcv(A,y,groups,weights,spectrum,reverse(candidates)).scores == reverse(cv.scores)
+        @test A == oldA && y == oldy
+    end
+end
