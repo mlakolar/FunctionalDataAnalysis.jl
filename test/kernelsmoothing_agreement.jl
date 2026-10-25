@@ -53,8 +53,13 @@ function cv_errors(pool, assignments, folds, hs, kernel)
 end
 end
 
-function agreement_data(rng, n; dense=false, counts=3:7)
-    times = [sort(dense ? collect(range(0, 1; length=25)) : rand(rng, rand(rng, counts))) for _ in 1:n]
+# Sparse random times, a common grid (`dense`), or one random time in each of
+# `stratified` equal cells, which keeps every window of width 2/stratified nonempty
+# whatever the random stream of the Julia version.
+function agreement_data(rng, n; dense=false, stratified=0)
+    times = [dense ? collect(range(0, 1; length=25)) :
+        stratified > 0 ? ((0:stratified-1) .+ rand(rng, stratified)) ./ stratified :
+        sort(rand(rng, rand(rng, 3:7))) for _ in 1:n]
     values = [sin.(2π .* t) .+ randn(rng) .* cos.(π .* t) .+ 0.2 .* randn(rng, length(t)) for t in times]
     IrregularFunctionalData(times, values)
 end
@@ -85,7 +90,7 @@ const AGREEMENT_KERNELS = (KernelSmoothing.EpanechnikovKernel(), KernelSmoothing
         values = reduce(vcat, [dense[i][2]' for i in 1:6])
         for data in (GridFunctionalData(Matrix(values), g),
                 GridFunctionalData(Union{Missing,Float64}[observed[i, j] ? values[i, j] : missing
-                    for i in 1:6, j in eachindex(g)], g), agreement_data(rng, 6; counts=15:20))
+                    for i in 1:6, j in eachindex(g)], g), agreement_data(rng, 6; stratified=15))
             for kernel in AGREEMENT_KERNELS, derivative in 0:1
                 h = derivative == 0 ? 0.2 : 0.4
                 smoothed = smooth_curves(data, LocalPolynomial(; bandwidth=h, derivative, kernel); grid)
