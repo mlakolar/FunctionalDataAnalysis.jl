@@ -74,21 +74,59 @@ end
 # fitting and prediction. It requires the observation covariance phi*Lambda*phi'
 # and must not be selected by the storage type: DPC uses a different numerator
 # with the full projected observation covariance.
-function _face_curve_ce(times, residuals, phi, values, grid, projected,
-        sigma2, curve, ::Type{T}) where {T}
-    k = length(values)
-    if sigma2 == 0
-        factor = qr(phi, ColumnNorm())
-        diagonal = abs.(diag(factor.R))
-        length(diagonal) == k && minimum(diagonal) > max(size(phi)...)*eps(T)*maximum(diagonal) ||
-            throw(ArgumentError("FACE noiseless score design for curve $curve is rank deficient"))
-        return factor \ residuals, zeros(T, k, k)
-    end
+function _face_noiseless_factor(phi, k, curve, ::Type{T}) where {T}
+    factor = qr(phi, ColumnNorm())
+    diagonal = abs.(diag(factor.R))
+    length(diagonal) == k && minimum(diagonal) > max(size(phi)...)*eps(T)*maximum(diagonal) ||
+        throw(ArgumentError("FACE noiseless score design for curve $curve is rank deficient"))
+    factor
+end
+
+function _face_precision_geometry(phi, values, sigma2, curve, ::Type{T}) where {T}
     precision = transpose(phi)*phi + Diagonal(sigma2 ./ values)
     factor = _pace_cholesky(precision, curve)
-    projected_scores = factor \ (transpose(phi)*residuals)
-    omega = sigma2 .* (factor \ Matrix{T}(I, k, k))
-    projected_scores, (omega+transpose(omega))/2
+    omega = sigma2 .* (factor \ Matrix{T}(I, length(values), length(values)))
+    factor, (omega+transpose(omega))/2
+end
+
+function _face_curve_ce(times, residuals, phi, values, grid, projected,
+        sigma2, curve, ::Type{T}) where {T}
+    if sigma2 == 0
+        factor = _face_noiseless_factor(phi, length(values), curve, T)
+        return factor \ residuals, zeros(T, length(values), length(values))
+    end
+    factor, omega = _face_precision_geometry(phi, values, sigma2, curve, T)
+    factor \ (transpose(phi)*residuals), omega
+end
+
+function _face_common_scores(fd, grid, mu, functions, values, projected, sigma2)
+    T = promote_type(eltype(grid), eltype(mu), eltype(functions), eltype(values),
+        eltype(projected), typeof(sigma2), eltype(fd))
+    # Interpolation at the identical knots returns these same basis values.
+    # Keep the type the former interpolation would produce before its Gram.
+    P = promote_type(eltype(grid), eltype(functions), eltype(fd))
+    phi = convert(Matrix{P}, functions)
+    residuals = fd.values .- transpose(convert(Vector{T}, mu))
+    k, n = length(values), nobs(fd)
+    if sigma2 == 0
+        factor = _face_noiseless_factor(phi, k, 1, T)
+        output = Matrix{T}(transpose(factor \ transpose(residuals)))
+        omega = zeros(T, k, k)
+    else
+        factor, omega = _face_precision_geometry(phi, values, sigma2, 1, T)
+        output = Matrix{T}(transpose(factor \ (transpose(phi)*transpose(residuals))))
+    end
+    covariances = repeat(reshape(Matrix{T}(omega), k, k, 1), 1, 1, n)
+    all(isfinite, output) && all(isfinite, covariances) || throw(ArgumentError(
+        "PACE scores and score covariances must be finite; rescale the observations"))
+    (; scores=output, covariances)
+end
+
+function _face_scores(fd, grid, mu, functions, values, projected, sigma2)
+    if fd isa GridFunctionalData && fd.observed === nothing && fd.grid == grid
+        return _face_common_scores(fd, grid, mu, functions, values, projected, sigma2)
+    end
+    _pace_ce(fd, grid, mu, functions, values, projected, sigma2; curve_ce=_face_curve_ce)
 end
 
 Base.@constprop :aggressive function _fit_face(fd::GridFunctionalData{T}; ncomponents=FVE(0.99), max_k=nothing,
@@ -184,8 +222,7 @@ Base.@constprop :aggressive function _fit_face(fd::GridFunctionalData{T}; ncompo
     # Scores use completed curves as refund does; pointwise uncertainty uses
     # the same selected-K model and the same completed observation design.
     completed_fd = GridFunctionalData(Y .+ transpose(mu), fd.grid)
-    scored = _pace_ce(completed_fd, fd.grid, mu, basis.values, values, projected, sigma2;
-        curve_ce=_face_curve_ce)
+    scored = _face_scores(completed_fd, fd.grid, mu, basis.values, values, projected, sigma2)
     settings = (; requested_method=:face, grid_source=:data, ncomponents=deepcopy(ncomponents),
         max_k=Int(max_k), maxK=Int(max_k), eigen_tol, sign_tol, knots=Int(knots), p=Int(p), m=Int(m),
         knot_sequence=copy(setting.knots), lambda=selected, lambda_source=lambda === nothing ? :GCV : :supplied,
@@ -216,6 +253,6 @@ function _face_predict(f::FPCA, fd::GridFunctionalData)
     if fd.values == f.training_data.values && fd.observed == f.training_data.observed
         return (; scores=copy(f.scores), covariances=copy(f.score_covariances))
     end
-    _pace_ce(fd, f.grid, vec(f.mean.values), f.basis.values, f.eigenvalues,
-        f.settings.full_projected_covariance, f.noise_variance; curve_ce=_face_curve_ce)
+    _face_scores(fd, f.grid, vec(f.mean.values), f.basis.values, f.eigenvalues,
+        f.settings.full_projected_covariance, f.noise_variance)
 end
