@@ -24,11 +24,11 @@ The pooled spectrum, selection, dropped spectrum, sign rule, and settings
 are stored in `f.pooled`. The sign reference is the average node mean;
 the univariate largest-entry fallback resolves near-zero alignment.
 
-Pooled defaults `ncomponents=FVE(0.99)`, `maxK=nothing`, `eigen_tol=1e-10`,
+Pooled defaults `ncomponents=FVE(0.99)`, `max_k=nothing`, `eigen_tol=1e-10`,
 and `sign_tol=1e-12` follow the dense univariate defaults and have the
 sources given in [`FPCA`](@ref). The pooled covariance averages `p` node
 covariances of rank at most `nobs-1`, so its rank is at most `p*(nobs-1)`;
-`maxK` therefore resolves to `max(1,min(grid_length-2,p*(nobs-1)-1))`, the
+`max_k` therefore resolves to `max(1,min(grid_length-2,p*(nobs-1)-1))`, the
 dense rule with that rank, with explicit cap `min(grid_length,p*(nobs-1))`. Only shared values of these four keywords and
 `method=:auto`/`:dense` are supported for pooled fits. PACE tuning and
 `presmooth` throw instead of being ignored. Inputs and settings are copied.
@@ -106,13 +106,14 @@ function _multivariate_marginal(mfd, options)
 end
 
 function _multivariate_pooled(mfd::MultivariateFunctionalData{T};
-        ncomponents=FVE(0.99), maxK=nothing, eigen_tol=1e-10, sign_tol=1e-12,
+        ncomponents=FVE(0.99), max_k=nothing, maxK=nothing, eigen_tol=1e-10, sign_tol=1e-12,
         method=:auto, kwargs...) where {T}
+    max_k = _max_k_keyword(max_k, maxK)
     isempty(kwargs) || throw(ArgumentError(
-        "pooled FPCA supports only ncomponents, maxK, eigen_tol, sign_tol and method; PACE tuning and presmooth are unsupported"))
+        "pooled FPCA supports only ncomponents, max_k, eigen_tol, sign_tol and method; PACE tuning and presmooth are unsupported"))
     method in (:auto, :dense) || throw(ArgumentError(
         "pooled FPCA requires method=:auto or :dense; pooled PACE is not implemented"))
-    for (name, value) in pairs((; ncomponents, maxK, eigen_tol, sign_tol))
+    for (name, value) in pairs((; ncomponents, max_k, eigen_tol, sign_tol))
         value isa AbstractVector && throw(ArgumentError("pooled FPCA $name must be one shared value"))
     end
     all(c -> c isa GridFunctionalData && c.observed === nothing, mfd.components) ||
@@ -128,10 +129,10 @@ function _multivariate_pooled(mfd::MultivariateFunctionalData{T};
     # The pooled covariance averages p rank-(n-1) node covariances, so its rank
     # is at most p(n-1); the defaults mirror the dense rule with that rank.
     rank = p * (n - 1)
-    requested_maxK = maxK
-    maxK = maxK === nothing ? max(1, min(g-2, rank-1)) : maxK
-    maxK isa Integer && 1 <= maxK <= min(g, rank) || throw(ArgumentError(
-        "pooled FPCA maxK must be between 1 and min(grid length, nodes*(nobs-1))"))
+    requested_max_k = max_k
+    max_k = max_k === nothing ? max(1, min(g-2, rank-1)) : max_k
+    _integer_in(max_k, 1, min(g, rank)) || throw(ArgumentError(
+        "pooled FPCA max_k must be between 1 and min(grid length, nodes*(nobs-1))"))
     grid, weights = copy(firstnode.grid), copy(firstnode.weights)
     means = GridFunctionalData{T}[]
     residuals = Matrix{T}[]
@@ -145,8 +146,8 @@ function _multivariate_pooled(mfd::MultivariateFunctionalData{T};
         covariance .+= (transpose(centered) * centered / (n-1)) / p
     end
     reference_mean = vec(sum(mu.values ./ p for mu in means))
-    system = _fpca_eigen(covariance, weights, reference_mean; maxK, eigen_tol, sign_tol)
-    selection = _fpca_selection(ncomponents, system.fve, Int(maxK))
+    system = _fpca_eigen(covariance, weights, reference_mean; max_k, eigen_tol, sign_tol)
+    selection = _fpca_selection(ncomponents, system.fve, Int(max_k))
     k = selection.chosen
     shared = FPCBasis(grid, system.eigenfunctions[:, 1:k]; weights)
     projected = Matrix{T}[centered * (weights .* shared.values) for centered in residuals]
@@ -166,7 +167,7 @@ function _multivariate_pooled(mfd::MultivariateFunctionalData{T};
         all_eigenvalues=system.eigenvalues, fve=system.fve, basis=shared,
         selection, dropped=system.dropped, sign_rule, reference_mean)
     settings = (; requested_method=method, ncomponents=deepcopy(ncomponents),
-        requested_maxK, maxK=Int(maxK), eigen_tol, sign_tol,
+        requested_max_k, requested_maxK=requested_max_k, max_k=Int(max_k), maxK=Int(max_k), eigen_tol, sign_tol,
         grid_source=:data, quadrature=:stored_trapezoidal,
         covariance_denominator=n-1, score_variance_denominator=n-1,
         covariance_pooling=:equal_nodes, sign_reference=:average_node_mean,
@@ -272,12 +273,19 @@ _multivariate_prediction(::Type{T}, predicted::NamedTuple) where {T} =
 """
     predict(f::MultivariateFPCA, newmfd::MultivariateFunctionalData)
 
-Predict node by node with the training means and bases. Return a vector:
+Deprecated compatibility API; prefer [`project_scores`](@ref) or
+[`predict_scores`](@ref). Predict node by node with the training means and
+bases. Return a vector:
 dense nodes give score matrices and PACE/FACE nodes give `(scores, covariances)`
 named tuples, as in univariate FPCA. Node counts must match. Dense nodes
 require their training grids and complete observations.
 """
 function predict(f::MultivariateFPCA{T}, mfd::MultivariateFunctionalData{S}) where {T,S}
+    _deprecated_score_prediction()
+    _predict_result(f, mfd)
+end
+
+function _predict_result(f::MultivariateFPCA{T}, mfd::MultivariateFunctionalData{S}) where {T,S}
     ncomponents(mfd) == length(f.scores) || throw(DimensionMismatch(
         "prediction node count must match the multivariate FPCA fit"))
     R = promote_type(T, S)
@@ -287,7 +295,7 @@ function predict(f::MultivariateFPCA{T}, mfd::MultivariateFunctionalData{S}) whe
         if f.basis === :marginal
             node isa Union{GridFunctionalData,IrregularFunctionalData} || throw(ArgumentError(
                 "multivariate FPCA prediction requires grid or irregular nodes"))
-            push!(out, _multivariate_prediction(R, predict(f.fits[j], node)))
+            push!(out, _multivariate_prediction(R, _predict_result(f.fits[j], node)))
         else
             node isa GridFunctionalData && node.observed === nothing || throw(ArgumentError(
                 "pooled FPCA prediction requires complete grid nodes; pooled PACE is not implemented"))
@@ -364,7 +372,7 @@ function reconstruct(f::MultivariateFPCA{T}, projected::AbstractVector=scores(f)
         all(isfinite, s) || throw(ArgumentError("reconstruction scores at node $j must be finite"))
         points = grids[j]
         quadrature_weights(points)
-        functions = basismatrix(f.bases[j], points)
+        functions = basis_matrix(f.bases[j], points)
         mu = evaluate(f.means[j], points, PiecewiseLinear())
         values = s * transpose(functions) .+ mu
         push!(nodes, GridFunctionalData(Matrix{R}(values), Vector{R}(points);

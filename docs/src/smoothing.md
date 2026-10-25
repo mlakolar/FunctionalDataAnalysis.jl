@@ -32,6 +32,15 @@ Local fits record bandwidth, degree, kernel, work grid, and `minobs=0`.
 Spline fits record basis, selected or fixed lambda, and derivative order.
 Both use equal observation weights, no binning, and no folds.
 
+Complete curves evaluated on their original common grid share one smoother
+matrix and are multiplied as a block. Missing or irregular observations and
+different work grids use the per-curve path, caching at most eight distinct
+observed grids per call (oldest insertion evicted on a miss). Smoother matrices
+use KernelSmoothing's Float64 arithmetic for every input type, including
+Float32. Responses are promoted for multiplication, and the result is converted
+to the promoted data/work-grid type afterward; cache storage does not lower
+the smoother's precision.
+
 GCV chooses one common lambda by summing the per-curve criteria
 `n_i * RSS_i / (n_i - tr(H_i))^2`. Scores use actual observed times, including
 for curves with different observation counts. Every candidate and its score
@@ -42,17 +51,23 @@ scores raise an error. Exact ties choose the first supplied candidate.
 This criterion concerns prediction within curves and does not account for
 within-curve error correlation.
 
-Pointwise confidence bands for the pooled mean are outside this API. They
-require cluster-robust variances, which KernelSmoothing.jl does not yet provide.
+Pooled-mean uncertainty is available through [`mean_bands`](@ref):
+whole-curve bootstrap intervals and simultaneous bands, or analytic pointwise
+intervals using KernelSmoothing's curve-cluster sandwich variance. See
+[mean uncertainty](uncertainty.md#The-mean) for assumptions and fixed-bandwidth
+calibration.
 Covariance and noise variance are estimated as described below.
 
-KernelSmoothing.jl is currently unregistered. On Julia 1.10, install it before
-instantiating this project (newer Julia versions use the root `[sources]`):
+KernelSmoothing.jl is currently unregistered. From this package's development
+checkout, prepare the sibling master dependencies on Julia 1.10 and newer with:
 
-```julia
-using Pkg
-Pkg.add(url="https://github.com/mlakolar/KernelSmoothing.jl")
+```sh
+julia scripts/instantiate.jl
 ```
+
+The bootstrap develops the sibling KernelSmoothing master checkout and clones it
+from master if missing. Run `julia scripts/test_master.jl` for the complete suite
+in its dedicated environment with test extras.
 
 KernelSmoothing must be registered before FunctionalDataAnalysis can be registered.
 
@@ -62,6 +77,11 @@ PenalizedSpline
 GCV
 smooth_curves
 ```
+
+Polynomial `degree` and spline `order` count different things: a local
+quadratic uses `degree=2`, while a cubic `BSplineBasis` uses `order=4`.
+The `order=2` in `PenalizedSpline` instead selects the derivative in its
+integrated roughness penalty. These are separate controls, not aliases.
 
 ## Pooled means and curve-level CV
 
@@ -145,15 +165,20 @@ products whose two distinct observations snap to the same bin. No observations
 are discarded. Within each curve and bin cell, pair weights are summed and
 products are replaced by their weighted mean. This preserves the fixed-bandwidth
 fit at snapped times. Within-cell squared errors are retained, so CV still
-scores the original raw products. Default `binning=nothing` disables snapping
-and aggregation.
+scores the original raw products. Default `binning=nothing` disables snapping.
+Exact duplicate coordinates are combined even without binning, retaining total
+weights, weighted products and scatter. Fixed-bandwidth fits combine pairs as
+they are formed; original diagonal observations remain separate. CV splits
+subjects first, then combines training and held-out coordinates separately.
 
 Forming products takes `O(P)` work, where `P = sum(N_i*(N_i-1))`.
-Without binning, covariance CV takes `O(P^2)` work per candidate bandwidth.
-With binning, pair storage and CV use `Q = sum(min(N_i*(N_i-1), n^2))` as an upper
-bound on the number of occupied curve/bin cells, reducing these costs to
-`O(Q)` storage and `O(Q^2)` CV work. Binning helps when many pairs share cells;
-it does not remove the cost of initially forming the products.
+For fixed bandwidths, pair storage uses the number of distinct coordinate
+pairs. For each CV fold, smoothing costs the product of the numbers of distinct
+training and held-out coordinate pairs, per candidate. In the absence of
+duplicates this retains the `O(P^2)` bound. With binning,
+`Q = sum(min(N_i*(N_i-1), n^2))` bounds the occupied curve/bin cells before
+fold-specific compression. Neither form of aggregation removes the cost of
+initially forming the products.
 
 The noise estimator smooths raw residual squares by a univariate local linear
 fit with `minobs=0`. By default it uses the covariance bandwidth (after any
@@ -235,6 +260,28 @@ sampling design, CV results, and noise details appear in `show`.
 SmoothedCovariance
 ```
 
+### Noise options for PACE
+
+`noise_method` and `noise_interval` belong to `SmoothedCovariance` and are
+not forwarded by `fit(FPCA, ...; method=:pace)`. To choose a nondefault noise
+estimator, fit the covariance explicitly and supply the fitted object:
+
+```julia
+alternative = StatsAPI.fit(SmoothedCovariance, sparse, pooled;
+    grid=workgrid, bandwidth=0.8, diagonal_bandwidth=0.6, weighting=:subj,
+    noise_method=:surface_diagonal, noise_interval=:middle_half)
+pace = StatsAPI.fit(FPCA, sparse; method=:pace, grid=workgrid,
+    mean=pooled, covariance=alternative, ncomponents=1)
+```
+
+This reuses the fitted surface and `alternative.noise_variance`; it does not
+re-estimate the noise with PACE's defaults. The mean/covariance objects and
+their work grids must be compatible with the observations. An explicit
+`noise_variance` overrides the object's estimate, as in the existing FPCA API.
+Supplying only a `(grid, surface)` named tuple instead requires that explicit
+noise value. The unchanged automatic default remains `noise_method=:rotated,
+noise_interval=:full`; use the explicit recipe only to select an alternative.
+
 ## [Cross-covariance](@id smoothing-cross-covariance)
 
 For complete common-grid curves,
@@ -265,8 +312,9 @@ or mean grids, and singular windows raise informative errors.
 The optional `binning` integer snaps each axis over its own observed range
 and reuses covariance pair aggregation within subject. Multiplicities and
 within-cell squared errors are retained; CV predicts raw products at the
-snapped coordinates. Default `nothing` performs no snapping. This differs
-from fdapace's exact-duplicate aggregation, which does not move times.
+snapped coordinates. Default `nothing` performs no snapping. Exact duplicate
+coordinates are combined with their weights and scatter in either case;
+whole-subject CV splits training and held-out pairs before combining them.
 `evaluate(c,s,t)` interpolates bilinearly inside the stored grids and throws
 outside them. Both grids and their quadrature weights, the two copied means,
 all tuning settings, and CV results are stored on the fit and shown.

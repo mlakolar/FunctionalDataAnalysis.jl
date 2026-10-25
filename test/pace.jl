@@ -21,9 +21,18 @@ import StatsAPI
         fd = IrregularFunctionalData(times, values; domain=(0.0, 1.0),
             ids=["curve-$i" for i in eachindex(times)])
         sigma2 = 0.13
-        model = @inferred StatsAPI.fit(FPCA, fd; grid, ncomponents=1, maxK=2,
+        model = @inferred StatsAPI.fit(FPCA, fd; grid, ncomponents=1, max_k=2,
             mean=supplied_mean, covariance=supplied_covariance, noise_variance=sigma2)
         @test model.method == :pace
+        _test_prediction_contract(model, fd)
+        # Entirely unobserved grid columns need not lie in the PACE work grid.
+        masked_values = Matrix{Union{Missing,Float64}}(missing, 4, 5)
+        masked_values[:,2:4] = [mu(t) + i/3 for i in 1:4, t in source_grid]
+        masked = GridFunctionalData(masked_values, [-0.1, 0.0, 0.5, 1.0, 1.1]; ids=ids(fd))
+        masked_model = StatsAPI.fit(FPCA, masked; method=:pace, grid,
+            ncomponents=1, max_k=2, mean=supplied_mean,
+            covariance=supplied_covariance, noise_variance=sigma2)
+        _test_prediction_contract(masked_model, masked)
         @test model.design == :sparse
         @test nobs(model) == 4
         @test ncomponents(model) == 1
@@ -82,7 +91,7 @@ import StatsAPI
             expected_scores * ones(1, length(target)) .+ transpose(mu.(target))
 
         displayed = sprint(show, model)
-        for choice in ("pace", "sparse", "selection", "maxK", "mean_source",
+        for choice in ("pace", "sparse", "selection", "max_k", "mean_source",
                 "covariance_source", "noise_variance_source", "kernel", "weighting",
                 "binning", "eigen_tol", "sign_tol", "dropped", "noise_variance",
                 "noise_floor_relative", "noise_floor_scale", "noise_floor_scale_source")
@@ -91,7 +100,7 @@ import StatsAPI
         scale = 1e-6
         scaled_data = IrregularFunctionalData(times, [scale .* y for y in values];
             domain=(0.0, 1.0))
-        scaled_model = StatsAPI.fit(FPCA, scaled_data; grid, ncomponents=1, maxK=2,
+        scaled_model = StatsAPI.fit(FPCA, scaled_data; grid, ncomponents=1, max_k=2,
             mean=(; grid=supplied_mean.grid, values=scale .* supplied_mean.values),
             covariance=(; grid=source_grid, surface=scale^2 .* surface),
             noise_variance=scale^2 * sigma2)
@@ -212,7 +221,7 @@ import StatsAPI
         for (rule, penalty) in ((AIC(), 2.0), (BIC(), log(8)))
             model = @inferred StatsAPI.fit(FPCA, data; method=:pace, grid,
                 mean=(; grid, values=zeros(3)), covariance=(; grid, surface),
-                noise_variance=sigma2, maxK=3, ncomponents=rule)
+                noise_variance=sigma2, max_k=3, ncomponents=rule)
             criteria = map(1:3) do k
                 covariance = functions[:, 1:k] * Diagonal(lambda[1:k]) * functions[:, 1:k]' + sigma2 * I
                 factor = cholesky(Symmetric(covariance))
@@ -232,7 +241,7 @@ import StatsAPI
         for (rule, penalty) in ((AIC(), 2.0), (BIC(), log(8)))
             model = StatsAPI.fit(FPCA, data; method=:pace, grid,
                 mean=(; grid, values=zeros(3)), covariance=(; grid, surface=rank_one_surface),
-                noise_variance=sigma2, maxK=3, ncomponents=rule)
+                noise_variance=sigma2, max_k=3, ncomponents=rule)
             @test length(model.all_eigenvalues) == 1
             @test model.selection.candidates == 1:3
             @test diff(model.selection.scores) ≈ fill(penalty, 2)
@@ -247,7 +256,7 @@ import StatsAPI
         covariance = (; grid, surface)
         fd = IrregularFunctionalData([[0.0, 0.3, 1.0], [0.1, 0.8]],
             [[1.0, 1.4, 2.0], [1.2, 1.6]])
-        options = (; grid, mean=mu, covariance, noise_variance=0.2, maxK=1)
+        options = (; grid, mean=mu, covariance, noise_variance=0.2, max_k=1)
         @test StatsAPI.fit(FPCA, fd; options...).method == :pace
         dense_times = [collect(range(0.0, 1.0; length=m)) for m in (22, 23)]
         dense_irregular = IrregularFunctionalData(dense_times, [1 .+ t for t in dense_times])
@@ -257,46 +266,46 @@ import StatsAPI
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd; method=:invalid, options...)
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd[1:1]; options...)
         @test StatsAPI.fit(FPCA, fd; mean=mu, covariance,
-            noise_variance=0.2, maxK=1).settings.grid_source == :observed_range_51
+            noise_variance=0.2, max_k=1).settings.grid_source == :observed_range_51
         @test StatsAPI.fit(FPCA, fd; grid, covariance,
-            noise_variance=0.2, maxK=1).settings.mean_bandwidth_source == :default_fraction
+            noise_variance=0.2, max_k=1).settings.mean_bandwidth_source == :default_fraction
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd; grid, mean=mu,
-            noise_variance=0.2, maxK=1)
+            noise_variance=0.2, max_k=1)
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd; grid, mean=mu,
-            covariance_bandwidth=1.0, noise_variance=0.2, maxK=1)
+            covariance_bandwidth=1.0, noise_variance=0.2, max_k=1)
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd; grid, mean=mu,
-            covariance, maxK=1)
+            covariance, max_k=1)
         for noise in (-1.0, Inf, NaN, :invalid)
             @test_throws ArgumentError StatsAPI.fit(FPCA, fd; grid, mean=mu,
-                covariance, noise_variance=noise, maxK=1)
+                covariance, noise_variance=noise, max_k=1)
         end
         short_mean = (; grid=[0.2, 0.8], values=[1.2, 1.8])
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd; grid, mean=short_mean,
-            covariance, noise_variance=0.2, maxK=1)
+            covariance, noise_variance=0.2, max_k=1)
         asymmetric = copy(surface)
         asymmetric[1, 2] += 0.1
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd; grid, mean=mu,
-            covariance=(; grid, surface=asymmetric), noise_variance=0.2, maxK=1)
+            covariance=(; grid, surface=asymmetric), noise_variance=0.2, max_k=1)
         rounded = copy(surface)
         rounded[1, 2] *= 1 + 4eps()
         near = StatsAPI.fit(FPCA, fd; grid, mean=mu,
-            covariance=(; grid, surface=rounded), noise_variance=0.2, maxK=1)
+            covariance=(; grid, surface=rounded), noise_variance=0.2, max_k=1)
         exact = StatsAPI.fit(FPCA, fd; grid, mean=mu,
-            covariance=(; grid, surface), noise_variance=0.2, maxK=1)
+            covariance=(; grid, surface), noise_variance=0.2, max_k=1)
         @test eigvals(near) ≈ eigvals(exact) rtol=1e-12
         @test_throws DimensionMismatch StatsAPI.fit(FPCA, fd; grid, mean=mu,
-            covariance=(; grid, surface=ones(4, 4)), noise_variance=0.2, maxK=1)
+            covariance=(; grid, surface=ones(4, 4)), noise_variance=0.2, max_k=1)
         @test_throws DimensionMismatch StatsAPI.fit(FPCA, fd; grid,
-            mean=(; grid, values=zeros(4)), covariance, noise_variance=0.2, maxK=1)
+            mean=(; grid, values=zeros(4)), covariance, noise_variance=0.2, max_k=1)
         nonfinite = copy(surface)
         nonfinite[2, 2] = NaN
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd; grid, mean=mu,
-            covariance=(; grid, surface=nonfinite), noise_variance=0.2, maxK=1)
+            covariance=(; grid, surface=nonfinite), noise_variance=0.2, max_k=1)
         unordered = UInt[0, 2, 1, 3]
         for supplied in ((; mean=(; grid=unordered, values=[1.0, 3.0, 2.0, 4.0]), covariance),
                 (; mean=mu, covariance=(; grid=unordered, surface=ones(4, 4))))
             error = try
-                StatsAPI.fit(FPCA, fd; grid, supplied..., noise_variance=0.2, maxK=1)
+                StatsAPI.fit(FPCA, fd; grid, supplied..., noise_variance=0.2, max_k=1)
             catch exception
                 exception
             end
@@ -305,7 +314,7 @@ import StatsAPI
         end
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd; options..., presmooth=LocalPolynomial(; bandwidth=0.5))
         singular = try
-            StatsAPI.fit(FPCA, fd; grid, mean=mu, covariance, noise_variance=0.0, maxK=1)
+            StatsAPI.fit(FPCA, fd; grid, mean=mu, covariance, noise_variance=0.0, max_k=1)
         catch error
             error
         end
@@ -332,7 +341,7 @@ import StatsAPI
         fit32 = @inferred StatsAPI.fit(FPCA, data32; method=:pace, grid=grid32,
             mean=(; grid=grid32, values=1f0 .+ grid32),
             covariance=(; grid=grid32, surface=ones(Float32, 5, 5)),
-            noise_variance=0.2f0, maxK=1)
+            noise_variance=0.2f0, max_k=1)
         @test eltype(scores(fit32)) == Float32
         @test eltype(score_covariances(fit32)) == Float32
         @test eltype(eigvals(fit32)) == Float32
@@ -350,11 +359,11 @@ import StatsAPI
         @test covariance.noise_details.noise_interval == :full
         # A positive explicit noise variance separates integration of the
         # smoothers from invertibility of their estimated latent covariance.
-        estimated = @inferred StatsAPI.fit(FPCA, fd; grid, ncomponents=1, maxK=2,
+        estimated = @inferred StatsAPI.fit(FPCA, fd; grid, ncomponents=1, max_k=2,
             mean_bandwidth=1.2, covariance_bandwidth=1.2,
             kernel=KernelSmoothing.EpanechnikovKernel(),
             noise_variance=0.2, weighting=:subj, binning=5)
-        supplied = @inferred StatsAPI.fit(FPCA, fd; grid, ncomponents=1, maxK=2,
+        supplied = @inferred StatsAPI.fit(FPCA, fd; grid, ncomponents=1, max_k=2,
             mean, covariance, noise_variance=0.2)
         @test vec(estimated.mean.values) ≈ mean.values
         @test estimated.covariance ≈ covariance.surface
@@ -367,10 +376,10 @@ import StatsAPI
         @test supplied.settings.mean_input.bandwidth == 1.2
         @test supplied.settings.covariance_input.binning == 5
         @test covariance.noise_variance > 0
-        inherited = StatsAPI.fit(FPCA, fd; grid, ncomponents=1, maxK=2, mean, covariance)
+        inherited = StatsAPI.fit(FPCA, fd; grid, ncomponents=1, max_k=2, mean, covariance)
         @test noise_variance(inherited) == covariance.noise_variance
         @test inherited.settings.noise_variance_source == :estimated
-        estimated_noise = StatsAPI.fit(FPCA, fd; grid, ncomponents=1, maxK=2,
+        estimated_noise = StatsAPI.fit(FPCA, fd; grid, ncomponents=1, max_k=2,
             mean_bandwidth=1.2, covariance_bandwidth=1.2,
             kernel=KernelSmoothing.EpanechnikovKernel(), weighting=:subj, binning=5)
         @test noise_variance(estimated_noise) == covariance.noise_variance
@@ -389,7 +398,7 @@ import StatsAPI
             sampling=SparseSampling((0.0, 1.0), 3:8))
         truth_functions = [f(t) for t in grid, f in functions]
         surface = Matrix(Symmetric(truth_functions * Diagonal(lambda) * truth_functions'))
-        model = StatsAPI.fit(FPCA, simulation.data; grid, ncomponents=2, maxK=2,
+        model = StatsAPI.fit(FPCA, simulation.data; grid, ncomponents=2, max_k=2,
             mean=(; grid, values=mu.(grid)), covariance=(; grid, surface),
             noise_variance=sigma2)
         # The true affine functions are exactly interpolated. Convert their

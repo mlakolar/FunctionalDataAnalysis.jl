@@ -20,7 +20,7 @@ nodes = [begin
     GridFunctionalData(j .+ g' .+ joint[:, 2j-1:2j] * phi', g)
 end for (j,g) in enumerate(grids)]
 data = MultivariateFunctionalData(nodes)
-fitted = StatsAPI.fit(FPCA, data; basis=:marginal, ncomponents=2, maxK=2)
+fitted = StatsAPI.fit(FPCA, data; basis=:marginal, ncomponents=2, max_k=2)
 open(joinpath(@__DIR__, "..", "data", "m4_mfpca_input.csv"), "w") do io
     println(io, "# Julia ", VERSION, "; FunctionalDataAnalysis 0.1.0; deterministic 24 subjects, 3 nodes; quantity,node,row,column,value")
     function write_matrix(quantity, node, a)
@@ -45,7 +45,7 @@ times = [g[[1, 2+i%2, 5]] for i in 1:8]
 sparse = IrregularFunctionalData(times,
     [fill(5+cos(i), length(t)) for (i,t) in enumerate(times)]; domain=(2,3))
 pace_data = MultivariateFunctionalData([dense, sparse])
-options = (; ncomponents=[2, 1], maxK=[2, 1], grid=[nothing, g],
+options = (; ncomponents=[2, 1], max_k=[2, 1], grid=[nothing, g],
     mean=[nothing, (; grid=g, values=zeros(5))],
     covariance=[nothing, (; grid=g, surface=ones(5, 5))],
     noise_variance=[nothing, 0.2])

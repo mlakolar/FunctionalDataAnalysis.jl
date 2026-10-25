@@ -5,8 +5,11 @@ using Random
 using Tables
 using Test
 
+include("support/prediction.jl")
+
 @testset "FunctionalDataAnalysis" begin
     include("aqua.jl")
+    include("naming.jl")
     include("quadrature.jl")
     include("bases.jl")
     include("data.jl")
@@ -29,10 +32,12 @@ using Test
     include("multivariate_fpca_golden.jl")
     include("mfpca.jl")
     include("cross_covariance.jl")
+    include("covariance_pooling.jl")
     include("cross_structure.jl")
     include("plotting.jl")
     include("derivatives.jl")
     include("bands.jl")
-    include("bands_coverage.jl")
+    include("bands_coverage_smoke.jl")
     include("kernelsmoothing_agreement.jl")
+    include("validation.jl")
 end

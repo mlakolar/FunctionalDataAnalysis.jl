@@ -1,5 +1,14 @@
 abstract type _ComponentSelector end
 
+function _max_k_keyword(max_k, maxK)
+    if maxK !== nothing
+        max_k === nothing || throw(ArgumentError("specify only max_k, not both keyword spellings"))
+        Base.depwarn("keyword maxK is deprecated; use max_k", :maxK)
+        return maxK
+    end
+    return max_k
+end
+
 const _FPCA_EIGEN_TOL = 1e-10
 const _FPCA_SIGN_TOL = 1e-12
 
@@ -8,7 +17,7 @@ const _FPCA_SIGN_TOL = 1e-12
 
 Select the smallest number of components whose cumulative fraction of variance
 explained is at least `threshold`, a finite number in `(0, 1]`. The denominator
-is the sum of positive eigenvalues retained up to `maxK`. The default 0.99 is
+is the sum of positive eigenvalues retained up to `max_k`. The default 0.99 is
 fdapace 0.6.0's `FVEthreshold` (`SetOptions.R`).
 """
 struct FVE{T<:AbstractFloat} <: _ComponentSelector
@@ -48,7 +57,7 @@ Base.show(io::IO, rule::FVE) = print(io, "FVE(", rule.threshold, ")")
 
 """
     fit(FPCA, fd; method=:auto, grid=nothing, ncomponents=FVE(0.99),
-        maxK=nothing, presmooth=nothing, mean=nothing, covariance=nothing,
+        max_k=nothing, presmooth=nothing, mean=nothing, covariance=nothing,
         noise_variance=nothing, mean_bandwidth=nothing,
         covariance_bandwidth=nothing, diagonal_bandwidth=nothing, kernel=nothing,
         weighting=:obs, binning=:auto, face=(;), eigen_tol=1e-10, sign_tol=1e-12)
@@ -60,6 +69,11 @@ route for `sampling_design(fd) == :regular`; irregular or masked data use
 PACE. `method=:pace` forces PACE on either data representation, while
 `method=:dense` requires complete `GridFunctionalData`. Pooled smoothing
 keywords are accepted only on the PACE route.
+PACE does not forward `noise_method` or `noise_interval`. To choose an
+alternative, fit [`SmoothedCovariance`](@ref) explicitly with those options
+and pass it as `covariance=c`. Its noise estimate is reused unless
+`noise_variance` explicitly overrides it. Automatic estimation keeps
+`noise_method=:rotated, noise_interval=:full` unchanged.
 
 `BasisFunctionalData` dispatches to exact-basis roughness-penalized FPCA;
 see `fit(FPCA, fd::BasisFunctionalData)` for its lambda, penalty, centering,
@@ -76,7 +90,7 @@ the simple knot sequence extends `p` intervals beyond each endpoint.
 designs throw instead of refund's undocumented ridge. `lambda=nothing`
 minimizes refund's closed-form GCV over `exp.(loglambda)`; ties use the first
 candidate. A finite nonnegative fixed lambda is also accepted. The full
-candidate grid and criterion are stored even for a fixed lambda. `maxK`
+candidate grid and criterion are stored even for a fixed lambda. `max_k`
 defaults to `min(nobs, knots+p)`; FVE uses the retained positive spectrum.
 Fixed K, FVE, numerical eigenvalue cutoff and sign rule reuse the other routes;
 AIC and BIC throw. Refund uses strict `FVE > threshold`, while the package
@@ -124,7 +138,11 @@ intervals (six strictly interior knots), `p=3`, `m=2`, `center=true`,
 `lambda=nothing`, and `loglambda=range(-3,10; length=14)`. Knots span the
 observed range expanded by 0.1% at each end. `grid=nothing` uses 100 equally
 spaced points across the observed range; an override must cover all observations
-and stay within that range, with full spline rank. `maxK` defaults to `knots+p`.
+and stay within that range, with full spline rank. `max_k` defaults to `knots+p`.
+Sparse `face.lambda_mean` fixes the mean penalty and `face.mean_loglambda`
+sets its log-candidate grid; these are independent of covariance
+`face.lambda`/`face.loglambda`. Dense FACE instead accepts a
+`face.mean_smoother` object. These different mean smoothers are not aliases.
 The reference's `gcv` approximates leave-one-subject-out squared prediction
 error to first order, omitting the constant sum of squared raw products.
 It fits the covariance and noise jointly, including diagonal raw products.
@@ -227,16 +245,16 @@ count are stored. With `P=sum(N_i*(N_i-1))` pairs and `M=length(grid)`, fixed
 covariance smoothing costs `O(M^2*P)` time. A 2D `CurveCV` with `H` candidates
 costs `O(H*P^2 + H*F*P)` for `F` folds, before the final fit; binning reduces
 `P` to the number of occupied per-curve cells (at most `n*binning^2`).
-`maxK=nothing` resolves to `max(1,min(20,length(grid)-2,nobs(fd)-2))` for
+`max_k=nothing` resolves to `max(1,min(20,length(grid)-2,nobs(fd)-2))` for
 PACE, following fdapace 0.6.0's smoothed route. An explicit PACE cap may be
 at most `length(grid)`.
 
-The full positive-semidefinite covariance projection up to `maxK` is used
+The full positive-semidefinite covariance projection up to `max_k` is used
 in each curve's Cholesky score solve. The selected eigenvalues and
 eigenfunctions define the score numerator and conditional covariance.
 PACE also supports [`AIC`](@ref) and [`BIC`](@ref). Their criteria use the
 K-component covariance, including the Gaussian normalization constant, for
-every candidate `K=1:maxK`. Beyond the retained positive rank the covariance
+every candidate `K=1:max_k`. Beyond the retained positive rank the covariance
 has zero additional variance, while the penalty still increases. Selection
 stops at the first increase as fdapace does; the global minimizer is retained too.
 Scoring adds no ridge beyond the recorded estimated-noise floor. A
@@ -248,12 +266,12 @@ including on nonuniform grids. Eigenvalues must exceed `eigen_tol` times the
 largest absolute eigenvalue. The relative cutoff `1e-10` is a package numerical
 choice, adjustable here. All negative eigenvalues, including roundoff, are
 recorded in `dropped` as their `number`, absolute `total`, and `share` of the
-absolute spectrum. Positive eigenvalues up to `maxK` define the FVE denominator.
+absolute spectrum. Positive eigenvalues up to `max_k` define the FVE denominator.
 `ncomponents` is a positive integer or [`FVE`](@ref); the default threshold 0.99
-is fdapace's. The default `maxK=max(1, min(length(fd.grid)-2, nobs(fd)-2))`
+is fdapace's. The default `max_k=max(1, min(length(fd.grid)-2, nobs(fd)-2))`
 follows fdapace 0.6.0's dense cross-sectional default (`SetOptions.R`), without
-the cap of 20 used on its smoothing route. An explicit dense `maxK` cannot
-exceed `min(length(fd.grid), nobs(fd)-1)`. A fixed K exceeding `maxK`
+the cap of 20 used on its smoothing route. An explicit dense `max_k` cannot
+exceed `min(length(fd.grid), nobs(fd)-1)`. A fixed K exceeding `max_k`
 or the retained positive rank throws. A zero-variance sample also throws.
 
 Signs make `sum(phi .* mean)` nonnegative, following fdapace. When its magnitude
@@ -306,14 +324,14 @@ end
 # rectangular eigenvalue scaling, followed by trapezoidal column normalization.
 # Both weights coincide in every public fit.
 function _fpca_eigen(surface::AbstractMatrix{<:Real}, weights::AbstractVector{<:Real},
-        mean::AbstractVector{<:Real}; maxK=length(weights), eigen_tol=_FPCA_EIGEN_TOL,
+        mean::AbstractVector{<:Real}; max_k=length(weights), eigen_tol=_FPCA_EIGEN_TOL,
         sign_tol=_FPCA_SIGN_TOL, normalization_weights=weights)
     Base.require_one_based_indexing(surface, weights, mean, normalization_weights)
     m = length(weights)
     size(surface) == (m, m) || throw(DimensionMismatch("covariance surface must be square with one row per weight"))
     length(mean) == m || throw(DimensionMismatch("mean length must match covariance grid"))
     length(normalization_weights) == m || throw(DimensionMismatch("normalization weights must match covariance grid"))
-    maxK isa Integer && 1 <= maxK <= m || throw(ArgumentError("maxK must be between 1 and the covariance grid length"))
+    _integer_in(max_k, 1, m) || throw(ArgumentError("max_k must be between 1 and the covariance grid length"))
     all(isfinite, surface) && all(isfinite, mean) || throw(ArgumentError("covariance surface and mean must be finite"))
     issymmetric(surface) || throw(ArgumentError("covariance surface must be symmetric"))
     all(w -> isfinite(w) && w > 0, weights) &&
@@ -341,7 +359,7 @@ function _fpca_eigen(surface::AbstractMatrix{<:Real}, weights::AbstractVector{<:
     cutoff = eigen_tol * scale
     indices = reverse(findall(>(cutoff), spectrum))
     isempty(indices) && throw(ArgumentError("FPCA covariance has no positive eigenvalues above eigen_tol"))
-    indices = indices[1:min(Int(maxK), length(indices))]
+    indices = indices[1:min(Int(max_k), length(indices))]
     values = spectrum[indices]
     functions = decomposition.vectors[:, indices] ./ root
     normalization_root = sqrt.(normalization_weights)
@@ -372,20 +390,20 @@ function _fpca_orient!(functions, mean, sign_tol)
     functions
 end
 
-function _fpca_selection(rule::Integer, curve, maxK)
-    1 <= rule <= maxK || throw(ArgumentError("ncomponents must be between 1 and maxK ($maxK)"))
+function _fpca_selection(rule::Integer, curve, max_k)
+    _integer_in(rule, 1, max_k) || throw(ArgumentError("ncomponents must be between 1 and max_k ($max_k)"))
     rule <= length(curve) || throw(ArgumentError("ncomponents exceeds the retained positive covariance rank ($(length(curve)))"))
-    (; rule=:fixed, threshold=nothing, maxK, chosen=Int(rule), scores=eltype(curve)[])
+    (; rule=:fixed, threshold=nothing, max_k, maxK=max_k, chosen=Int(rule), scores=eltype(curve)[])
 end
 
-function _fpca_selection(rule::FVE, curve, maxK)
+function _fpca_selection(rule::FVE, curve, max_k)
     chosen = findfirst(>=(rule.threshold), curve)::Int
-    (; rule=:FVE, threshold=rule.threshold, maxK, chosen, scores=copy(curve))
+    (; rule=:FVE, threshold=rule.threshold, max_k, maxK=max_k, chosen, scores=copy(curve))
 end
 
-_fpca_selection(::_ComponentSelector, curve, maxK) =
+_fpca_selection(::_ComponentSelector, curve, max_k) =
     throw(ArgumentError("AIC and BIC component selection require method=:pace"))
-_fpca_selection(rule, curve, maxK) =
+_fpca_selection(rule, curve, max_k) =
     throw(ArgumentError("ncomponents must be a positive integer, FVE(threshold), or (for PACE) AIC() or BIC()"))
 
 _fpca_preprocess(fd, ::Nothing) = (copy(fd.values), nothing)
@@ -402,11 +420,12 @@ _fpca_preprocess(fd, method) =
     throw(ArgumentError("presmooth must be nothing, LocalPolynomial, or PenalizedSpline"))
 
 Base.@constprop :aggressive function fit(::Type{FPCA}, fd::GridFunctionalData; method=:auto, grid=nothing,
-        ncomponents=FVE(0.99), maxK=nothing, presmooth=nothing,
+        ncomponents=FVE(0.99), max_k=nothing, maxK=nothing, presmooth=nothing,
         mean=nothing, covariance=nothing, noise_variance=nothing,
         mean_bandwidth=nothing, covariance_bandwidth=nothing, diagonal_bandwidth=nothing,
         kernel=nothing, weighting=:obs, binning=:auto, face=(;),
         eigen_tol=_FPCA_EIGEN_TOL, sign_tol=_FPCA_SIGN_TOL)
+    max_k = _max_k_keyword(max_k, maxK)
     method in (:auto, :dense, :pace, :face) || throw(ArgumentError("FPCA method must be :auto, :dense, :pace, or :face"))
     face isa NamedTuple || throw(ArgumentError("face must be a named tuple of FACE settings"))
     if method == :face
@@ -415,13 +434,13 @@ Base.@constprop :aggressive function fit(::Type{FPCA}, fd::GridFunctionalData; m
             covariance_bandwidth === nothing && diagonal_bandwidth === nothing &&
             kernel === nothing && weighting == :obs && binning === :auto) ||
             throw(ArgumentError("FACE uses the data grid and its own smoothing and noise estimates; grid, presmooth and PACE tuning are unsupported"))
-        return _fit_face(fd; ncomponents, maxK, mean, eigen_tol, sign_tol, face...)
+        return _fit_face(fd; ncomponents, max_k, mean, eigen_tol, sign_tol, face...)
     end
     isempty(face) || throw(ArgumentError("face settings require method=:face"))
     design = sampling_design(fd)
     if method == :pace || (method == :auto && design != :regular)
         presmooth === nothing || throw(ArgumentError("presmooth is only supported by dense FPCA; PACE smooths the pooled mean and covariance"))
-        return _fit_pace(fd; method, grid, ncomponents, maxK, mean, covariance,
+        return _fit_pace(fd; method, grid, ncomponents, max_k, mean, covariance,
             noise_variance, mean_bandwidth, covariance_bandwidth, diagonal_bandwidth, kernel,
             weighting, binning, eigen_tol, sign_tol)
     end
@@ -433,9 +452,9 @@ Base.@constprop :aggressive function fit(::Type{FPCA}, fd::GridFunctionalData; m
         throw(ArgumentError("grid, mean, covariance, noise_variance and pooled smoothing options require method=:pace"))
     n, m = size(fd.values)
     n >= 2 || throw(ArgumentError("dense FPCA requires at least two curves"))
-    maxK = maxK === nothing ? max(1, min(m-2, n-2)) : maxK
-    maxK isa Integer && 1 <= maxK <= min(m, n-1) || throw(ArgumentError(
-        "dense FPCA maxK must be between 1 and min(grid length, nobs-1)"))
+    max_k = max_k === nothing ? max(1, min(m-2, n-2)) : max_k
+    _integer_in(max_k, 1, min(m, n-1)) || throw(ArgumentError(
+        "dense FPCA max_k must be between 1 and min(grid length, nobs-1)"))
     _fpca_tolerance(eigen_tol, "eigen_tol")
     _fpca_tolerance(sign_tol, "sign_tol")
     values, preprocessing = _fpca_preprocess(fd, presmooth)
@@ -446,8 +465,8 @@ Base.@constprop :aggressive function fit(::Type{FPCA}, fd::GridFunctionalData; m
     all(isfinite, covariance) && all(isfinite, mu) ||
         throw(ArgumentError("dense FPCA mean and covariance must be finite; rescale the observations"))
     grid, weights = Vector{T}(fd.grid), Vector{T}(fd.weights)
-    system = _fpca_eigen(covariance, weights, mu; maxK, eigen_tol, sign_tol)
-    selection = _fpca_selection(ncomponents, system.fve, Int(maxK))
+    system = _fpca_eigen(covariance, weights, mu; max_k, eigen_tol, sign_tol)
+    selection = _fpca_selection(ncomponents, system.fve, Int(max_k))
     k = selection.chosen
     basis = FPCBasis(grid, system.eigenfunctions[:, 1:k]; weights)
     projected = residuals * (weights .* basis.values)
@@ -457,7 +476,7 @@ Base.@constprop :aggressive function fit(::Type{FPCA}, fd::GridFunctionalData; m
     all(isfinite, full_projected_covariance) || throw(ArgumentError(
         "dense FPCA fitted covariance must be finite; rescale the observations"))
     settings = (; requested_method=method, grid_source=:data, ncomponents=deepcopy(ncomponents),
-        maxK=Int(maxK), eigen_tol, sign_tol,
+        max_k=Int(max_k), maxK=Int(max_k), eigen_tol, sign_tol,
         covariance_denominator=n-1, quadrature=:stored_trapezoidal,
         preprocessing, observations=:copied_original, full_projected_covariance)
     sign_rule = (; method=:mean_alignment, fallback=:largest_absolute_entry, tolerance=sign_tol)
@@ -468,24 +487,25 @@ Base.@constprop :aggressive function fit(::Type{FPCA}, fd::GridFunctionalData; m
 end
 
 Base.@constprop :aggressive function fit(::Type{FPCA}, fd::IrregularFunctionalData; method=:auto, grid=nothing,
-        ncomponents=FVE(0.99), maxK=nothing, presmooth=nothing,
+        ncomponents=FVE(0.99), max_k=nothing, maxK=nothing, presmooth=nothing,
         mean=nothing, covariance=nothing, noise_variance=nothing,
         mean_bandwidth=nothing, covariance_bandwidth=nothing, diagonal_bandwidth=nothing,
         kernel=nothing, weighting=:obs, binning=:auto, face=(;),
         eigen_tol=_FPCA_EIGEN_TOL, sign_tol=_FPCA_SIGN_TOL)
+    max_k = _max_k_keyword(max_k, maxK)
     face isa NamedTuple || throw(ArgumentError("face must be a named tuple of FACE settings"))
     if method == :face
         (presmooth === nothing && covariance === nothing && noise_variance === nothing &&
             mean_bandwidth === nothing && covariance_bandwidth === nothing &&
             diagonal_bandwidth === nothing && kernel === nothing && weighting == :obs &&
             binning === :auto) || throw(ArgumentError("sparse FACE uses its own smoothing and noise estimates; presmooth and PACE tuning are unsupported"))
-        return _fit_face_sparse(fd; grid, ncomponents, maxK, mean, eigen_tol, sign_tol, face...)
+        return _fit_face_sparse(fd; grid, ncomponents, max_k, mean, eigen_tol, sign_tol, face...)
     end
     isempty(face) || throw(ArgumentError("face settings require method=:face"))
     method in (:auto, :dense, :pace) || throw(ArgumentError("FPCA method must be :auto, :dense, :pace, or :face"))
     method == :dense && throw(ArgumentError("dense FPCA requires complete GridFunctionalData"))
     presmooth === nothing || throw(ArgumentError("presmooth is only supported by dense FPCA; PACE smooths the pooled mean and covariance"))
-    _fit_pace(fd; method, grid, ncomponents, maxK, mean, covariance,
+    _fit_pace(fd; method, grid, ncomponents, max_k, mean, covariance,
         noise_variance, mean_bandwidth, covariance_bandwidth, diagonal_bandwidth, kernel,
         weighting, binning, eigen_tol, sign_tol)
 end
@@ -495,7 +515,7 @@ end
 
 Return the selected eigenfunctions as an [`FPCBasis`](@ref) for grid/PACE
 fits, or an exact linear combination of the input basis for basis-data fits.
-Both implement `basismatrix`, `gram`, `penalty`, `domain`, and `nbasis`.
+Both implement `basis_matrix`, `gram`, `penalty`, `domain`, and `nbasis`.
 """
 eigenfunctions(f::FPCA) = f.basis
 
@@ -529,7 +549,7 @@ score_covariances(f::FPCA) = f.score_covariances
     fve(f::FPCA)
 
 Return cumulative fractions of variance explained for all retained positive
-eigenvalues up to `maxK`, including those beyond the selected components.
+eigenvalues up to `max_k`, including those beyond the selected components.
 """
 fve(f::FPCA) = f.fve
 
@@ -565,6 +585,10 @@ end
 """
     predict(f::FPCA, newdata::Union{GridFunctionalData,IrregularFunctionalData,BasisFunctionalData})
 
+Deprecated compatibility API: use [`project_scores`](@ref) for scores only or
+[`predict_scores`](@ref) for scores and available conditional covariance.
+The legacy result shapes below are preserved exactly.
+
 Project new dense curves using the training mean, basis, weights, and fitted
 preprocessing. Return an `n × K` score matrix. Data must be complete and use
 exactly the training grid. This extends `StatsAPI.predict`, as in
@@ -572,7 +596,7 @@ MultivariateStats.jl's PCA projection interface.
 
 PACE accepts either representation and returns `(scores, covariances)` as a
 named tuple, with an `n × K` matrix and `K × K × n` array. It uses the training
-mean, eigenfunctions, full projected covariance up to `maxK`, and noise
+mean, eigenfunctions, full projected covariance up to `max_k`, and noise
 variance. Every observation time must lie inside the work grid. Predicting
 the training data reproduces [`scores`](@ref) and [`score_covariances`](@ref).
 
@@ -588,8 +612,12 @@ Basis FPCA requires `BasisFunctionalData` in the same basis as training. It
 returns exact L² inner-product scores against the stored normalized harmonics.
 """
 function predict(f::FPCA, fd::GridFunctionalData)
-    _fpca_predict(f, fd, f.noise_variance)
+    _deprecated_score_prediction()
+    _predict_result(f, fd)
 end
+
+_predict_result(f::FPCA, fd::GridFunctionalData) =
+    _fpca_predict(f, fd, f.noise_variance)
 
 _fpca_predict(f, fd::GridFunctionalData, ::Real) =
     f.method === :face ? (f.training_data isa IrregularFunctionalData ?
@@ -607,6 +635,11 @@ function _fpca_predict(f, fd::GridFunctionalData, ::Nothing)
 end
 
 function predict(f::FPCA, fd::IrregularFunctionalData)
+    _deprecated_score_prediction()
+    _predict_result(f, fd)
+end
+
+function _predict_result(f::FPCA, fd::IrregularFunctionalData)
     if f.method === :face
         f.training_data isa IrregularFunctionalData || throw(ArgumentError("common-grid FACE prediction requires GridFunctionalData on the training grid"))
         return _face_sparse_predict(f, fd)
@@ -619,6 +652,7 @@ end
     reconstruct(f::FPCA, scores=scores(f); grid=f.grid)
 
 Return `GridFunctionalData` containing `mean + scores * eigenfunctions'`.
+This extends the `StatsAPI.reconstruct` generic (StatsAPI 1.8 or newer).
 The finite increasing grid must lie inside the work-grid domain. Both the mean
 and eigenfunctions are linearly interpolated for grid/PACE/FACE fits; basis
 fits evaluate their exact basis expansions. Subject ids are retained when
@@ -632,7 +666,7 @@ function reconstruct(f::FPCA, projected::AbstractMatrix{<:Real}=scores(f);
     size(projected, 2) == ncomponents(f) || throw(DimensionMismatch("reconstruction score columns must equal ncomponents"))
     all(isfinite, projected) || throw(ArgumentError("reconstruction scores must be finite"))
     quadrature_weights(grid)
-    functions = basismatrix(f.basis, grid)
+    functions = basis_matrix(f.basis, grid)
     mu = _fpca_mean_values(f.mean, grid)
     reconstructed = projected * transpose(functions) .+ mu
     GridFunctionalData(reconstructed, grid; ids=projected === f.scores ? f.ids : nothing)

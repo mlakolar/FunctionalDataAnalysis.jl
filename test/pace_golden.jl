@@ -22,7 +22,7 @@ using DelimitedFiles
 
     model = StatsAPI.fit(FPCA, fd; grid, mean=supplied_mean,
         covariance=supplied_covariance, noise_variance=sigma2,
-        ncomponents=3, maxK=5)
+        ncomponents=3, max_k=5)
     @test model.method == :pace
     @test nobs(model) == 40
     @test ids(model) == labels
@@ -36,13 +36,13 @@ using DelimitedFiles
     # trapezoidal eigenstep agrees with fdapace's rectangular operator.
     @test relative_error(eigvals(model), reference("eigenvalue")) < 1e-8
     @test relative_error(model.all_eigenvalues, reference("all_eigenvalue")) < 1e-8
-    @test relative_error(basismatrix(eigenfunctions(model), grid),
+    @test relative_error(basis_matrix(eigenfunctions(model), grid),
         reshape(reference("eigenfunction"), length(grid), 3)) < 1e-8
     @test relative_error(fve(model), reference("fve")) < 1e-8
     @test relative_error(scores(model), reshape(reference("score"), n, 3)) < 1e-8
     for i in 1:n
         rows = (golden[:, 1] .== "score_covariance") .& (golden[:, 2] .== i)
-        # fdapace SubsetFPCA leaves xiVar at maxK even when selecting K=3;
+        # fdapace SubsetFPCA leaves xiVar at max_k even when selecting K=3;
         # the reference contains its selected upper-left 3-by-3 block.
         expected = reshape(Float64.(golden[rows, 4]), 3, 3)
         @test relative_error(score_covariances(model)[:, :, i], expected) < 1e-8
@@ -50,8 +50,8 @@ using DelimitedFiles
     @test relative_error(model.settings.full_projected_covariance,
         reshape(reference("fitted_covariance"), length(grid), length(grid))) < 1e-8
     # The score denominator includes components 4 and 5 even though K=3.
-    selected_surface = basismatrix(eigenfunctions(model), grid) *
-        Diagonal(eigvals(model)) * transpose(basismatrix(eigenfunctions(model), grid))
+    selected_surface = basis_matrix(eigenfunctions(model), grid) *
+        Diagonal(eigvals(model)) * transpose(basis_matrix(eigenfunctions(model), grid))
     @test norm(model.settings.full_projected_covariance - selected_surface) > 0.1
     training_prediction = StatsAPI.predict(model, fd)
     @test training_prediction.scores == scores(model)
@@ -69,7 +69,7 @@ using DelimitedFiles
     for (j, (selector, quantity)) in enumerate(((AIC(), "aic"), (BIC(), "bic")))
         chosen = StatsAPI.fit(FPCA, fd; grid, mean=supplied_mean,
             covariance=supplied_covariance, noise_variance=sigma2,
-            ncomponents=selector, maxK=5)
+            ncomponents=selector, max_k=5)
         @test ncomponents(chosen) == selected[j + 1]
         @test chosen.selection.global_minimizer == global_minimizers[j]
         @test relative_error(chosen.selection.scores, reference(quantity)) < 1e-8
@@ -79,6 +79,6 @@ using DelimitedFiles
     end
     fve_model = StatsAPI.fit(FPCA, fd; grid, mean=supplied_mean,
         covariance=supplied_covariance, noise_variance=sigma2,
-        ncomponents=FVE(0.99), maxK=5)
+        ncomponents=FVE(0.99), max_k=5)
     @test ncomponents(fve_model) == selected[4]
 end

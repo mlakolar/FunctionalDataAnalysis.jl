@@ -16,7 +16,7 @@ b = FourierBasis(domain(temperature), 3)
 x = to_basis(temperature, b)
 y = to_basis(precipitation, b)
 canonical = StatsAPI.fit(FunctionalCCA, x, y; lambda=1e4)
-(canonical.squared_correlations, size(canonical.variates1))
+(squared_canonical_correlations(canonical), size(canonical_variates(canonical).left))
 ```
 
 `weights1` and `weights2` are exact `BasisFunctionalData`, one weight per row.
@@ -25,6 +25,13 @@ columns. Evaluate weights with `evaluate(canonical.weights1, times)`.
 `correlations` contains the penalized singular values, and
 `squared_correlations` their squares. These are the penalized criterion values,
 which generally differ from empirical squared correlations of the variates.
+
+Use `canonical_weights(canonical)` and `canonical_variates(canonical)` to
+obtain `(left, right)` named tuples referencing those stored objects, and
+`canonical_correlations` / `squared_canonical_correlations` for their stored
+criterion vectors. `nobs` counts paired training subjects and `ncomponents`
+counts canonical pairs. Use `deepcopy` for independent weights and `copy`
+for independent arrays; these accessors do not copy the fit's storage.
 
 The reference is fda **6.3.0**
 [`cca.fd.R`](https://github.com/cran/fda/blob/6.3.0/R/cca.fd.R) and
@@ -39,7 +46,7 @@ is added; a singular penalized metric raises an informative error.
 
 | Choice | Default and source |
 |:--|:--|
-| `ncan` | `2`, fda `cca.fd`; any positive integer up to the smaller basis dimension |
+| `ncan` / `ncomponents` | Alias names for the number of canonical pairs, default `2` from fda `cca.fd`; supply at most one. A positive integer up to the smaller basis dimension; this is not an FPCA FVE criterion. Settings retain the key `ncan`. |
 | `lambda` | `(1e-10,1e-10)`, fda `cca.fd`; a scalar sets both sides, a pair sets them separately |
 | `penalty` | `(2,2)`, fda `cca.fd`; each side can instead use a derivative order, Fourier harmonic-acceleration symbol, or symmetric positive-semidefinite matrix. A scalar setting applies to both. |
 | `center` | `true`, fda `centerfns`; false uses zero means |
@@ -75,4 +82,8 @@ correlation comparisons use relative tolerance `1e-8`.
 
 ```@docs
 FunctionalCCA
+canonical_weights
+canonical_variates
+canonical_correlations
+squared_canonical_correlations
 ```

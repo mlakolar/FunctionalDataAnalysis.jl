@@ -15,7 +15,7 @@ function bands_fixture(; K=3, scalar=Float64)
     values = [input[input[:, 1] .== i, 3] for i in 1:n]
     fd = IrregularFunctionalData(times, values)
     model = StatsAPI.fit(FPCA, fd; grid, mean=(; grid, values=mean_input[:, 2]),
-        covariance=(; grid, surface), noise_variance=sigma2, ncomponents=K, maxK=5,
+        covariance=(; grid, surface), noise_variance=sigma2, ncomponents=K, max_k=5,
         eigen_tol=scalar === Float32 ? 1e-5 : 1e-10)
     (; fd, model, grid)
 end
@@ -52,7 +52,7 @@ end
         mu = (; grid, values=1 .+ grid)
         covariance = (; grid, surface=fill(2.0, length(grid), length(grid)))
         f = StatsAPI.fit(FPCA, fd; grid, mean=mu, covariance, noise_variance=0.5,
-            ncomponents=1, maxK=1)
+            ncomponents=1, max_k=1)
         query = [0.0, 0.1, 0.8, 1.0]
         b = @inferred fitted_bands(f; grid=query, curves=[2, 1])
         # A random intercept with prior variance 2 and two noisy measurements:
@@ -74,7 +74,7 @@ end
         @test_throws ArgumentError fitted_bands(indefinite)
         mfd = MultivariateFunctionalData([fd, fd])
         mf = StatsAPI.fit(FPCA, mfd; grid, mean=mu, covariance, noise_variance=0.5,
-            ncomponents=1, maxK=1)
+            ncomponents=1, max_k=1)
         mb = @inferred fitted_bands(mf; curves=2)
         @test length(mb.nodes) == 2
         @test mb.nodes[1].variance ≈ fill(2/9, 1, 4)
@@ -83,10 +83,10 @@ end
         @test off.nodes[2].grid == grid
         @test_throws DimensionMismatch fitted_bands(mf; grid=[grid])
         dense = StatsAPI.fit(FPCA, GridFunctionalData([0.0 1 2 3; 1.0 2 3 4; 2.0 3 4 5], grid);
-            ncomponents=1, maxK=1)
+            ncomponents=1, max_k=1)
         @test_throws ArgumentError fitted_bands(dense)
         @test_throws ArgumentError fitted_bands(StatsAPI.fit(FPCA,
-            MultivariateFunctionalData([dense.training_data, dense.training_data]); ncomponents=1, maxK=1))
+            MultivariateFunctionalData([dense.training_data, dense.training_data]); ncomponents=1, max_k=1))
         for bad in (0, 1, -0.1, NaN, Inf, true, :auto)
             @test_throws ArgumentError fitted_bands(f; alpha=bad)
         end
@@ -131,6 +131,15 @@ end
         @test b.band.upper ≈ mean.values .+ expected_c .* b.standard_error
         again = mean_bands(fd, mean; B=39, rng=b.rng_state)
         @test again.bootstrap == b.bootstrap && again.band == b.band
+        alias = @inferred mean_bands(fd, mean; bootstrap_replicates=39, rng=b.rng_state)
+        @test alias.B == b.B == 39
+        @test alias.bootstrap == b.bootstrap
+        @test alias.interval == b.interval && alias.band == b.band
+        @test alias.standard_error == b.standard_error
+        @test alias.rng_state == b.rng_state
+        @test alias.settings == b.settings
+        @test_throws ArgumentError mean_bands(fd, mean; B=39, bootstrap_replicates=39)
+        @test_throws ArgumentError mean_bands(fd, mean; bootstrap_replicates=true)
         @test b.rng_state == snapshot && b.mean !== mean
         @test fieldtype(typeof(b), :rng_state) === typeof(snapshot)
         @test b.mean.bandwidth == 2.0 && b.mean.weighting == :subj
@@ -238,6 +247,7 @@ end
         @test_throws ArgumentError mean_bands(fd, m; method=:unknown)
         @test_throws ArgumentError mean_bands(fd, m; method=:sandwich, coverage=:both)
         @test_throws ArgumentError mean_bands(fd, m; method=:sandwich, B=1000)
+        @test_throws ArgumentError mean_bands(fd, m; method=:sandwich, bootstrap_replicates=1000)
         @test_throws ArgumentError mean_bands(fd, m; method=:sandwich, rng=MersenneTwister(1))
         @test_throws ArgumentError mean_bands(fd, m; method=:sandwich, alpha=0)
         # A compact window containing just one curve has no cluster variance.

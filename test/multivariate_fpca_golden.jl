@@ -34,7 +34,7 @@ using DelimitedFiles
             for j in 1:p
                 expected_functions = reshape(reference(golden, string(basis),
                     "eigenfunction", j), length(grid), 2)
-                actual_functions = basismatrix(eigenfunctions(fitted)[j], grid)
+                actual_functions = basis_matrix(eigenfunctions(fitted)[j], grid)
                 signs = aligned_signs(actual_functions, expected_functions)
                 @test all(abs.(signs) .== 1)
                 @test relative_error(actual_functions .* transpose(signs),
@@ -75,7 +75,7 @@ using DelimitedFiles
         noise = [only(reference(golden, "input", "noise_variance", j)) for j in 1:p]
         # Match FGM's full positive-rank denominator and relative cutoff.
         fitted = StatsAPI.fit(FPCA, MultivariateFunctionalData(nodes);
-            basis=:marginal, grid, ncomponents=2, maxK=length(grid),
+            basis=:marginal, grid, ncomponents=2, max_k=length(grid),
             mean_bandwidth=0.3, covariance_bandwidth=0.3, diagonal_bandwidth=0.3,
             noise_variance=noise, kernel=KernelSmoothing.GaussianKernel(),
             weighting=:subj, binning=nothing, eigen_tol=100eps(Float64))
@@ -88,7 +88,7 @@ using DelimitedFiles
                 reference(golden, "marginal", "mean", j)) < 1e-8
             expected_functions = reshape(reference(golden, "marginal",
                 "eigenfunction", j), length(grid), 2)
-            actual_functions = basismatrix(eigenfunctions(fitted)[j], grid)
+            actual_functions = basis_matrix(eigenfunctions(fitted)[j], grid)
             signs = aligned_signs(actual_functions, expected_functions)
             @test all(abs.(signs) .== 1)
             @test relative_error(actual_functions .* transpose(signs), expected_functions) < 1e-8

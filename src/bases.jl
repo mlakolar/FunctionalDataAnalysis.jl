@@ -6,12 +6,12 @@ Number of functions in the basis `b`.
 function nbasis end
 
 """
-    basismatrix(b, t; derivative=0)
+    basis_matrix(b, t; derivative=0)
 
 Evaluate a basis, or its nonnegative integer derivative, at `t`. Return a
 `length(t) × nbasis(b)` matrix. All points must be finite and in `domain(b)`.
 """
-function basismatrix end
+function basis_matrix end
 
 """
     gram(b)
@@ -44,7 +44,7 @@ function _interval(interval::Tuple{<:Real,<:Real})
 end
 
 function _derivative_order(order)
-    order isa Integer && 0 <= order <= typemax(Int) ||
+    _integer_in(order, 0) ||
         throw(ArgumentError("derivative order must be a nonnegative integer representable as Int"))
     Int(order)
 end
@@ -74,17 +74,18 @@ and must be finite and strictly increasing. The second form uses equally
 spaced breakpoints and requires `nbasis >= order`. Endpoint multiplicity is
 `order`; derivatives at knots follow BSplineKit's one-sided convention.
 """
-struct BSplineBasis{T<:AbstractFloat} <: AbstractBasis
-    backend::BSplineKit.BSplineBasis
+struct BSplineBasis{T<:AbstractFloat,B<:BSplineKit.BSplineBasis} <: AbstractBasis
+    backend::B
     breakpoints::Vector{T}
     order::Int
-    function BSplineBasis{T}(backend, breakpoints, order) where {T<:AbstractFloat}
-        new{T}(backend, breakpoints, order)
+    function BSplineBasis{T}(backend::B, breakpoints, order) where
+            {T<:AbstractFloat,B<:BSplineKit.BSplineBasis}
+        new{T,B}(backend, breakpoints, order)
     end
 end
 
-function BSplineBasis(order::Integer, breakpoints::AbstractVector{<:Real})
-    order >= 1 || throw(ArgumentError("B-spline order must be positive"))
+Base.@constprop :aggressive function BSplineBasis(order::Integer, breakpoints::AbstractVector{<:Real})
+    _integer_in(order, 1) || throw(ArgumentError("B-spline order must be positive"))
     Base.require_one_based_indexing(breakpoints)
     T = _floattype(eltype(breakpoints))
     x = Vector{T}(breakpoints)
@@ -94,9 +95,9 @@ function BSplineBasis(order::Integer, breakpoints::AbstractVector{<:Real})
     BSplineBasis{T}(backend, x, Int(order))
 end
 
-function BSplineBasis(order::Integer, interval::Tuple{<:Real,<:Real}, n::Integer)
-    order >= 1 || throw(ArgumentError("B-spline order must be positive"))
-    n >= order || throw(ArgumentError("number of B-splines must be at least the order"))
+Base.@constprop :aggressive function BSplineBasis(order::Integer, interval::Tuple{<:Real,<:Real}, n::Integer)
+    _integer_in(order, 1) || throw(ArgumentError("B-spline order must be positive"))
+    _integer_in(n, order) || throw(ArgumentError("number of B-splines must be at least the order"))
     a, b = _interval(interval)
     BSplineBasis(order, collect(range(a, b; length=n - order + 2)))
 end
@@ -113,7 +114,7 @@ struct FourierBasis{T<:AbstractFloat} <: AbstractBasis
     interval::Tuple{T,T}
     n::Int
     function FourierBasis(interval::Tuple{<:Real,<:Real}, n::Integer)
-        n >= 1 && isodd(n) || throw(ArgumentError("Fourier nbasis must be positive and odd"))
+        _integer_in(n, 1) && isodd(n) || throw(ArgumentError("Fourier nbasis must be positive and odd"))
         bounds = _interval(interval)
         new{typeof(bounds[1])}(bounds, Int(n))
     end
@@ -131,7 +132,7 @@ struct MonomialBasis{T<:AbstractFloat} <: AbstractBasis
     interval::Tuple{T,T}
     degree::Int
     function MonomialBasis(interval::Tuple{<:Real,<:Real}, degree::Integer)
-        degree >= 0 || throw(ArgumentError("monomial degree must be nonnegative"))
+        _integer_in(degree, 0, typemax(Int)-1) || throw(ArgumentError("monomial degree must be nonnegative"))
         bounds = _interval(interval)
         new{typeof(bounds[1])}(bounds, Int(degree))
     end
@@ -180,7 +181,7 @@ end
 Base.show(io::IO, ::MIME"text/plain", b::Union{BSplineBasis,FourierBasis,MonomialBasis}) =
     show(io, b)
 
-function basismatrix(b::BSplineBasis, t::AbstractVector{<:Real}; derivative=0)
+function basis_matrix(b::BSplineBasis, t::AbstractVector{<:Real}; derivative=0)
     m = _derivative_order(derivative)
     x = _basispoints(b, t)
     out = zeros(eltype(x), length(x), nbasis(b))
@@ -191,7 +192,7 @@ function basismatrix(b::BSplineBasis, t::AbstractVector{<:Real}; derivative=0)
     out
 end
 
-function basismatrix(b::FourierBasis, t::AbstractVector{<:Real}; derivative=0)
+function basis_matrix(b::FourierBasis, t::AbstractVector{<:Real}; derivative=0)
     m = _derivative_order(derivative)
     x = _basispoints(b, t)
     T = eltype(x)
@@ -219,7 +220,7 @@ function _falling(p, m, ::Type{T}) where {T}
     value
 end
 
-function basismatrix(b::MonomialBasis, t::AbstractVector{<:Real}; derivative=0)
+function basis_matrix(b::MonomialBasis, t::AbstractVector{<:Real}; derivative=0)
     m = _derivative_order(derivative)
     x = _basispoints(b, t)
     T = eltype(x)

@@ -130,7 +130,7 @@ function fitted_bands(f::FPCA; alpha=0.05, coverage=:interval, grid=f.grid, curv
     grid isa AbstractVector{<:Real} || throw(ArgumentError("fitted bands grid must be a real vector"))
     index = _plot_curves(f, curves)
     recovered = reconstruct(f, f.scores[index, :]; grid)
-    functions = basismatrix(f.basis, recovered.grid)
+    functions = basis_matrix(f.basis, recovered.grid)
     variance = similar(recovered.values)
     for (row, i) in enumerate(index)
         omega = Symmetric(f.score_covariances[:, :, i])
@@ -211,7 +211,8 @@ end
 
 """
     mean_bands(fd, m::SmoothedMean; method=:bootstrap, alpha=0.05,
-        B=nothing, coverage=(method === :sandwich ? :interval : :both), rng=nothing)
+        B=nothing, bootstrap_replicates=nothing,
+        coverage=(method === :sandwich ? :interval : :both), rng=nothing)
 
 Resample whole independent curves with replacement and refit the pooled mean
 with `m`'s stored grid, bandwidth, kernel, degree and weighting. Bandwidth
@@ -219,6 +220,9 @@ selection is not repeated. `fd` must be the data used to fit `m`; this is
 checked by refitting once. Undefined bootstrap fits throw with the replicate
 number; no draws or grid points are dropped. Grid and irregular data, including
 masked grids, are supported. At least two curves and B >= 2 are required.
+`bootstrap_replicates` is a descriptive alias for `B`, the number of
+whole-curve resamples. Supply at most one; omitting both selects 1000 for
+bootstrap inference. The stored result field remains `B`.
 
 `:interval` gives pointwise percentile intervals (R type-7 quantiles, as in
 fdapace 0.6.0 `GetMeanCI`). `:band` gives a gridwise simultaneous sup-t band:
@@ -230,7 +234,8 @@ the original estimate there; otherwise a requested sup-t band throws.
 For `method=:sandwich`, only `coverage=:interval` is supported: use
 KernelSmoothing's `ClusterVariance(1)` (CR1, its cluster default), with curves
 as clusters, conventional standard errors, and normal critical values around
-the stored mean. No robust bias correction is applied. Explicit `B` and `rng`
+the stored mean. No robust bias correction is applied. Explicit `B`,
+`bootstrap_replicates` and `rng`
 are bootstrap-only and throw for this method.
 
 Return [`MeanBands`](@ref). Bootstrap `B=nothing` resolves to 1000 and
@@ -246,8 +251,11 @@ smoothing bias. No continuum or arbitrary sparse-design guarantee is claimed.
 Sandwich intervals also require negligible smoothing bias.
 """
 Base.@constprop :aggressive function mean_bands(fd::Union{GridFunctionalData,IrregularFunctionalData}, m::SmoothedMean;
-        method=:bootstrap, alpha=0.05, B=nothing,
+        method=:bootstrap, alpha=0.05, B=nothing, bootstrap_replicates=nothing,
         coverage=(method === :sandwich ? :interval : :both), rng=nothing)
+    B === nothing || bootstrap_replicates === nothing || throw(ArgumentError(
+        "supply only one of B and its alias bootstrap_replicates"))
+    B = bootstrap_replicates === nothing ? B : bootstrap_replicates
     method in (:bootstrap, :sandwich) || throw(ArgumentError("method must be :bootstrap or :sandwich"))
     if method === :sandwich
         B === nothing || throw(ArgumentError("B is only available for method = :bootstrap"))
@@ -306,7 +314,7 @@ end
 
 function _mean_bands(fd, m, initial; alpha, B, coverage)
     a = _band_alpha(alpha)
-    B isa Integer && !(B isa Bool) && 2 <= B <= typemax(Int) ||
+    _integer_in(B, 2) ||
         throw(ArgumentError("B must be an integer of at least two"))
     coverage in (:interval, :band, :both) ||
         throw(ArgumentError("coverage must be :interval, :band, or :both"))

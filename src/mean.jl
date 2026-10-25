@@ -33,7 +33,7 @@ struct CurveCV{T<:AbstractFloat,R,P}
         hs = Vector{T}(bandwidths)
         all(isfinite, hs) && length(unique(hs)) == length(hs) ||
             throw(ArgumentError("CurveCV bandwidths must remain finite and distinct after conversion"))
-        folds isa Integer && 2 <= folds <= typemax(Int) ||
+        _integer_in(folds, 2) ||
             throw(ArgumentError("CurveCV folds must be an integer of at least two"))
         rng === nothing || rng isa AbstractRNG ||
             throw(ArgumentError("CurveCV rng must be an AbstractRNG or nothing"))
@@ -63,10 +63,10 @@ _initial_bandwidth(cv::CurveCV) = cv.pilot === nothing ? first(cv.bandwidths) : 
 
 function _regression_bandwidth(rule::KernelSmoothing.BandwidthSelector, t, y, w, kernel, degree)
     data = KernelSmoothing.SmoothingData(t, y; weights=w)
-    hasmethod(KernelSmoothing.selectbandwidth,
+    hasmethod(KernelSmoothing.select_bandwidth,
         Tuple{typeof(rule),typeof(data),typeof(kernel)}, (:degree,)) ||
         throw(ArgumentError("$rule is density-only or does not support regression selection with degree; use a regression rule or CurveCV"))
-    selected = KernelSmoothing.selectbandwidth(rule, data, kernel; degree)
+    selected = KernelSmoothing.select_bandwidth(rule, data, kernel; degree)
     selected.h isa Real || throw(ArgumentError(
         "$rule returns pointwise bandwidths; supply a rule returning one global bandwidth or CurveCV"))
     h = LocalPolynomial(; bandwidth=selected.h, kernel, degree).bandwidth
@@ -172,7 +172,7 @@ function _mean_pool(fd, weighting)
 end
 
 function _mean_predict(t, y, w, points, method; label="pooled mean")
-    values = KernelSmoothing.localpolynomial(t, y, points; bandwidth=method.bandwidth,
+    values = KernelSmoothing.local_polynomial(t, y, points; bandwidth=method.bandwidth,
         kernel=method.kernel, degree=method.degree, derivative=method.derivative, weights=w)
     for (point, value) in zip(points, values)
         isfinite(value) || throw(ArgumentError(

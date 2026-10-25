@@ -25,6 +25,7 @@ using DelimitedFiles
         q(name) = quantity(golden,name)
         options = case=="default" ? (;) : (; lambda=2.5,lambda_mean=.75)
         f = StatsAPI.fit(FPCA,fd;method=:face,face=options)
+        _test_prediction_contract(f, fd)
         subjects = Int.(vec(q("subjects")))
         @test f.method == :face
         @test f.grid ≈ vec(q("grid")) rtol=1e-14
@@ -56,7 +57,7 @@ using DelimitedFiles
         predicted, variance = Float64[], Float64[]
         for i in subjects
             t,_ = fd[i]
-            phi = basismatrix(full.covariance.basis,t)*full.settings.eigenfunction_coefficients
+            phi = basis_matrix(full.covariance.basis,t)*full.settings.eigenfunction_coefficients
             append!(predicted, FDA._face_sparse_mean_values(full.settings.mean,t)+phi*scores(full)[i,:])
             append!(variance,diag(phi*score_covariances(full)[:,:,i]*phi'))
         end
@@ -78,7 +79,7 @@ using DelimitedFiles
         # Independent observation-space BLUP, with exact splines at new times.
         for i in 1:nobs(heldout)
             t,y = heldout[i]
-            B = basismatrix(f.covariance.basis,t)
+            B = basis_matrix(f.covariance.basis,t)
             Phi = B*f.settings.eigenfunction_coefficients
             theta = f.covariance.coefficient_root*f.covariance.coefficient_root'
             V = B*theta*B' + noise_variance(f)*I
@@ -104,6 +105,8 @@ using DelimitedFiles
         f32 = @inferred ((d)->StatsAPI.fit(FPCA,d;method=:face,ncomponents=2,
             face=(;lambda=2.5,lambda_mean=.75)))(fd32)
         @test eltype(scores(f32)) == Float32
+        @test (@inferred project_scores(f32, fd32)) isa Matrix{Float32}
+        @test (@inferred predict_scores(f32, fd32)).covariances isa Array{Float32,3}
         @test eltype(eigvals(f32)) == Float32
         @test f32.basis.values'*(f32.weights .* f32.basis.values) ≈ I atol=1e-5
         # A deterministic example with a negative joint diagonal coefficient:
@@ -142,6 +145,7 @@ using DelimitedFiles
         marginal = StatsAPI.fit(FPCA,multivariate;method=:face,ncomponents=2,
             face=(;lambda=2.5,lambda_mean=.75))
         @test all(f.settings.route == :sparse for f in marginal.fits)
+        _test_prediction_contract(marginal, multivariate)
         @test all(p.scores ≈ s for (p,s) in zip(StatsAPI.predict(marginal,multivariate),scores(marginal)))
         snapshot = deepcopy(f)
         fd.values[1] += 10
@@ -162,7 +166,7 @@ using DelimitedFiles
         for selector in (AIC(),BIC(),0,true,:invalid)
             @test_throws ArgumentError StatsAPI.fit(FPCA,fd;method=:face,ncomponents=selector)
         end
-        @test_throws ArgumentError StatsAPI.fit(FPCA,fd;method=:face,maxK=11)
+        @test_throws ArgumentError StatsAPI.fit(FPCA,fd;method=:face,max_k=11)
         @test_throws ArgumentError StatsAPI.fit(FPCA,fd;method=:face,ncomponents=11)
         @test_throws ArgumentError StatsAPI.fit(FPCA,fd;method=:face,noise_variance=1)
         @test_throws ArgumentError StatsAPI.fit(FPCA,fd;method=:face,presmooth=:invalid)

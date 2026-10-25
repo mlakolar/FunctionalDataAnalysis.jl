@@ -28,7 +28,8 @@ struct SparseSampling{T<:AbstractFloat}
     npoints::StepRange{Int,Int}
     function SparseSampling(domain::Tuple{<:Real,<:Real}, npoints::AbstractRange{<:Integer})
         bounds = _interval(domain)
-        !isempty(npoints) && minimum(npoints) >= 1 ||
+        !isempty(npoints) && _integer_in(first(npoints), 1) && _integer_in(last(npoints), 1) &&
+            !(step(npoints) isa Bool) && typemin(Int) <= step(npoints) <= typemax(Int) ||
             throw(ArgumentError("npoints must be a nonempty range of positive integers"))
         counts = Int(first(npoints)):Int(step(npoints)):Int(last(npoints))
         new{typeof(bounds[1])}(bounds, counts)
@@ -85,7 +86,7 @@ then sine/cosine pairs of increasing frequency, with the normalization of
 utility does not use an RNG. Evaluation outside the domain throws.
 """
 function fourier_eigenfunctions(domain::Tuple{<:Real,<:Real}, K::Integer)
-    K >= 0 || throw(ArgumentError("number of eigenfunctions must be nonnegative"))
+    _integer_in(K, 0) || throw(ArgumentError("number of eigenfunctions must be nonnegative"))
     bounds = _interval(domain)
     T = typeof(bounds[1])
     out = Vector{_FourierEigenfunction{T}}(undef, K)
@@ -104,7 +105,7 @@ argument `2(t-lower)/width-1`. `K` is nonnegative. This deterministic utility
 does not use an RNG. Evaluation outside the domain throws.
 """
 function legendre_eigenfunctions(domain::Tuple{<:Real,<:Real}, K::Integer)
-    K >= 0 || throw(ArgumentError("number of eigenfunctions must be nonnegative"))
+    _integer_in(K, 0) || throw(ArgumentError("number of eigenfunctions must be nonnegative"))
     bounds = _interval(domain)
     T = typeof(bounds[1])
     out = Vector{_LegendreEigenfunction{T}}(undef, K)
@@ -115,7 +116,7 @@ function legendre_eigenfunctions(domain::Tuple{<:Real,<:Real}, K::Integer)
 end
 
 function _simulation_parameters(n, eigenfunctions, eigenvalues, noise_sd, sampling)
-    n >= 1 || throw(ArgumentError("simulation requires at least one curve"))
+    _integer_in(n, 1) || throw(ArgumentError("simulation requires at least one curve"))
     eigenvalues isa AbstractVector{<:Real} ||
         throw(ArgumentError("eigenvalues must be a real vector"))
     length(eigenfunctions) == length(eigenvalues) ||

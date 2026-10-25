@@ -293,7 +293,7 @@ end
             @test grouped.scatter[i] ≈ sum(w .* (z .- grouped.z[i]).^2) atol=1e-14
         end
         fit = StatsAPI.fit(SmoothedCovariance, fd, m; diagonal_bandwidth=.65, grid, bandwidth=1.2, weighting, binning=5)
-        expected = KernelSmoothing.localpolynomial((x, y), raw.z, (grid, grid);
+        expected = KernelSmoothing.local_polynomial((x, y), raw.z, (grid, grid);
             bandwidth=1.2, kernel=fit.kernel, weights=raw.weights)
         @test fit.surface ≈ (expected + expected')/2
         selector = CurveCV([.8, 1.2]; folds=2, rng=MersenneTwister(3))
@@ -304,7 +304,7 @@ end
             score = 0.0
             for i in eachindex(raw.z)
                 train = assignments[raw.subjects] .!= assignments[raw.subjects[i]]
-                prediction = only(KernelSmoothing.localpolynomial((x[train], y[train]),
+                prediction = only(KernelSmoothing.local_polynomial((x[train], y[train]),
                     raw.z[train], [(x[i], y[i])]; bandwidth=h, kernel=fit.kernel, weights=raw.weights[train]))
                 score += raw.weights[i]*abs2(raw.z[i]-prediction)
             end
@@ -426,7 +426,7 @@ end
         x = binning === nothing ? original : round.(original .* 8, RoundNearestTiesUp) ./ 8
         w = vcat([fill(weighting == :obs ? 1. : 1/length(t), length(t)) for t in times]...)
         for rule in (KernelSmoothing.RuleOfThumb(), KernelSmoothing.IMSEOptimal())
-            direct = KernelSmoothing.selectbandwidth(rule,
+            direct = KernelSmoothing.select_bandwidth(rule,
                 KernelSmoothing.SmoothingData(x, squares; weights=w), kernel; degree=1)
             # KernelSmoothing selectors' `details` types depend on the data (and on
             # the KernelSmoothing version), so selector fits are not inferred.
@@ -443,7 +443,7 @@ end
         cv = CurveCV(; pilot, multipliers, folds=2, rng=MersenneTwister(52))
         c = StatsAPI.fit(SmoothedCovariance, fd, m;
             grid, kernel, bandwidth=.5, diagonal_bandwidth=cv, weighting, binning)
-        h = KernelSmoothing.selectbandwidth(pilot,
+        h = KernelSmoothing.select_bandwidth(pilot,
             KernelSmoothing.SmoothingData(x, squares; weights=w), kernel; degree=1).h
         candidates = multipliers .* h
         explicit = StatsAPI.fit(SmoothedCovariance, fd, m;

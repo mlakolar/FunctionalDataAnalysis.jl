@@ -1,8 +1,8 @@
 # FunctionalDataAnalysis.jl
 
-[![CI](https://github.com/mlakolar/FunctionalDataAnalysis.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/mlakolar/FunctionalDataAnalysis.jl/actions/workflows/CI.yml?query=branch%3Amain)
+[![CI](https://github.com/mlakolar/FunctionalDataAnalysis.jl/actions/workflows/CI.yml/badge.svg?branch=master)](https://github.com/mlakolar/FunctionalDataAnalysis.jl/actions/workflows/CI.yml?query=branch%3Amaster)
 [![Docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://mlakolar.github.io/FunctionalDataAnalysis.jl/dev/)
-[![codecov](https://codecov.io/gh/mlakolar/FunctionalDataAnalysis.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/mlakolar/FunctionalDataAnalysis.jl)
+[![codecov](https://codecov.io/gh/mlakolar/FunctionalDataAnalysis.jl/branch/master/graph/badge.svg)](https://codecov.io/gh/mlakolar/FunctionalDataAnalysis.jl)
 [![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
 
 Functional data analysis in Julia, with planned support for dense, irregular
@@ -25,6 +25,20 @@ Requires Julia 1.10 or later. Install the pre-release package from GitHub:
 using Pkg
 Pkg.add(url = "https://github.com/mlakolar/FunctionalDataAnalysis.jl")
 ```
+
+## Development and testing
+
+Use a `master` checkout for this package and its workspace dependencies. From
+the package root, run the complete test suite with:
+
+```sh
+julia scripts/test_master.jl
+```
+
+The runner resolves sibling master checkouts and test extras in a dedicated
+`.master-test-env` environment, leaving the package dependency declarations
+unchanged. Missing workspace dependencies are cloned from their master branches.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the naming and development policy.
 
 ## Licence
 

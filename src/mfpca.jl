@@ -66,7 +66,7 @@ function fit(::Type{MFPCA}, mfd::MultivariateFunctionalData;
         ncomponents, univariate=(;),
         weights=ones(eltype(mfd), FunctionalDataAnalysis.ncomponents(mfd)),
         eigen_tol=1e-10)
-    ncomponents isa Integer && !(ncomponents isa Bool) && ncomponents >= 1 ||
+    _integer_in(ncomponents, 1) ||
         throw(ArgumentError("MFPCA ncomponents must be a positive integer"))
     univariate isa NamedTuple || throw(ArgumentError("MFPCA univariate must be a named tuple of marginal FPCA keywords"))
     haskey(univariate, :basis) && throw(ArgumentError("MFPCA univariate cannot set basis; the first step is marginal FPCA"))
@@ -102,7 +102,7 @@ function _mfpca(marginal::MultivariateFPCA{U}, weights::AbstractVector{W},
     centered = scaled .- sum(scaled; dims=1) ./ nobs(marginal)
     covariance = transpose(centered) * centered
     system = _fpca_eigen(covariance, ones(T, total), zeros(T, total);
-        maxK=total, eigen_tol, sign_tol=0)
+        max_k=total, eigen_tol, sign_tol=0)
     selection = _fpca_selection(count, system.fve, total)
     c = system.eigenfunctions[:, 1:Int(count)]
     values = system.eigenvalues[1:Int(count)]
@@ -177,13 +177,12 @@ Use `copy` for independent storage.
 """
 scores(f::MFPCA) = f.scores
 
-_mfpca_prediction_scores(s::AbstractMatrix) = s
-_mfpca_prediction_scores(s::NamedTuple) = s.scores
-
 """
     predict(f::MFPCA, newmfd::MultivariateFunctionalData)
 
-Predict univariate scores per node using the stored marginal fit, then apply
+Deprecated compatibility API; prefer [`project_scores`](@ref) or
+[`predict_scores`](@ref). Predict univariate scores per node using the stored
+marginal fit, then apply
 the fitted node weights, multivariate coefficients and R score scales to the
 uncentered scores (no new-data mean subtraction). Return a subject ×
 component matrix. PACE uses its existing conditional-expectation solver;
@@ -191,13 +190,18 @@ conditional uncertainties are not propagated across nodes. Node counts must
 match, and each node must satisfy its univariate prediction requirements.
 """
 function predict(f::MFPCA{T}, mfd::MultivariateFunctionalData{S}) where {T,S}
-    predicted = predict(f.univariate, mfd)
+    _deprecated_score_prediction()
+    _predict_result(f, mfd)
+end
+
+function _predict_result(f::MFPCA{T}, mfd::MultivariateFunctionalData{S}) where {T,S}
+    predicted = project_scores(f.univariate, mfd)
     R = promote_type(T, S)
     weighted_scores = Matrix{R}(undef, nobs(mfd), size(f.coefficients, 1))
     offsets = f.settings.offsets
     for j in eachindex(predicted)
         weighted_scores[:, offsets[j]+1:offsets[j+1]] =
-            _mfpca_prediction_scores(predicted[j]) .* sqrt(f.weights[j])
+            predicted[j] .* sqrt(f.weights[j])
     end
     projected = (weighted_scores * f.coefficients) .* transpose(f.settings.score_scales)
     all(isfinite, projected) || throw(ArgumentError("MFPCA prediction scores must be finite; rescale observations or weights"))
@@ -226,7 +230,7 @@ function reconstruct(f::MFPCA{T}, projected::AbstractMatrix{S}=scores(f);
     for j in eachindex(f.eigenfunctions)
         points = grids[j]
         quadrature_weights(points)
-        functions = basismatrix(f.eigenfunctions[j], points)
+        functions = basis_matrix(f.eigenfunctions[j], points)
         mu = evaluate(f.univariate.means[j], points, PiecewiseLinear())
         values = projected * transpose(functions) .+ mu
         push!(nodes, GridFunctionalData(Matrix{R}(values), Vector{R}(points);

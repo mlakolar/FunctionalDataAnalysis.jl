@@ -2,8 +2,8 @@ import KernelSmoothing
 import StatsAPI
 const FDA = FunctionalDataAnalysis
 
-# The smoothers FDA used before it switched to KernelSmoothing's localpolynomial,
-# smoothermatrix and bivariate smoother (FDA 539b944). The new results must agree
+# The smoothers FDA used before it switched to KernelSmoothing's local_polynomial,
+# smoother_matrix and bivariate smoother (FDA 539b944). The new results must agree
 # with these to 1e-10 for the same kernel and bandwidth.
 module OldSmoothers
 using LinearAlgebra

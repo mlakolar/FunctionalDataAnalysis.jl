@@ -101,8 +101,10 @@
   paired basis weights, variates,
   penalized squared correlations, and optional leading-variate CV.
   The fda 6.3.0 reference and defaults are on the [FPCA](fpca.md#Smoothed-FPCA)
-  and [CCA](cca.md) pages. Sparse FACE and the Discovery scaling study remain
-  subsequent tasks. Multi-penalty REML belongs to milestone 7.
+  and [CCA](cca.md) pages. Sparse FACE is implemented for irregular data,
+  including spline covariance/noise estimation, conditional scores and
+  prediction; see [sparse FACE](fpca.md#Sparse-FACE).
+  Multi-penalty REML belongs to milestone 7.
 - Milestone 7: functional regression.
 - Milestone 8: depth, outliers, and clustering.
 - Milestone 9: registration.

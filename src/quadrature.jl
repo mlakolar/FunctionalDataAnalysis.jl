@@ -8,6 +8,7 @@ The result preserves the input's floating-point type. Integer grids produce
 `Float64` weights. Invalid grids throw an `ArgumentError`.
 """
 function quadrature_weights(grid::AbstractVector{<:Real})
+    Base.require_one_based_indexing(grid)
     length(grid) >= 2 || throw(ArgumentError("the grid needs at least two points"))
     all(isfinite, grid) || throw(ArgumentError("the grid must be finite"))
     x = float.(collect(grid))

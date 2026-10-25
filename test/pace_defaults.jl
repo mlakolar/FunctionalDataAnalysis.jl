@@ -17,7 +17,7 @@ import RecipesBase
         @test model.grid == collect(range(extrema(small.times)...; length=51))
         @test domain(small) == (-1.0, 2.0)
         @test extrema(model.grid) != domain(small)
-        @test model.settings.maxK == 20
+        @test model.settings.max_k == 20
         @test model.selection.rule == :FVE
         @test model.selection.threshold == 0.99
         @test model.settings.kernel isa KernelSmoothing.GaussianKernel
@@ -50,7 +50,7 @@ import RecipesBase
         @test length(RecipesBase.apply_recipe(Dict{Symbol,Any}(), payload)) == 2
         for setting in ("grid_source", "GaussianKernel", "weighting", "obs",
                 "mean_bandwidth", "covariance_bandwidth", "diagonal_bandwidth",
-                "requested_binning", "binning", "maxK", "0.99",
+                "requested_binning", "binning", "max_k", "0.99",
                 "noise_variance", "mean_source", "covariance_source",
                 "eigen_tol", "sign_tol", "regularization")
             @test occursin(setting, sprint(show, model))
@@ -77,16 +77,16 @@ import RecipesBase
         @test dense.method == :dense
         @test dense.grid == grid
         @test dense.grid !== regular.grid
-        @test dense.selection.maxK == 30 # The dense default has no cap of 20.
+        @test dense.selection.max_k == 30 # The dense default has no cap of 20.
         @test dense.selection.threshold == 0.99
         @test noise_variance(dense) === nothing
     end
 
     @testset "Multivariate routes inherit rotated/full noise" begin
         data = MultivariateFunctionalData([small, small])
-        marginal = StatsAPI.fit(FPCA, data; ncomponents=2, maxK=3)
+        marginal = StatsAPI.fit(FPCA, data; ncomponents=2, max_k=3)
         joint = StatsAPI.fit(MFPCA, data; ncomponents=2,
-            univariate=(; ncomponents=2, maxK=3))
+            univariate=(; ncomponents=2, max_k=3))
         for fitted in (marginal, joint), j in 1:2
             node = component(fitted, j)
             details = node.settings.covariance_input.noise_details
@@ -99,12 +99,12 @@ import RecipesBase
 
     @testset "Overrides, selectors, and errors" begin
         grid = collect(range(extrema(small.times)...; length=11))
-        explicit = StatsAPI.fit(FPCA, small; grid, ncomponents=1, maxK=3,
+        explicit = StatsAPI.fit(FPCA, small; grid, ncomponents=1, max_k=3,
             mean_bandwidth=0.6, covariance_bandwidth=0.8,
             kernel=KernelSmoothing.EpanechnikovKernel(), weighting=:subj,
             binning=7, noise_variance=0.25, eigen_tol=1e-9, sign_tol=1e-11)
         @test explicit.grid == grid
-        @test explicit.settings.maxK == 3
+        @test explicit.settings.max_k == 3
         @test ncomponents(explicit) == 1
         @test explicit.settings.mean_input.bandwidth == 0.6
         @test explicit.settings.covariance_input.bandwidth == 0.8
@@ -166,7 +166,7 @@ import RecipesBase
                 (; grid=fitted_covariance.grid, surface=fitted_covariance.surface))
             for mean in means, covariance in covariances
                 options = (; grid, mean, covariance, noise_variance=0.25,
-                    ncomponents=1, maxK=3)
+                    ncomponents=1, max_k=3)
                 reused = @inferred StatsAPI.fit(FPCA, small; options...)
                 @test eigvals(reused) ≈ eigvals(explicit)
                 @test scores(reused) ≈ scores(explicit)
@@ -189,7 +189,7 @@ import RecipesBase
             # still control the mean when it must be estimated.
             for covariance in covariances
                 options = (; grid, covariance, noise_variance=0.25,
-                    ncomponents=1, maxK=3, mean_bandwidth=0.6,
+                    ncomponents=1, max_k=3, mean_bandwidth=0.6,
                     kernel=KernelSmoothing.EpanechnikovKernel(), weighting=:subj)
                 estimated_mean = @inferred StatsAPI.fit(FPCA, small; options...)
                 @test estimated_mean.settings.mean_source === :estimated
@@ -203,7 +203,7 @@ import RecipesBase
             end
             # Original fitted settings remain available when an input is reused.
             reused = StatsAPI.fit(FPCA, small; grid, mean=fitted_mean,
-                covariance=fitted_covariance, noise_variance=0.25, ncomponents=1, maxK=3)
+                covariance=fitted_covariance, noise_variance=0.25, ncomponents=1, max_k=3)
             @test reused.settings.mean_input.kernel isa KernelSmoothing.EpanechnikovKernel
             @test reused.settings.mean_input.weighting === :subj
             @test reused.settings.covariance_input.binning == 7
@@ -219,7 +219,7 @@ import RecipesBase
         covariance = (; grid, surface=ones(3, 3))
         for mean in (nothing, (; grid, values=1.5 .+ grid))
             model = StatsAPI.fit(FPCA, fd; grid, mean, covariance,
-                noise_variance=0.25, ncomponents=1, maxK=1)
+                noise_variance=0.25, ncomponents=1, max_k=1)
             @test model.settings.requested_binning === :auto
             @test model.settings.binning === nothing
             @test model.settings.binning_rule === :not_applicable
@@ -366,7 +366,7 @@ import RecipesBase
         @test eigenvalue_relative_error < 0.15
         agreements = Float64[]
         for k in 1:2
-            dense_values = basismatrix(dense.basis, pace.grid)[:, k]
+            dense_values = basis_matrix(dense.basis, pace.grid)[:, k]
             dense_values ./= sqrt(dot(pace.weights, dense_values.^2))
             agreement = abs(dot(pace.weights, dense_values .* pace.basis.values[:, k]))
             push!(agreements, agreement)

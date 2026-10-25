@@ -5,3 +5,9 @@ Manifest.toml
 *.mem
 .DS_Store
 /data/build/
+
+# Generated master dependency test environments
+.master-test-env/
+
+# Local Julia-minor environments are regenerated from master checkouts
+/Manifest-v*.toml

@@ -1,34 +1,70 @@
+import BSplineKit
+
 @testset "Bases" begin
     @testset "B-splines" begin
         breaks = [0.0, 0.2, 0.6, 1.0]
         original = copy(breaks)
-        b = @inferred BSplineBasis(4, breaks)
+        # The backend type includes the order, so construction is inferred when
+        # the order is known to the compiler; runtime orders have distinct types.
+        b = @inferred (x -> BSplineBasis(4, x))(breaks)
+        @test isconcretetype(fieldtype(typeof(b), :backend))
         @test breaks == original
         breaks[2] = 0.1
         @test b.breakpoints == original
         @test domain(b) == (0.0, 1.0)
         @test nbasis(b) == 6
         t = collect(range(0.0, 1.0; length=101))
-        X = @inferred basismatrix(b, t)
+        X = @inferred basis_matrix(b, t)
         @test vec(sum(X; dims=2)) ≈ ones(length(t))
         @test X[1, 1] == X[end, end] == 1
-        @test vec(sum(basismatrix(b, t; derivative=1); dims=2)) ≈
+        @test vec(sum(basis_matrix(b, t; derivative=1); dims=2)) ≈
             zeros(length(t)) atol=1e-13
         points = [0.13, 0.33, 0.72]
         h = 1e-6
         for m in 1:2
-            difference = (basismatrix(b, points .+ h; derivative=m - 1) -
-                basismatrix(b, points .- h; derivative=m - 1)) / (2h)
-            @test basismatrix(b, points; derivative=m) ≈ difference rtol=1e-8
+            difference = (basis_matrix(b, points .+ h; derivative=m - 1) -
+                basis_matrix(b, points .- h; derivative=m - 1)) / (2h)
+            @test basis_matrix(b, points; derivative=m) ≈ difference rtol=1e-8
         end
-        @test basismatrix(b, reverse(t)) ≈ reverse(X; dims=1)
-        @test basismatrix(b, t; derivative=4) == zeros(length(t), 6)
+        @test basis_matrix(b, reverse(t)) ≈ reverse(X; dims=1)
+        @test basis_matrix(b, t; derivative=4) == zeros(length(t), 6)
         @test penalty(b, 4) == zeros(6, 6)
-        @test size(basismatrix(b, Float64[])) == (0, 6)
-        @test nbasis(@inferred BSplineBasis(4, (0, 1), 7)) == 7
-        @test eltype(@inferred BSplineBasis(2, Float32[0, 0.5, 1])) == Float32
-        @test eltype(@inferred BSplineBasis(2, [0, 1])) == Float64
-        @test eltype(@inferred BSplineBasis(2, (0.0f0, 1.0f0), 3)) == Float32
+        @test size(basis_matrix(b, Float64[])) == (0, 6)
+        @test nbasis(@inferred (() -> BSplineBasis(4, (0, 1), 7))()) == 7
+        @test eltype(@inferred (x -> BSplineBasis(2, x))(Float32[0, 0.5, 1])) == Float32
+        @test eltype(@inferred (x -> BSplineBasis(2, x))([0, 1])) == Float64
+        @test eltype(@inferred (() -> BSplineBasis(2, (0.0f0, 1.0f0), 3))()) == Float32
+    end
+
+    @testset "Concrete B-spline backend" begin
+        for T in (Float32, Float64), order in (2, 3, 4, 6)
+            b = BSplineBasis(order, T[0, 0.2, 0.6, 1])
+            @test isconcretetype(typeof(b))
+            @test fieldtype(typeof(b), :backend) === typeof(b.backend)
+            # Exercise the existing partial constructor used by FACE as well.
+            @test typeof(BSplineBasis{T}(b.backend, b.breakpoints, order)) === typeof(b)
+            t = T[0, 0.13, 0.33, 0.72, 1]
+            for m in 0:order
+                X = @inferred basis_matrix(b, t; derivative=m)
+                P = @inferred penalty(b, m)
+                @test X isa Matrix{T}
+                @test P isa Matrix{T}
+                if m < order
+                    # Direct BSplineKit calls retain the previous arithmetic.
+                    expected = zeros(T, length(t), nbasis(b))
+                    BSplineKit.collocation_matrix!(expected, b.backend, t,
+                        BSplineKit.Derivative(m); clip_threshold=0)
+                    @test X == expected
+                    expected_penalty = zeros(T, nbasis(b), nbasis(b))
+                    d = BSplineKit.Derivative(m)
+                    BSplineKit.galerkin_matrix!(expected_penalty, b.backend, (d, d))
+                    @test P == (expected_penalty + transpose(expected_penalty)) / 2
+                else
+                    @test iszero(X)
+                    @test iszero(P)
+                end
+            end
+        end
     end
 
     @testset "Analytic bases" begin
@@ -37,17 +73,17 @@
         @test domain(f) == (0.0, 2.0)
         @test gram(f) ≈ Matrix{Float64}(I, 5, 5)
         @test diag(penalty(f, 1)) ≈ [0, pi^2, pi^2, (2pi)^2, (2pi)^2]
-        @test basismatrix(f, [0.0]) ≈ reshape([inv(sqrt(2)), 0, 1, 0, 1], 1, :)
+        @test basis_matrix(f, [0.0]) ≈ reshape([inv(sqrt(2)), 0, 1, 0, 1], 1, :)
         t = [0.17, 0.63, 1.21]
         h = 1e-6
-        @test basismatrix(f, t; derivative=1) ≈
-            (basismatrix(f, t .+ h) - basismatrix(f, t .- h)) / (2h) rtol=1e-8
+        @test basis_matrix(f, t; derivative=1) ≈
+            (basis_matrix(f, t .+ h) - basis_matrix(f, t .- h)) / (2h) rtol=1e-8
         b = @inferred MonomialBasis((0, 1), 3)
         @test nbasis(b) == 4
         @test gram(b) ≈ [1 / (i + j + 1) for i in 0:3, j in 0:3]
         @test penalty(b, 2) ≈ [0 0 0 0; 0 0 0 0; 0 0 4 6; 0 0 6 12]
         @test penalty(b, 4) == zeros(4, 4)
-        @test basismatrix(b, [0.0, 1.0]; derivative=2) == [0 0 2 0; 0 0 2 6]
+        @test basis_matrix(b, [0.0, 1.0]; derivative=2) == [0 0 2 0; 0 0 2 6]
         @test eltype(@inferred FourierBasis((0.0f0, 1.0f0), 3)) == Float32
         @test eltype(@inferred MonomialBasis((0.0f0, 1.0f0), 2)) == Float32
     end
@@ -62,22 +98,22 @@
             @test (@inferred domain(b)) == (-1.0, 2.0)
             @test (@inferred gram(b)) isa Matrix{Float64}
             for m in 0:2
-                X = @inferred basismatrix(b, t; derivative=m)
+                X = @inferred basis_matrix(b, t; derivative=m)
                 P = @inferred penalty(b, m)
                 numerical = transpose(X) * (w .* X)
                 @test norm(numerical - P) / norm(P) < 1e-6
             end
             for badpoints in ([-1.01], [2.01], [NaN], [Inf])
-                @test_throws ArgumentError basismatrix(b, badpoints)
+                @test_throws ArgumentError basis_matrix(b, badpoints)
             end
-            @test_throws ArgumentError basismatrix(b, [0.0]; derivative=-1)
-            @test_throws ArgumentError basismatrix(b, [0.0]; derivative=0.5)
+            @test_throws ArgumentError basis_matrix(b, [0.0]; derivative=-1)
+            @test_throws ArgumentError basis_matrix(b, [0.0]; derivative=0.5)
             @test_throws ArgumentError penalty(b, -1)
             @test_throws ArgumentError penalty(b, 0.5)
         end
         for b in (BSplineBasis(3, Float32[0, 0.5, 1]),
                 FourierBasis((0.0f0, 1.0f0), 3), MonomialBasis((0.0f0, 1.0f0), 2))
-            @test (@inferred basismatrix(b, Float32[0, 0.25, 1])) isa Matrix{Float32}
+            @test (@inferred basis_matrix(b, Float32[0, 0.25, 1])) isa Matrix{Float32}
             @test (@inferred gram(b)) isa Matrix{Float32}
             @test (@inferred penalty(b, 1)) isa Matrix{Float32}
             @test b == deepcopy(b)

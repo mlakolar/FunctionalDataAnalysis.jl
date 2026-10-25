@@ -33,7 +33,7 @@ uses these explicit settings:
 | Binning | `binning=nothing` | No binning |
 | Measurement noise variances | `[0.04, 0.07]` | `[0.04, 0.07]` |
 | Selected components | `ncomponents=2` | `ncomponents=2` |
-| Covariance rank for conditional scores | `maxK=21` | All retained positive eigenvalues |
+| Covariance rank for conditional scores | `max_k=21` | All retained positive eigenvalues |
 | Relative eigenvalue cutoff | `eigen_tol=100eps(Float64)` | `100eps(Float64)` |
 
 The sparse test compares smoothed means, selected eigenvalues,
@@ -45,8 +45,8 @@ correction.
 The fixture expresses FGM's settings explicitly rather than using FDA's
 univariate defaults. In particular, FDA's default relative eigenvalue cutoff
 is `1e-10`, whereas FGM uses `100eps(Float64)`. FDA also limits the covariance
-rank through `maxK`; the comparison retains the complete positive spectrum
-by setting `maxK` to the work-grid length. Both packages use all retained
+rank through `max_k`; the comparison retains the complete positive spectrum
+by setting `max_k` to the work-grid length. Both packages use all retained
 covariance components in the conditional-score denominator, even though only
 two scores are returned. FGM's noise-estimation rule differs from FDA's;
 the fixture supplies noise variances so that neither rule enters the

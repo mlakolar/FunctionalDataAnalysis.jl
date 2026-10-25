@@ -12,7 +12,7 @@ abstract type AbstractFunctionalData{T<:AbstractFloat} end
     AbstractBasis
 
 A basis for representing functions on a common domain. The interface
-is `nbasis(b)`, `domain(b)`, `basismatrix(b, t; derivative)`, `gram(b)` and
+is `nbasis(b)`, `domain(b)`, `basis_matrix(b, t; derivative)`, `gram(b)` and
 `penalty(b, order)`.
 """
 abstract type AbstractBasis end
@@ -45,6 +45,10 @@ data require an explicit `PiecewiseLinear()` or `NoInterpolation()` evaluator.
 Piecewise-linear evaluation returns `NaN` outside a curve's observed range; exact
 lookup throws at any unobserved time. Query points must be finite.
 
+This generic is owned by FunctionalDataAnalysis. Use
+`FunctionalDataAnalysis.evaluate` when also loading another package that
+exports `evaluate`, such as MultivariateStats.
+
 Multivariate evaluation on a common point vector returns an
 `nobs × ncomponents × length(t)` array and rejects points outside any
 component's domain. A vector of point vectors returns one matrix per
@@ -67,3 +71,8 @@ component. For example, `all(==(:regular), sampling_design(mfd))` checks that
 all components are regular; there is no aggregate multivariate design.
 """
 function sampling_design end
+
+# Counts and orders accept non-Bool integers representable as Int. Each caller
+# supplies its own lower/upper bounds (zero is valid for derivative orders).
+_integer_in(x, lower, upper=typemax(Int)) =
+    x isa Integer && !(x isa Bool) && lower <= x <= min(upper, typemax(Int))

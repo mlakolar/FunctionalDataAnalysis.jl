@@ -35,8 +35,8 @@ end
 Base.eltype(::Type{<:_BasisEigenfunctions{T}}) where {T} = T
 nbasis(b::_BasisEigenfunctions) = size(b.coefs, 2)
 domain(b::_BasisEigenfunctions) = domain(b.basis)
-basismatrix(b::_BasisEigenfunctions, t::AbstractVector{<:Real}; derivative=0) =
-    basismatrix(b.basis, t; derivative) * b.coefs
+basis_matrix(b::_BasisEigenfunctions, t::AbstractVector{<:Real}; derivative=0) =
+    basis_matrix(b.basis, t; derivative) * b.coefs
 penalty(b::_BasisEigenfunctions, order) =
     transpose(b.coefs) * penalty(b.basis, order) * b.coefs
 
@@ -84,7 +84,7 @@ function _basis_cholesky(matrix, label)
 end
 
 # Reuse the common eigenvalue cutoff, spectrum accounting, and FVE machinery.
-function _basis_pca(residuals::Matrix{T}, G, P, lambda, maxK, eigen_tol,
+function _basis_pca(residuals::Matrix{T}, G, P, lambda, max_k, eigen_tol,
         sign_tol) where {T}
     n, k = size(residuals)
     U = _basis_cholesky(G + lambda * P, "FPCA penalized Gram matrix").U
@@ -92,7 +92,7 @@ function _basis_pca(residuals::Matrix{T}, G, P, lambda, maxK, eigen_tol,
     covariance = transpose(residuals) * residuals / n
     transformed = J * covariance * transpose(J)
     transformed = Matrix(Symmetric((transformed + transpose(transformed)) / 2))
-    system = _fpca_eigen(transformed, ones(T, k), zeros(T, k); maxK,
+    system = _fpca_eigen(transformed, ones(T, k), zeros(T, k); max_k,
         eigen_tol, sign_tol)
     raw = U \ system.eigenfunctions
     norms = sqrt.(vec(sum(raw .* (G * raw); dims=1)))
@@ -108,12 +108,12 @@ function _basis_cv_error(err, lambda, i)
 end
 
 function _basis_pca_lambda(lambda::Real, residuals::Matrix{T}, G, P,
-        rule, maxK, eigen_tol, sign_tol) where {T}
+        rule, max_k, eigen_tol, sign_tol) where {T}
     _basis_lambda(lambda, T), nothing
 end
 function _basis_pca_lambda(cv::LambdaCV, residuals::Matrix{T}, G, P,
-        rule, maxK, eigen_tol, sign_tol) where {T}
-    rule isa Integer && !(rule isa Bool) && rule >= 1 || throw(ArgumentError(
+        rule, max_k, eigen_tol, sign_tol) where {T}
+    _integer_in(rule, 1) || throw(ArgumentError(
         "FPCA LambdaCV requires a positive integer ncomponents so all folds and candidates use the same subspace count"))
     n = size(residuals, 1)
     n >= 3 || throw(ArgumentError("LambdaCV requires at least three curves"))
@@ -125,8 +125,8 @@ function _basis_pca_lambda(cv::LambdaCV, residuals::Matrix{T}, G, P,
     for (c, lam) in enumerate(candidates), i in 1:n
         try
             train = residuals[[j for j in 1:n if j != i], :]
-            system = _basis_pca(train, G, P, lam, maxK, eigen_tol, sign_tol)
-            chosen = _fpca_selection(rule, system.fve, maxK).chosen
+            system = _basis_pca(train, G, P, lam, max_k, eigen_tol, sign_tol)
+            chosen = _fpca_selection(rule, system.fve, max_k).chosen
             for m in 1:chosen
                 H = system.coefs[:, 1:m]
                 rhs = transpose(H) * G * residuals[i, :]
@@ -149,7 +149,7 @@ _basis_pca_lambda(lambda, args...) = throw(ArgumentError("lambda must be a nonne
 
 """
     fit(FPCA, fd::BasisFunctionalData; lambda=0, penalty=nothing,
-        center=true, ncomponents=FVE(0.99), maxK=nothing, grid=nothing,
+        center=true, ncomponents=FVE(0.99), max_k=nothing, maxK=nothing, grid=nothing,
         eigen_tol=1e-10, sign_tol=1e-12)
 
 Roughness-penalized basis FPCA, following fda 6.3.0 `pca.fd`/`fdPar` and
@@ -167,7 +167,7 @@ Each harmonic is divided by its exact L² norm q; scores are R's scores divided
 by q. Thus score variances (denominator n) are ν/q², and positive-lambda
 harmonics are individually L²-normalized but generally not L²-orthogonal.
 The package's `FVE(0.99)` default departs from R's `nharm=2`; a fixed integer
-reproduces `nharm`. The default `maxK=min(nbasis,n-1)` (n when uncentered)
+reproduces `nharm`. The default `max_k=min(nbasis,n-1)` (n when uncentered)
 retains the available rank, unlike the grid routes' caps.
 
 The same FPCA result supports exact basis prediction and reconstruction,
@@ -178,15 +178,16 @@ No noise model is assumed; noise and score covariances are `nothing`.
 All settings and input copies are retained. See the FPCA page for conversions.
 """
 function fit(::Type{FPCA}, fd::BasisFunctionalData{T}; lambda=0, penalty=nothing,
-        center=true, ncomponents=FVE(0.99), maxK=nothing, grid=nothing,
+        center=true, ncomponents=FVE(0.99), max_k=nothing, maxK=nothing, grid=nothing,
         eigen_tol=_FPCA_EIGEN_TOL, sign_tol=_FPCA_SIGN_TOL) where {T}
+    max_k = _max_k_keyword(max_k, maxK)
     center isa Bool || throw(ArgumentError("center must be Boolean"))
     n, k = size(fd.coefs)
     n >= 2 || throw(ArgumentError("basis FPCA requires at least two curves"))
     limit = min(k, center ? n-1 : n)
-    cap = maxK === nothing ? limit : maxK
-    cap isa Integer && !(cap isa Bool) && 1 <= cap <= limit ||
-        throw(ArgumentError("basis FPCA maxK must be between 1 and min(nbasis, centered rank bound)"))
+    cap = max_k === nothing ? limit : max_k
+    _integer_in(cap, 1, limit) ||
+        throw(ArgumentError("basis FPCA max_k must be between 1 and min(nbasis, centered rank bound)"))
     _fpca_tolerance(eigen_tol, "eigen_tol")
     _fpca_tolerance(sign_tol, "sign_tol")
     b = deepcopy(fd.basis)
@@ -205,7 +206,7 @@ function fit(::Type{FPCA}, fd::BasisFunctionalData{T}; lambda=0, penalty=nothing
     points = grid === nothing ? collect(range(T.(domain(b))...; length=201)) :
         Vector{T}(_basispoints(b, grid))
     weights = quadrature_weights(points)
-    X = Matrix{T}(basismatrix(b, points))
+    X = Matrix{T}(basis_matrix(b, points))
     values = X * system.coefs
     oriented = _fpca_orient!(copy(values), X * mu, sign_tol)
     H = copy(system.coefs)
@@ -221,7 +222,7 @@ function fit(::Type{FPCA}, fd::BasisFunctionalData{T}; lambda=0, penalty=nothing
     all(isfinite, projected) && all(isfinite, covariance) && all(isfinite, fitted) ||
         throw(ArgumentError("basis FPCA results must be finite; rescale data"))
     settings = (; lambda=lam, penalty=specification, penalty_matrix=P, center,
-        lambda_selection=tuning, ncomponents=deepcopy(ncomponents), maxK=Int(cap),
+        lambda_selection=tuning, ncomponents=deepcopy(ncomponents), max_k=Int(cap), maxK=Int(cap),
         eigen_tol, sign_tol, covariance_denominator=n, normalization=:exact_L2,
         original_harmonic_norms=system.normalization, eigenvalue_scale=:penalized_metric,
         grid_source=grid === nothing ? :display_201 : :user_display,
@@ -237,8 +238,11 @@ function fit(::Type{FPCA}, fd::BasisFunctionalData{T}; lambda=0, penalty=nothing
 end
 
 function predict(f::FPCA, fd::BasisFunctionalData)
-    _basis_predict(f, fd, f.mean)
+    _deprecated_score_prediction()
+    _predict_result(f, fd)
 end
+
+_predict_result(f::FPCA, fd::BasisFunctionalData) = _basis_predict(f, fd, f.mean)
 function _basis_predict(f, fd, mu::BasisFunctionalData)
     fd.basis == mu.basis || throw(ArgumentError("prediction basis must equal the FPCA training basis"))
     projected = (fd.coefs .- mu.coefs) * gram(mu.basis) * f.basis.coefs
@@ -254,7 +258,7 @@ end
 """
     FunctionalCCA
     fit(FunctionalCCA, fd1::BasisFunctionalData, fd2=fd1;
-        ncan=2, lambda=(1e-10, 1e-10), penalty=(2, 2), center=true)
+        ncan=nothing, ncomponents=nothing, lambda=(1e-10, 1e-10), penalty=(2, 2), center=true)
 
 Penalized functional canonical correlation analysis following fda 6.3.0
 `cca.fd`/`geigen`. Defaults are R's two canonical pairs, second-derivative
@@ -263,6 +267,9 @@ nonnegative scalar, a pair of scalars, or `LambdaCV(lambdas)` choosing a common
 lambda by held-out leading-variate squared correlation (Ramsay and Silverman,
 2005, §11.3.3). Penalties may be a common derivative order or a pair of orders,
 Fourier harmonic-acceleration symbols, or positive-semidefinite matrices.
+`ncomponents` is a descriptive alias for `ncan`, the number of canonical
+pairs, not a marginal FPCA truncation. Supply at most one; omitting both
+selects two. The stored settings key remains `ncan`.
 
 `weights1` and `weights2` are exact `BasisFunctionalData` with one canonical
 weight per row. As in R, each coefficient vector has Euclidean norm one.
@@ -287,6 +294,43 @@ struct FunctionalCCA{T<:AbstractFloat,B1,B2,O}
     ids::Union{Nothing,Vector{Any}}
     settings::O
 end
+
+"""
+    canonical_weights(f::FunctionalCCA)
+
+Return `(left=weights1, right=weights2)`, the exact `BasisFunctionalData`
+canonical weights, with one canonical pair per row. Both objects are owned by
+the fit; use `deepcopy` for independent data, coefficient and basis storage.
+"""
+canonical_weights(f::FunctionalCCA) = (; left=f.weights1, right=f.weights2)
+
+"""
+    canonical_variates(f::FunctionalCCA)
+
+Return `(left=variates1, right=variates2)`, with paired training subjects in
+rows and canonical pairs in columns. Both matrices are owned by the fit;
+use `map(copy, canonical_variates(f))` for independent array storage.
+"""
+canonical_variates(f::FunctionalCCA) = (; left=f.variates1, right=f.variates2)
+
+"""
+    canonical_correlations(f::FunctionalCCA)
+
+Return the selected penalized canonical correlations (singular values of the
+whitened cross-covariance). They generally differ from empirical correlations
+of the canonical variates. The vector is owned by the fit; use `copy` for
+independent storage.
+"""
+canonical_correlations(f::FunctionalCCA) = f.correlations
+
+"""
+    squared_canonical_correlations(f::FunctionalCCA)
+
+Return the squares of [`canonical_correlations`](@ref), the penalized
+criterion values, rather than empirical squared correlations of the variates.
+The vector is owned by the fit; use `copy` for independent storage.
+"""
+squared_canonical_correlations(f::FunctionalCCA) = f.squared_correlations
 
 function _cca_pair(value, label)
     value isa Tuple && length(value) == 2 && return value
@@ -366,10 +410,13 @@ function _cca_lambda(cv::LambdaCV, C::Matrix{T}, D, G, H, P, Q, center) where {T
 end
 
 function fit(::Type{FunctionalCCA}, fd1::BasisFunctionalData, fd2::BasisFunctionalData=fd1;
-        ncan=2, lambda=(1e-10, 1e-10), penalty=(2, 2), center=true)
+        ncan=nothing, ncomponents=nothing, lambda=(1e-10, 1e-10), penalty=(2, 2), center=true)
+    ncan === nothing || ncomponents === nothing || throw(ArgumentError(
+        "supply only one of ncan and its alias ncomponents"))
+    ncan = something(ncomponents, ncan, 2)
     _cca_subjects(fd1, fd2)
     center isa Bool || throw(ArgumentError("center must be Boolean"))
-    ncan isa Integer && !(ncan isa Bool) && 1 <= ncan <= min(nbasis(fd1.basis), nbasis(fd2.basis)) ||
+    _integer_in(ncan, 1, min(nbasis(fd1.basis), nbasis(fd2.basis))) ||
         throw(ArgumentError("ncan must be between one and the smaller basis dimension"))
     T = promote_type(eltype(fd1), eltype(fd2))
     b, d = deepcopy(fd1.basis), deepcopy(fd2.basis)
@@ -402,7 +449,18 @@ function predict(f::FunctionalCCA, fd1::BasisFunctionalData, fd2::BasisFunctiona
     all(isfinite, X) && all(isfinite, Y) || throw(ArgumentError("CCA prediction variates must be finite"))
     (; variates1=X, variates2=Y)
 end
+"""
+    nobs(f::FunctionalCCA)
+
+Return the number of paired training subjects, using `StatsAPI.nobs`.
+"""
 nobs(f::FunctionalCCA) = size(f.variates1, 1)
+
+"""
+    ncomponents(f::FunctionalCCA)
+
+Return the number of selected canonical pairs.
+"""
 ncomponents(f::FunctionalCCA) = length(f.correlations)
 ids(f::FunctionalCCA) = f.ids === nothing ? nothing : deepcopy(f.ids)
 function Base.show(io::IO, f::FunctionalCCA)

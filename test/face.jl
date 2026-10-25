@@ -24,7 +24,7 @@ import RecipesBase
     @test setting.P == quantity(ps, "penalty")
     @test setting.knots ≈ vec(quantity(ps, "knots")) rtol=1e-14
     @test nbasis(setting.basis) == 38
-    @test basismatrix(setting.basis, grid) ≈ setting.B
+    @test basis_matrix(setting.basis, grid) ≈ setting.B
     @test domain(setting.basis) == (0.0, 2.0)
     @test FDA._difference_penalty(5, 0) == Matrix{Float64}(I, 5, 5)
     @test FDA._difference_penalty(5, 1) ≈ diff(Matrix{Float64}(I, 5, 5); dims=1)' * diff(Matrix{Float64}(I, 5, 5); dims=1)
@@ -51,6 +51,7 @@ import RecipesBase
             (@inferred ((d)->StatsAPI.fit(FPCA, d; method=:face))(data)) :
             StatsAPI.fit(FPCA, data; method=:face, mean=supplied, face=options)
         @test model.method == :face
+        _test_prediction_contract(model, data)
         @test nobs(model) == n
         @test relerr(vec(model.mean.values), vec(q("mean"))) < 1e-8
         if case != "package_mean"
@@ -149,7 +150,7 @@ import RecipesBase
         pace = StatsAPI.fit(FPCA, newdata; method=:pace, grid,
             mean=(; grid, values=vec(model.mean.values)),
             covariance=(; grid, surface=selected_covariance),
-            noise_variance=noise_variance(model), ncomponents=3, maxK=3)
+            noise_variance=noise_variance(model), ncomponents=3, max_k=3)
         @test scores(pace) ≈ prediction.scores rtol=1e-10
         @test score_covariances(pace) ≈ prediction.covariances rtol=1e-10
         @test StatsAPI.predict(pace, newdata).scores ≈ scores(pace)
@@ -172,6 +173,8 @@ import RecipesBase
         joint = StatsAPI.fit(MFPCA, mfd; ncomponents=2,
             univariate=(; method=:face, ncomponents=3, face=(; lambda=2.5)))
         @test component(joint, 1).method == :face
+        _test_prediction_contract(marginal, mfd)
+        _test_prediction_contract(joint, mfd)
         @test size(scores(joint)) == (n, 2)
         @test StatsAPI.predict(joint, mfd) ≈ scores(joint)
 
@@ -225,7 +228,20 @@ import RecipesBase
         end
         dense = StatsAPI.fit(FPCA, analytic.training_data; method=:dense, ncomponents=1)
         @test eigvals(dense) ≈ eigvals(analytic)*4/3 rtol=1e-12
-        @test dense.basis.values ≈ analytic.basis.values rtol=1e-12
+        # Roundoff-sized fitted means may legitimately select opposite signs.
+        orientation = dot(vec(dense.basis.values), vec(analytic.basis.values)) < 0 ? -1 : 1
+        @test dense.basis.values ≈ orientation .* analytic.basis.values rtol=1e-12
+        for fitted in (dense, analytic)
+            phi = vec(fitted.basis.values)
+            mu = vec(fitted.mean.values)
+            alignment = dot(phi, mu)
+            threshold = fitted.sign_rule.tolerance * norm(phi) * norm(mu)
+            if abs(alignment) <= threshold
+                @test phi[argmax(abs.(phi))] > 0
+            else
+                @test alignment > 0
+            end
+        end
         @test reconstruct(dense).values ≈ analytic.training_data.values rtol=1e-12
         # Zero estimated noise formerly rejected partial predictions with
         # fewer observations than retained components. Check the scalar
@@ -268,7 +284,7 @@ import RecipesBase
         for selector in (AIC(), BIC())
             @test_throws ArgumentError StatsAPI.fit(FPCA, fd; method=:face, ncomponents=selector)
         end
-        @test_throws ArgumentError StatsAPI.fit(FPCA, fd; method=:face, maxK=39)
+        @test_throws ArgumentError StatsAPI.fit(FPCA, fd; method=:face, max_k=39)
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd; method=:face, ncomponents=100)
         for bad in (0, -1, 1.5, :invalid, true)
             @test_throws ArgumentError StatsAPI.fit(FPCA, fd; method=:face, ncomponents=bad)
@@ -318,15 +334,15 @@ end
             data[2, 20:24] .= missing
         end
         fd = GridFunctionalData(data, grid)
-        f = StatsAPI.fit(FPCA, fd; method=:face, ncomponents=1, maxK=4,
+        f = StatsAPI.fit(FPCA, fd; method=:face, ncomponents=1, max_k=4,
             mean=(; grid, values=mu), face=(; knots=8, lambda=0.5))
         @test length(f.all_eigenvalues) == 4 > ncomponents(f)
         @test noise_variance(f) > 0
         d = derivative(f; method=:DPC, bandwidth=0.4, ncomponents=2)
         # Observation-space matrices provide an independent check of both the
-        # cross-covariance numerator and the full maxK covariance denominator.
+        # cross-covariance numerator and the full max_k covariance denominator.
         G = Matrix(f.settings.full_projected_covariance)
-        L = FunctionalDataAnalysis.KernelSmoothing.smoothermatrix(grid, grid;
+        L = FunctionalDataAnalysis.KernelSmoothing.smoother_matrix(grid, grid;
             bandwidth=0.4, derivative=1, degree=2,
             kernel=FunctionalDataAnalysis.KernelSmoothing.GaussianKernel())
         cross = transpose(L * G) * (f.weights .* d.basis.values)
@@ -342,5 +358,118 @@ end
             @test score_covariances(d)[:, :, i] ≈ expected_covariance rtol=1e-10
         end
         @test scores(derivative(f; bandwidth=0.4)) == scores(f)
+    end
+end
+
+@testset "FACE complete-grid posterior batches" begin
+    FDA = FunctionalDataAnalysis
+    for (T,U) in ((Float32,Float32),(Float64,Float64),(Float32,Float64),(Float64,Float32))
+        # Dyadic knots also match exactly when the model and input types differ.
+        grid = collect(range(T(0),T(1);length=17))
+        phi = hcat(ones(T,17),grid .- T(.5))
+        values = T[.8,.3]
+        mu = T.(sinpi.(grid))
+        data = U[mu[j]+(i-2)*phi[j,1]+T(.3)*i*phi[j,2]+T(.05)*sin(T(i)*t)
+            for i in 1:3,(j,t) in enumerate(grid)]
+        fd = GridFunctionalData(data,U.(grid);ids=[:a,:b,:c])
+        saved = copy(fd.values)
+        # Include an unselected covariance direction: FACE's selected-model
+        # solver must not accidentally adopt DPC's full-spectrum denominator.
+        full = FDA._LowRankCovariance(hcat(phi .* transpose(sqrt.(values)),T(4).*sinpi.(2grid)))
+        tolerance = T === Float32 || U === Float32 ? 3e-5 : 1e-10
+        for sigma2 in (zero(T),T(.2))
+            batch = @inferred FDA._face_scores(fd,grid,mu,phi,values,full,sigma2)
+            rowwise = FDA._pace_ce(fd,grid,mu,phi,values,full,sigma2;curve_ce=FDA._face_curve_ce)
+            @test eltype(batch.scores) === promote_type(T,U)
+            @test batch.scores ≈ rowwise.scores rtol=tolerance atol=tolerance
+            @test batch.covariances == rowwise.covariances
+            @test fd.values == saved
+            if sigma2 > 0
+                R = promote_type(T,U)
+                Phi, Lambda = Matrix{R}(phi),Diagonal(Vector{R}(values))
+                observation_covariance = Phi*Lambda*transpose(Phi)+R(sigma2)*I
+                posterior = Lambda-Lambda*transpose(Phi)*(observation_covariance \ (Phi*Lambda))
+                @test batch.covariances[:,:,1] ≈ posterior rtol=tolerance atol=tolerance
+            else
+                @test all(iszero,batch.covariances)
+            end
+            before = copy(batch.covariances[:,:,2])
+            batch.covariances[1,1,1] += 1
+            @test batch.covariances[:,:,2] == before
+        end
+        # Irregular, masked, and changed work grids retain per-curve geometry.
+        masked = Matrix{Union{Missing,U}}(data);masked[1,3:5] .= missing
+        for other in (to_irregular(fd),GridFunctionalData(masked,U.(grid)),
+                GridFunctionalData(data[:,2:2:16],U.(grid[2:2:16])))
+            actual = FDA._face_scores(other,grid,mu,phi,values,full,T(.2))
+            expected = FDA._pace_ce(other,grid,mu,phi,values,full,T(.2);curve_ce=FDA._face_curve_ce)
+            @test actual.scores == expected.scores
+            @test actual.covariances == expected.covariances
+        end
+        deficient = hcat(phi[:,1],phi[:,1])
+        rank_error = try
+            FDA._face_scores(fd,grid,mu,deficient,values,full,zero(T))
+        catch err
+            err
+        end
+        @test rank_error isa ArgumentError
+        @test occursin("noiseless score design for curve 1 is rank deficient",sprint(showerror,rank_error))
+    end
+    # Preserve the finite-score contract when new observations overflow after
+    # subtracting a finite mean, in both the batched and per-curve routes.
+    grid = collect(0.:.25:1.)
+    fd = GridFunctionalData(fill(floatmax(Float64),2,5),grid)
+    mu,phi = fill(-floatmax(Float64),5),ones(5,1)
+    covariance = FDA._LowRankCovariance(phi)
+    @test_throws ArgumentError FDA._face_scores(fd,grid,mu,phi,[1.],covariance,.2)
+    @test_throws ArgumentError FDA._pace_ce(fd,grid,mu,phi,[1.],covariance,.2;curve_ce=FDA._face_curve_ce)
+end
+
+@testset "FACE initialization and imputation workspaces" begin
+    FDA = FunctionalDataAnalysis
+    t = collect(range(.1, .9; length=13)).^1.2
+    y = sinpi.(3t) .+ .1cospi.(17t)
+    targets = [-.1, t[1], .31, .68, t[end], 1.1]
+    t_snapshot, y_snapshot = copy(t), copy(y)
+    initialized = FDA._face_initial_curve(t, y, targets)
+    x = (t .- first(t)) ./ (last(t)-first(t))
+    cubic = BSplineBasis(4, initialized.knots)
+    slopes = diff(basis_matrix(cubic, cubic.breakpoints; derivative=2); dims=1)
+    roughness = penalty(cubic, 2) - slopes'*(diff(cubic.breakpoints) .* slopes)/3000
+    basis = FDA._RInitializationBasis(cubic, roughness)
+    raw = GridFunctionalData(reshape(y, 1, :), x)
+    # Compare the prepared final fit with the ordinary spline API, including
+    # exact endpoint evaluation and the observed-mean extrapolation rule.
+    direct = smooth_curves(raw, PenalizedSpline(basis; lambda=initialized.lambda))
+    @test initialized.values[2:5] ≈ vec(evaluate(direct,
+        (targets[2:5] .- first(t)) ./ (last(t)-first(t)))) rtol=1e-12
+    @test initialized.values[[1,6]] == fill(sum(y)/length(y), 2)
+    @test initialized.lambda > 0 && isfinite(initialized.spar)
+    @test t == t_snapshot && y == y_snapshot
+
+    for T in (Float32, Float64)
+        grid = collect(range(T(0), T(1); length=61))
+        mu = one(T) .+ grid.^2
+        values = T[mu[j]+cos(T(.4)*i)*(1+t)+sin(T(.7)*i)*sinpi(t)+
+            T(.1)*cos(T(2)*i+T(11)*t) for i in 1:10, (j,t) in enumerate(grid)]
+        masked = Matrix{Union{Missing,T}}(values)
+        masked[1, [1,3,5]] .= missing
+        masked[2, 20:26] .= missing
+        masked[3, end-2:end] .= missing
+        fd = GridFunctionalData(masked, grid)
+        snapshot = deepcopy(fd)
+        f = StatsAPI.fit(FPCA, fd; method=:face, ncomponents=2, max_k=4,
+            mean=(; grid, values=mu), face=(; knots=8, lambda=.5))
+        imputation = f.settings.imputation
+        @test imputation.converged && imputation.iterations >= 2
+        @test length(imputation.relative_changes) == imputation.iterations-1
+        @test all(isfinite, imputation.relative_changes)
+        @test imputation.relative_changes[end] <= imputation.tolerance
+        @test imputation.completed_centered[fd.observed] ==
+            (fd.values .- transpose(mu))[fd.observed]
+        @test all(isfinite, imputation.completed_centered)
+        @test fd.values == snapshot.values && fd.observed == snapshot.observed
+        @test scores(f) == predict_scores(f, fd).scores
+        @test eltype(scores(f)) == T
     end
 end

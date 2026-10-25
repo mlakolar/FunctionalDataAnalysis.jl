@@ -22,7 +22,7 @@ using DelimitedFiles
         k = Int(only(reference(table, prefix * "selected_k")))
         step = model.grid[2] - model.grid[1]
         system = FunctionalDataAnalysis._fpca_eigen(model.covariance, fill(step, m),
-            vec(model.mean.values); maxK=model.selection.maxK,
+            vec(model.mean.values); max_k=model.selection.max_k,
             normalization_weights=model.weights)
         @test relative_error(system.eigenvalues[1:k],
             reference(table, prefix * "eigenvalue")) < 1e-8
@@ -52,7 +52,7 @@ using DelimitedFiles
         grid = reference(table, "grid")
         model = StatsAPI.fit(FPCA, fd; grid, mean_bandwidth=0.30,
             covariance_bandwidth=0.40, kernel=KernelSmoothing.EpanechnikovKernel(),
-            weighting=:obs, binning=nothing, ncomponents=3, maxK=5,
+            weighting=:obs, binning=nothing, ncomponents=3, max_k=5,
             noise_variance=sigma2)
         @test grid ≈ sort(unique(reduce(vcat, first.(collect(fd)))))
         @test relative_error(vec(model.mean.values), reference(table, "mean")) < 1e-8
@@ -77,7 +77,7 @@ using DelimitedFiles
         m = length(model.grid)
         @test model.grid ≈ reference(table, "native_grid") rtol=1e-14
         @test m == 51
-        @test model.selection.maxK == Int(only(reference(table, "default_maxK")))
+        @test model.selection.max_k == Int(only(reference(table, "default_maxK")))
         @test model.settings.mean_settings.bandwidth == reference(table, "default_bandwidth")[1]
         @test model.settings.covariance_settings.bandwidth == reference(table, "default_bandwidth")[2]
         @test model.settings.kernel isa KernelSmoothing.GaussianKernel

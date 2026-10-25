@@ -50,7 +50,7 @@ end
         for mode in ("given_unit", "given_weighted", "cross_method")
             weights = mode == "given_unit" ? ones(3) : [0.7, 1.5, 2.2]
             fitted = @inferred StatsAPI.fit(MFPCA, fixture.data; ncomponents=4,
-                univariate=(; ncomponents=2, maxK=2), weights)
+                univariate=(; ncomponents=2, max_k=2), weights)
             # Strict R values compare signed coefficients as well as functions
             # and scores. Cross-method signs align the whole multivariate function.
             signs = ones(4)
@@ -103,14 +103,15 @@ end
         end for (j,g) in enumerate(grids)]
         data = MultivariateFunctionalData(nodes)
         one = StatsAPI.fit(MFPCA, MultivariateFunctionalData(nodes[1:1]);
-            ncomponents=2, univariate=(; ncomponents=2, maxK=2))
-        uni = StatsAPI.fit(FPCA, nodes[1]; ncomponents=2, maxK=2)
+            ncomponents=2, univariate=(; ncomponents=2, max_k=2))
+        uni = StatsAPI.fit(FPCA, nodes[1]; ncomponents=2, max_k=2)
         @test eigvals(one) ≈ eigvals(uni) rtol=1e-12
         @test scores(one) ≈ scores(uni) atol=1e-13
         @test eigenfunctions(one)[1].values ≈ eigenfunctions(uni).values atol=1e-13
 
         fitted = @inferred StatsAPI.fit(MFPCA, data; ncomponents=4,
-            univariate=(; ncomponents=2, maxK=2))
+            univariate=(; ncomponents=2, max_k=2))
+        _test_prediction_contract(fitted, data)
         @test (@inferred ncomponents(fitted)) == 4
         @test (@inferred nobs(fitted)) == n
         @test (@inferred scores(fitted)) isa Matrix{Float64}
@@ -127,7 +128,7 @@ end
             @test eigenfunctions(fitted)[j].grid == grids[j]
         end
         weighted = StatsAPI.fit(MFPCA, data; ncomponents=4, weights=[2.0, 3.0],
-            univariate=(; ncomponents=2, maxK=2))
+            univariate=(; ncomponents=2, max_k=2))
         @test eigvals(weighted) ≈ [18.0, 8.0, 6.0, 1.5] rtol=1e-12
         geometry = sum(weighted.weights[j] .* (b.values' * (b.weights .* b.values))
             for (j,b) in enumerate(eigenfunctions(weighted)))
@@ -139,7 +140,7 @@ end
         end
         # Global weight scaling rescales eigenvalues and scores, preserving fits.
         scaled = StatsAPI.fit(MFPCA, data; ncomponents=4, weights=[14.0, 21.0],
-            univariate=(; ncomponents=2, maxK=2))
+            univariate=(; ncomponents=2, max_k=2))
         @test eigvals(scaled) ≈ 7eigvals(weighted) rtol=1e-12
         @test scores(scaled) ≈ sqrt(7)*scores(weighted) atol=1e-12
         for j in 1:2
@@ -150,7 +151,7 @@ end
         rescaled_data = MultivariateFunctionalData([nodes[1],
             GridFunctionalData(5nodes[2].values, grids[2]; ids=labels)])
         units = StatsAPI.fit(MFPCA, rescaled_data; ncomponents=4, weights=[2.0, 3/25],
-            univariate=(; ncomponents=2, maxK=2))
+            univariate=(; ncomponents=2, max_k=2))
         @test eigvals(units) ≈ eigvals(weighted) rtol=1e-12
         @test scores(units) ≈ scores(weighted) atol=1e-12
 
@@ -181,11 +182,12 @@ end
         sparse = IrregularFunctionalData(times, [fill(5+cos(i), length(t)) for (i,t) in enumerate(times)];
             domain=(2,3), ids=ids(dense))
         data = MultivariateFunctionalData([dense, sparse])
-        options = (; ncomponents=[2, 1], maxK=[2, 1], grid=[nothing, g],
+        options = (; ncomponents=[2, 1], max_k=[2, 1], grid=[nothing, g],
             mean=[nothing, (; grid=g, values=zeros(5))],
             covariance=[nothing, (; grid=g, surface=ones(5, 5))],
             noise_variance=[nothing, 0.2])
         fitted = StatsAPI.fit(MFPCA, data; ncomponents=2, univariate=options, weights=[0.8, 1.4])
+        _test_prediction_contract(fitted, data)
         marginal = StatsAPI.fit(FPCA, data; basis=:marginal, options...)
         @test component(fitted, 2).method == :pace
         @test fitted.settings.univariate_counts == [2, 1]
@@ -235,7 +237,7 @@ end
         data64 = mfpca_fixture().data
         data = MultivariateFunctionalData([GridFunctionalData(Float32.(component(data64,j).values),
             Float32.(component(data64,j).grid)) for j in 1:3])
-        fitted = StatsAPI.fit(MFPCA, data; ncomponents=3, univariate=(; ncomponents=2, maxK=2))
+        fitted = StatsAPI.fit(MFPCA, data; ncomponents=3, univariate=(; ncomponents=2, max_k=2))
         @test fitted isa MFPCA{Float32}
         @test scores(fitted) isa Matrix{Float32}
         @test eigenfunctions(fitted) isa Vector{FPCBasis{Float32}}
@@ -258,14 +260,14 @@ end
             Float64.(component(data,j).grid)) for j in 1:3])
         @test StatsAPI.predict(fitted, promoted) isa Matrix{Float64}
         weighted = StatsAPI.fit(MFPCA, data; ncomponents=3, weights=ones(Float64, 3),
-            univariate=(; ncomponents=2, maxK=2))
+            univariate=(; ncomponents=2, max_k=2))
         @test weighted isa MFPCA{Float64,Float32}
         @test eigenfunctions(weighted) isa Vector{FPCBasis{Float64}}
     end
 
     @testset "Validation and copied weights" begin
         data = mfpca_fixture().data
-        options = (; ncomponents=2, maxK=2)
+        options = (; ncomponents=2, max_k=2)
         @test_throws UndefKeywordError StatsAPI.fit(MFPCA, data)
         for count in (0, -1, 1.5, true, FVE(0.9))
             @test_throws ArgumentError StatsAPI.fit(MFPCA, data; ncomponents=count)
@@ -290,9 +292,9 @@ end
         # More requested components than the joint positive rank must throw.
         duplicate = MultivariateFunctionalData(fill(component(data, 1), 2))
         @test_throws ArgumentError StatsAPI.fit(MFPCA, duplicate; ncomponents=3,
-            univariate=(; ncomponents=1, maxK=2))
+            univariate=(; ncomponents=1, max_k=2))
         @test_throws ArgumentError StatsAPI.fit(MFPCA, duplicate; ncomponents=2,
-            univariate=(; ncomponents=1, maxK=2))
+            univariate=(; ncomponents=1, max_k=2))
         weights = [0.7, 1.5, 2.2]
         fitted = StatsAPI.fit(MFPCA, data; ncomponents=3, univariate=options, weights)
         weights[1] = 10

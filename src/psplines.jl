@@ -1,7 +1,7 @@
 # Internal P-splines. Unlike penalty(basis, m), this penalizes coefficient
 # differences, not integrated derivatives. refund 0.1-40 pspline.setting.R.
 function _difference_penalty(k::Integer, m::Integer, ::Type{T}=Float64) where {T}
-    0 <= m < k || throw(ArgumentError("difference penalty order m must be in 0:nbasis-1"))
+    _integer_in(k, 1) && _integer_in(m, 0, k-1) || throw(ArgumentError("difference penalty order m must be in 0:nbasis-1"))
     D = zeros(T, k-m, k)
     for i in axes(D, 1), j in 0:m
         D[i, i+j] = T((-1)^j * binomial(big(m), j))
@@ -12,13 +12,13 @@ function _difference_penalty(k::Integer, m::Integer, ::Type{T}=Float64) where {T
     P
 end
 
-function _pspline_design(x::AbstractVector{T}, knots, p, m;
+Base.@constprop :aggressive function _pspline_design(x::AbstractVector{T}, knots, p, m;
         interval=(minimum(x), maximum(x))) where {T<:AbstractFloat}
-    knots isa Integer && !(knots isa Bool) && knots >= 1 || throw(ArgumentError("FACE knots must be a positive integer (number of equal intervals)"))
-    p isa Integer && !(p isa Bool) && p >= 0 || throw(ArgumentError("FACE degree p must be a nonnegative integer"))
+    _integer_in(knots, 1) || throw(ArgumentError("FACE knots must be a positive integer (number of equal intervals)"))
+    _integer_in(p, 0) || throw(ArgumentError("FACE degree p must be a nonnegative integer"))
     knots < length(x) && p < length(x)-knots || throw(ArgumentError("FACE knots + p must be smaller than the number of design points"))
     k = Int(knots+p)
-    m isa Integer && !(m isa Bool) && 0 <= m < k || throw(ArgumentError("FACE difference penalty order m must be in 0:knots+p-1"))
+    _integer_in(m, 0, k-1) || throw(ArgumentError("FACE difference penalty order m must be in 0:knots+p-1"))
     p, m, knots = Int(p), Int(m), Int(knots)
     # R uses simple knots extending p intervals beyond each endpoint, rather
     # than clamped endpoints. BSplineKit's augment=false preserves these knots.
@@ -34,7 +34,7 @@ function _pspline_design(x::AbstractVector{T}, knots, p, m;
     (; basis, knots=sequence, B, P)
 end
 
-function _pspline_setting(x::AbstractVector{T}, knots, p, m) where {T<:AbstractFloat}
+Base.@constprop :aggressive function _pspline_setting(x::AbstractVector{T}, knots, p, m) where {T<:AbstractFloat}
     design = _pspline_design(x, knots, p, m)
     B, P = design.B, design.P
     gram_eigen = eigen(Symmetric(transpose(B)*B))
@@ -47,7 +47,9 @@ function _pspline_setting(x::AbstractVector{T}, knots, p, m) where {T<:AbstractF
     s = max.(eig.values, zero(T))
     m > 0 && (s[1:m] .= 0)
     A0 = inverse_root * eig.vectors
-    (; design..., s, A0, A=B*A0)
+    # Spell out the fields so a runtime degree's partially known basis type
+    # does not erase the matrix field types through NamedTuple splatting.
+    (; basis=design.basis, knots=design.knots, B, P, s, A0, A=B*A0)
 end
 
 # Brent's bounded search, with the stopping constants used by R 4.5 stats
@@ -120,8 +122,8 @@ end
 Base.eltype(::Type{<:_RInitializationBasis{T}}) where {T} = T
 nbasis(b::_RInitializationBasis) = nbasis(b.basis)
 domain(b::_RInitializationBasis) = domain(b.basis)
-basismatrix(b::_RInitializationBasis, t::AbstractVector{<:Real}; derivative=0) =
-    basismatrix(b.basis, t; derivative)
+basis_matrix(b::_RInitializationBasis, t::AbstractVector{<:Real}; derivative=0) =
+    basis_matrix(b.basis, t; derivative)
 penalty(b::_RInitializationBasis, order) = order == 2 ? copy(b.roughness) : penalty(b.basis, order)
 
 # Initialization only: reproduce stats::smooth.spline's default knot count and
@@ -133,21 +135,32 @@ function _face_initial_curve(t, y, targets)
     nk = _spline_nknots(length(t))
     indices = floor.(Int, range(1, length(t); length=nk))
     cubic = BSplineBasis(4, x[indices])
-    slopes = diff(basismatrix(cubic, cubic.breakpoints; derivative=2); dims=1)
+    slopes = diff(basis_matrix(cubic, cubic.breakpoints; derivative=2); dims=1)
     roughness = penalty(cubic, 2) - transpose(slopes)*(diff(cubic.breakpoints) .* slopes)/3000
     basis = _RInitializationBasis(cubic, roughness)
-    X = basismatrix(basis, x)
+    X = basis_matrix(basis, x)
     P = penalty(basis, 2)
     XtX = transpose(X)*X
     inner = 3:(nbasis(basis)-3)
     ratio = sum(diag(XtX)[inner])/sum(diag(P)[inner])
-    raw = GridFunctionalData(reshape(y, 1, :), x)
-    criterion(spar) = only(_gcv_selection(raw, basis, 2, [ratio*16.0^(6spar-2)]).scores)
+    # Scalar search changes only lambda. Reuse this integrated-derivative
+    # design and its products, independently of FACE's difference penalty.
+    yy = Vector{eltype(X)}(y)
+    Xty = transpose(X)*yy
+    function criterion(spar)
+        score = _spline_gcv_score(X, yy, XtX, P, Xty, ratio*16.0^(6spar-2))
+        isfinite(score) || throw(ArgumentError(
+            "GCV has no admissible lambda: use more observations, fewer basis functions, or a positive penalty"))
+        score
+    end
     spar = _spline_gcv_search(criterion)
     lambda = ratio*16.0^(6spar-2)
-    smoothed = smooth_curves(raw, PenalizedSpline(basis; lambda))
+    factor = cholesky(Symmetric(XtX + lambda*P); check=false)
+    isposdef(factor) || throw(ArgumentError("penalized basis fit is singular for curve 1"))
+    coefs = factor \ Xty
     out = fill(sum(y)/length(y), length(targets))
     inside = findall(z -> a <= z <= b, targets)
-    out[inside] = vec(evaluate(smoothed, (targets[inside] .- a) ./ (b-a)))
+    target_design = basis_matrix(basis, (targets[inside] .- a) ./ (b-a))
+    out[inside] = vec(reshape(coefs, 1, :) * transpose(target_design))
     (; values=out, lambda, spar, knots=copy(cubic.breakpoints))
 end

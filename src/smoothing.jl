@@ -9,6 +9,8 @@ is a nonnegative integer and `degree >= derivative`. The default degree is
 KernelSmoothing.jl. Estimates are derivatives, not finite differences. Kernels
 are `KernelSmoothing.AbstractKernel` instances.
 Use [`smooth_curves`](@ref), or `StatsAPI.fit(LocalPolynomial, fd; grid, bandwidth, ...)`.
+Here `degree` is polynomial degree; [`BSplineBasis`](@ref) instead takes
+spline `order = degree + 1`. Neither is the derivative order being estimated.
 """
 struct LocalPolynomial{T<:AbstractFloat,K<:KernelSmoothing.AbstractKernel}
     bandwidth::T
@@ -21,7 +23,7 @@ struct LocalPolynomial{T<:AbstractFloat,K<:KernelSmoothing.AbstractKernel}
             throw(ArgumentError("bandwidth must be a finite positive number"))
         nu = _derivative_order(derivative)
         degree = degree === nothing ? _derivative_sum(nu, 1) : degree
-        degree isa Integer && 0 <= degree <= typemax(Int) ||
+        _integer_in(degree, 0) ||
             throw(ArgumentError("degree must be a nonnegative integer representable as Int"))
         degree >= nu || throw(ArgumentError("degree must be at least derivative order"))
         kernel isa KernelSmoothing.AbstractKernel ||
@@ -97,78 +99,137 @@ store their method and all settings in `metadata`, shown by `show`. Spline GCV
 also stores `metadata.selection`; fixed lambda uses `selection=nothing`.
 All fits use equal observation weights, no binning, and no folds. GCV is a
 within-curve prediction criterion, not a cluster-robust inference procedure.
+Complete data on their original grid use one matrix multiplication for all
+curves. Other designs cache at most eight distinct observed grids per call,
+evicting the oldest on a cache miss. Smoother matrices retain KernelSmoothing's
+Float64 arithmetic, including for Float32 data; output is converted to the
+promoted data/work-grid type after smoothing.
 """
-function smooth_curves(fd::Union{GridFunctionalData,IrregularFunctionalData},
-        method::LocalPolynomial; grid::AbstractVector{<:Real})
-    x = _evaluation_points(fd, grid)
-    quadrature_weights(x)
-    T = eltype(x)
-    out = Matrix{Union{Missing,T}}(missing, nobs(fd), length(x))
-    # Curves observed at the same times (complete grid data) share one smoother matrix.
-    smoothers = Dict{Vector{eltype(fd)},Tuple{Vector{Int},Matrix{Float64}}}()
-    for i in 1:nobs(fd)
-        t, y = fd[i]
-        isempty(t) && throw(ArgumentError("curve $i has no observed values to smooth"))
-        indices, L = get!(smoothers, t) do
-            indices = findall(z -> first(t) <= z <= last(t), x)
-            isempty(indices) && return indices, zeros(0, length(t))
-            indices, KernelSmoothing.smoothermatrix(t, x[indices]; bandwidth=method.bandwidth,
-                degree=method.degree, derivative=method.derivative, kernel=method.kernel)
-        end
-        isempty(indices) && continue
-        estimates = L * y
-        for (j, value) in zip(indices, estimates)
-            isfinite(value) && isfinite(T(value)) || throw(ArgumentError(
-                "curve $i has an undefined local polynomial estimate at point $(x[j]); use a larger bandwidth"))
-            out[i, j] = value
-        end
-    end
-    metadata = (; method=:local_polynomial, bandwidth=method.bandwidth,
+function smooth_curves end
+
+function _curve_smoothing_metadata(method, x)
+    (; method=:local_polynomial, bandwidth=method.bandwidth,
         degree=method.degree, derivative=method.derivative,
         kernel=method.kernel, weighting=:equal_observations,
         grid=copy(x), minobs=0, binning=:none, folds=0)
+end
+
+const _CURVE_SMOOTHER_CACHE_LIMIT = 8
+
+function _curve_smoother_matrix(t, points, method)
+    # Keep the backend's Float64 precision policy explicit. convert does not
+    # copy a Matrix{Float64}, and preserves the previous cache conversion.
+    convert(Matrix{Float64}, KernelSmoothing.smoother_matrix(t, points;
+        bandwidth=method.bandwidth, degree=method.degree,
+        derivative=method.derivative, kernel=method.kernel))
+end
+
+function _curve_smoother_entry(t, x, method)
+    query_indices = findall(z -> first(t) <= z <= last(t), x)
+    isempty(query_indices) && return query_indices, zeros(Float64, 0, length(t))
+    query_indices, _curve_smoother_matrix(t, x[query_indices], method)
+end
+
+function _cached_curve_smoother!(cache, insertion_order, t, x, method)
+    if !haskey(cache, t) && length(cache) == _CURVE_SMOOTHER_CACHE_LIMIT
+        delete!(cache, popfirst!(insertion_order))
+    end
+    # Arguments are read-only captures; no binding is shared with an outer
+    # assignment to the returned indices (the former Core.Box path).
+    get!(cache, t) do
+        entry = _curve_smoother_entry(t, x, method)
+        push!(insertion_order, t)
+        entry
+    end
+end
+
+function _check_curve_estimate(value, ::Type{T}, curve, point) where {T}
+    isfinite(value) && isfinite(T(value)) || throw(ArgumentError(
+        "curve $curve has an undefined local polynomial estimate at point $point; use a larger bandwidth"))
+    nothing
+end
+
+function _smooth_complete_grid(fd::GridFunctionalData, method, x::Vector{T}, weights, metadata) where {T}
+    matrix = _curve_smoother_matrix(fd.grid, x, method)
+    # Promote responses as the old Float64-matrix/vector products did. This
+    # enables BLAS for Float32/Float64 without narrowing higher precision data.
+    R = promote_type(eltype(fd), Float64)
+    values = convert(Matrix{R}, fd.values) * transpose(matrix)
+    if !all(value -> isfinite(value) && isfinite(T(value)), values)
+        # Locate failures in the same curve/point order as the fallback path.
+        for i in axes(values, 1), j in axes(values, 2)
+            _check_curve_estimate(values[i, j], T, i, x[j])
+        end
+    end
+    # All arrays are newly owned and already validated; avoid a missing-value
+    # staging matrix and a second constructor pass over the numerical output.
+    GridFunctionalData{T}(Val(:validated), convert(Matrix{T}, values), x, weights,
+        nothing, _validate_ids(fd.ids, nobs(fd)), deepcopy(metadata))
+end
+
+function smooth_curves(fd::Union{GridFunctionalData,IrregularFunctionalData},
+        method::LocalPolynomial; grid::AbstractVector{<:Real})
+    x = _evaluation_points(fd, grid)
+    weights = quadrature_weights(x)
+    metadata = _curve_smoothing_metadata(method, x)
+    if fd isa GridFunctionalData && fd.observed === nothing && x == fd.grid
+        return _smooth_complete_grid(fd, method, x, weights, metadata)
+    end
+    T = eltype(x)
+    out = Matrix{Union{Missing,T}}(missing, nobs(fd), length(x))
+    smoothers = Dict{Vector{eltype(fd)},Tuple{Vector{Int},Matrix{Float64}}}()
+    insertion_order = Vector{eltype(fd)}[]
+    for i in 1:nobs(fd)
+        t, y = fd[i]
+        isempty(t) && throw(ArgumentError("curve $i has no observed values to smooth"))
+        indices, matrix = _cached_curve_smoother!(smoothers, insertion_order, t, x, method)
+        isempty(indices) && continue
+        estimates = matrix * y
+        for (j, value) in zip(indices, estimates)
+            _check_curve_estimate(value, T, i, x[j])
+            out[i, j] = value
+        end
+    end
     GridFunctionalData(out, x; ids=fd.ids, metadata)
+end
+
+# Score an already prepared curve. Invalid candidates retain GCV's Inf policy;
+# direct spline fits still diagnose singular systems in to_basis.
+function _spline_gcv_score(X, y, XtX, P, Xty, lambda)
+    T = eltype(X)
+    n, k = size(X)
+    if lambda == 0
+        factor = qr(X, ColumnNorm())
+        diagonal = abs.(diag(factor.R))
+        tol = max(size(X)...) * eps(T) * maximum(diagonal)
+        (n < k || count(>(tol), diagonal) < k) && return T(Inf)
+        c = factor \ y
+        df = T(k)
+    else
+        factor = cholesky(Symmetric(XtX + T(lambda) * P); check=false)
+        isposdef(factor) || return T(Inf)
+        c = factor \ Xty
+        df = tr(factor \ XtX)
+    end
+    residual_df = n - df
+    residual_df <= sqrt(eps(T)) * n ? T(Inf) :
+        n * sum(abs2, y - X * c) / residual_df^2
 end
 
 function _gcv_selection(fd, basis, order, candidates)
     T = promote_type(eltype(fd), eltype(basis), eltype(candidates))
     scores = zeros(T, length(candidates))
     P = Matrix{T}(penalty(basis, order))
-    k = nbasis(basis)
     for i in 1:nobs(fd)
         t, y = fd[i]
         isempty(t) && throw(ArgumentError("curve $i has no observed values for GCV"))
-        X = Matrix{T}(basismatrix(basis, t))
+        X = Matrix{T}(basis_matrix(basis, t))
         yy = Vector{T}(y)
-        n = length(y)
         XtX = transpose(X) * X
+        Xty = transpose(X) * yy
         for (j, lambda) in enumerate(candidates)
             isfinite(scores[j]) || continue
-            if lambda == 0
-                factor = qr(X, ColumnNorm())
-                diagonal = abs.(diag(factor.R))
-                tol = max(size(X)...) * eps(T) * maximum(diagonal)
-                if n < k || count(>(tol), diagonal) < k
-                    scores[j] = T(Inf)
-                    continue
-                end
-                c = factor \ yy
-                df = T(k)
-            else
-                factor = cholesky(Symmetric(XtX + T(lambda) * P); check=false)
-                if !isposdef(factor)
-                    scores[j] = T(Inf)
-                    continue
-                end
-                c = factor \ (transpose(X) * yy)
-                df = tr(factor \ XtX)
-            end
-            residual_df = n - df
-            if residual_df <= sqrt(eps(T)) * n
-                scores[j] = T(Inf)
-            else
-                scores[j] += n * sum(abs2, yy - X * c) / residual_df^2
-            end
+            scores[j] += _spline_gcv_score(X, yy, XtX, P, Xty, lambda)
         end
     end
     j = argmin(scores)

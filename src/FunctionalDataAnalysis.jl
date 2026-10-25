@@ -1,7 +1,7 @@
 module FunctionalDataAnalysis
 
 using LinearAlgebra
-import StatsAPI: nobs, fit, predict
+import StatsAPI: nobs, fit, predict, reconstruct, fitted, residuals, coef
 import KernelSmoothing
 import BSplineKit
 import Tables
@@ -14,25 +14,28 @@ import Random
 
 export AbstractFunctionalData, AbstractBasis, nobs, domain, evaluate,
     sampling_design, quadrature_weights
-export nbasis, basismatrix, gram, penalty, BSplineBasis, FourierBasis,
+export nbasis, basis_matrix, gram, penalty, BSplineBasis, FourierBasis,
     MonomialBasis, DerivativeBasis, derivative, FPCADerivative, MultivariateFPCADerivative
 export GridFunctionalData, IrregularFunctionalData, BasisFunctionalData,
     MultivariateFunctionalData, PiecewiseLinear, NoInterpolation, nobs_per_curve,
     ncomponents, component, to_array, to_irregular, to_grid, to_basis
 export SmoothedMean, SmoothedCovariance, CurveCV
 export CrossCovariance, SmoothedCrossCovariance, cross_covariances
-export FSVD, concurrent_correlation, dynamic_correlation
+export FSVD, svdvals, left_functions, right_functions, left_scores, right_scores,
+    concurrent_correlation, dynamic_correlation
 export FPCA, FPCBasis, FVE, AIC, BIC, eigenfunctions, eigvals, scores,
     score_covariances, fve, noise_variance, reconstruct, predict, pace_bandwidth_candidates
 export MultivariateFPCA, MFPCA, score_array
-export LambdaCV, FunctionalCCA
+export ScorePrediction, project_scores, predict_scores, fitted, residuals, coef
+export LambdaCV, FunctionalCCA, canonical_weights, canonical_variates,
+    canonical_correlations, squared_canonical_correlations
 export LocalPolynomial, PenalizedSpline, GCV, smooth_curves
 export ids, RegularSampling, SparseSampling, simulate_kl,
     fourier_eigenfunctions, legendre_eigenfunctions
 export curve_data, mean_data, modes_of_variation, scree_data, covariance_data,
     design_data, fitted_curve_data
-export modesplot, screeplot, covplot, designplot, fitplot
-export FittedBands, MeanBands, fitted_bands, mean_bands, band_data, bandplot
+export modes_plot, scree_plot, cov_plot, design_plot, fit_plot
+export FittedBands, MeanBands, fitted_bands, mean_bands, band_data, band_plot
 export datasets, load_dataset
 
 include("interface.jl")
@@ -63,8 +66,10 @@ include("mfpca.jl")
 include("cross_covariance.jl")
 include("cross_structure.jl")
 include("derivatives.jl")
+include("prediction.jl")
 include("bands.jl")
 include("plot_data.jl")
 include("recipes.jl")
+include("compat_naming.jl")
 
 end

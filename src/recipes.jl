@@ -60,14 +60,14 @@ end
 end
 
 """
-    modesplot(fit, k; multipliers=(-2, -1, 1, 2), kwargs...)
+    modes_plot(fit, k; multipliers=(-2, -1, 1, 2), kwargs...)
 
 Plot the mean and mode-of-variation curves from [`modes_of_variation`](@ref).
 The default multipliers follow fdapace 0.6.0's envelope boundaries. Titles
 show the component, eigenvalue, and individual FVE. Multivariate fits have
 one panel per node. Load Plots.jl before calling; `kwargs` set plot attributes.
 """
-modesplot(fit, k; multipliers=(-2, -1, 1, 2), kwargs...) =
+modes_plot(fit, k; multipliers=(-2, -1, 1, 2), kwargs...) =
     RecipesBase.plot(_plot_payload(Val(:modes), modes_of_variation(fit, k; multipliers)); kwargs...)
 
 @recipe function f(p::_FDAPlot{:modes})
@@ -92,14 +92,14 @@ modesplot(fit, k; multipliers=(-2, -1, 1, 2), kwargs...) =
 end
 
 """
-    screeplot(fit; kwargs...)
+    scree_plot(fit; kwargs...)
 
 Plot individual FVE bars and cumulative FVE, following fdapace 0.6.0
 `CreateScreePlot`, using [`scree_data`](@ref). Show selected K and the FVE
 threshold when applicable. All retained components are displayed. Load Plots.jl
 first. Plot attributes may be overridden with `kwargs`.
 """
-screeplot(fit; kwargs...) = RecipesBase.plot(_plot_payload(Val(:scree), scree_data(fit)); kwargs...)
+scree_plot(fit; kwargs...) = RecipesBase.plot(_plot_payload(Val(:scree), scree_data(fit)); kwargs...)
 
 @recipe function f(p::_FDAPlot{:scree})
     d = p.data
@@ -136,16 +136,16 @@ screeplot(fit; kwargs...) = RecipesBase.plot(_plot_payload(Val(:scree), scree_da
 end
 
 """
-    covplot(x; kwargs...)
-    covplot(f::FPCA; surface=:stored, kwargs...)
+    cov_plot(x; kwargs...)
+    cov_plot(f::FPCA; surface=:stored, kwargs...)
 
 Plot [`covariance_data`](@ref) as a heatmap, a package display default.
 Use `seriestype=:surface` for a surface plot. FPCA accepts `surface=:fitted`
 for the full retained positive-semidefinite projection. Load Plots.jl first;
 other keywords set plot attributes.
 """
-covplot(x; kwargs...) = RecipesBase.plot(_FDAPlot{:covariance}(covariance_data(x)); kwargs...)
-covplot(f::FPCA; surface=:stored, kwargs...) =
+cov_plot(x; kwargs...) = RecipesBase.plot(_FDAPlot{:covariance}(covariance_data(x)); kwargs...)
+cov_plot(f::FPCA; surface=:stored, kwargs...) =
     RecipesBase.plot(_FDAPlot{:covariance}(covariance_data(f; surface)); kwargs...)
 
 @recipe function f(p::_FDAPlot{:covariance})
@@ -159,14 +159,14 @@ covplot(f::FPCA; surface=:stored, kwargs...) =
 end
 
 """
-    designplot(fd; diagonal=false, kwargs...)
+    design_plot(fd; diagonal=false, kwargs...)
 
 Plot observed time pairs using [`design_data`](@ref). Diagonal pairs are
 excluded by default and color counts use 1, 2, 3, 4+, as in fdapace 0.6.0.
 Exact counts remain available in `design_data`. Multivariate data have one
 panel per node. Load Plots.jl first; `kwargs` override plot attributes.
 """
-designplot(fd; diagonal=false, kwargs...) =
+design_plot(fd; diagonal=false, kwargs...) =
     RecipesBase.plot(_plot_payload(Val(:design), design_data(fd; diagonal)); kwargs...)
 
 @recipe function f(p::_FDAPlot{:design})
@@ -185,14 +185,14 @@ designplot(fd; diagonal=false, kwargs...) =
 end
 
 """
-    fitplot(fit, i; grid=nothing, kwargs...)
+    fit_plot(fit, i; grid=nothing, kwargs...)
 
 Plot the original observations and selected-K reconstruction from
 [`fitted_curve_data`](@ref). `grid=nothing` uses the fit's stored grid(s),
 following fdapace 0.6.0 `CreatePathPlot`. MFPCA has one panel per node.
 Load Plots.jl first; `kwargs` override plot attributes.
 """
-function fitplot(fit, i; grid=nothing, kwargs...)
+function fit_plot(fit, i; grid=nothing, kwargs...)
     data = grid === nothing ? fitted_curve_data(fit, i) : fitted_curve_data(fit, i; grid)
     RecipesBase.plot(_plot_payload(Val(:fit), data); kwargs...)
 end
@@ -223,8 +223,8 @@ end
 end
 
 """
-    bandplot(b; kwargs...)
-    bandplot(b::MeanBands; coverage=b.coverage, kwargs...)
+    band_plot(b; kwargs...)
+    band_plot(b::MeanBands; coverage=b.coverage, kwargs...)
 
 Plot precomputed [`fitted_bands`](@ref) or [`mean_bands`](@ref) results as
 ribbons around their fitted curves or means, using [`band_data`](@ref).
@@ -233,9 +233,9 @@ computed types. Multivariate results use one panel per node. Load Plots.jl
 first; `kwargs` override plot attributes. Default ribbon opacity is 0.2, a
 package display choice. No bootstrap is run by plotting.
 """
-bandplot(b; kwargs...) =
+band_plot(b; kwargs...) =
     RecipesBase.plot(_plot_payload(Val(:band), band_data(b)); kwargs...)
-bandplot(b::MeanBands; coverage=b.coverage, kwargs...) =
+band_plot(b::MeanBands; coverage=b.coverage, kwargs...) =
     RecipesBase.plot(_FDAPlot{:band}(band_data(b; coverage)); kwargs...)
 
 @recipe function f(p::_FDAPlot{:band})

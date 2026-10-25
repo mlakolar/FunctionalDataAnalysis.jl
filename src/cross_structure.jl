@@ -1,5 +1,5 @@
 """
-    fit(FSVD, fd1, fd2; ncomponents=FVE(0.9999), maxK=nothing,
+    fit(FSVD, fd1, fd2; ncomponents=FVE(0.9999), max_k=nothing, maxK=nothing,
         bandwidth=nothing, kernel=KernelSmoothing.GaussianKernel(),
         fpca_options1=(;), fpca_options2=(;))
 
@@ -10,7 +10,7 @@ functions, scores, cumulative squared cross-covariance fractions, and settings
 are stored. Inputs are copied.
 
 Defaults follow fdapace 0.6.0 `FSVD` / `SetSVDOptions`: FVE 0.9999,
-`maxK=min(20,n-2)`, Gaussian smoothing, scores enabled, and independent
+`max_k=min(20,n-2)`, Gaussian smoothing, scores enabled, and independent
 cross-node measurement errors (equal-time products retained). Fixed component
 counts disable FVE selection. At least three subjects are required. Marginal
 FPCA options are named tuples passed to [`FPCA`](@ref); empty tuples use its
@@ -52,6 +52,73 @@ struct FSVD{T<:AbstractFloat,T1<:AbstractFloat,T2<:AbstractFloat,C,S,O}
     settings::O
 end
 
+"""
+    nobs(f::FSVD)
+
+Return the number of paired training subjects, using `StatsAPI.nobs`.
+"""
+nobs(f::FSVD) = size(f.left_scores, 1)
+
+"""
+    ncomponents(f::FSVD)
+
+Return the number of selected singular components.
+"""
+ncomponents(f::FSVD) = length(f.singular_values)
+
+"""
+    svdvals(f::FSVD)
+
+Return the selected singular values, using `LinearAlgebra.svdvals`.
+The vector is owned by the fit; use `copy` for independent storage.
+"""
+LinearAlgebra.svdvals(f::FSVD) = f.singular_values
+
+"""
+    fve(f::FSVD)
+
+Return cumulative fractions of squared singular values within the component
+cap, including components beyond the selected count. The vector is owned by
+the fit; use `copy` for independent storage.
+"""
+fve(f::FSVD) = f.fve
+
+"""
+    left_functions(f::FSVD)
+
+Return the left singular-function matrix, with rows on
+`f.cross_covariance.grid1` and selected components in columns. The matrix is
+owned by the fit; use `copy` for independent storage.
+"""
+left_functions(f::FSVD) = f.left_functions
+
+"""
+    right_functions(f::FSVD)
+
+Return the right singular-function matrix, with rows on
+`f.cross_covariance.grid2` and selected components in columns. The matrix is
+owned by the fit; use `copy` for independent storage.
+"""
+right_functions(f::FSVD) = f.right_functions
+
+"""
+    left_scores(f::FSVD)
+
+Return the left training scores, with paired subjects in rows and selected
+singular components in columns. The matrix is owned by the fit; use `copy`
+for independent storage.
+"""
+left_scores(f::FSVD) = f.left_scores
+
+"""
+    right_scores(f::FSVD)
+
+Return the right training scores, with paired subjects in rows and selected
+singular components in columns. The matrix is owned by the fit; use `copy`
+for independent storage.
+"""
+right_scores(f::FSVD) = f.right_scores
+
 function _fsvd_marginal_covariance(f::FPCA)
     f.method == :pace ? f.settings.full_projected_covariance : f.covariance
 end
@@ -74,23 +141,25 @@ function _fsvd_joint_scores(fd1, fd2, f1, f2, c, left, right, values)
     q = b * (right .* f2.weights)
     left_scores = Matrix{T}(undef, nobs(fd1), length(values))
     right_scores = similar(left_scores)
+    identity1, identity2 = Matrix{T}(I, m1, m1), Matrix{T}(I, m2, m2)
+    regularized = copy(projected)
+    for j in 1:m1
+        regularized[j,j] += something(f1.noise_variance, zero(T))
+    end
+    for j in 1:m2
+        regularized[m1+j,m1+j] += something(f2.noise_variance, zero(T))
+    end
     for i in 1:nobs(fd1)
         t1, y1 = fd1[i]
         t2, y2 = fd2[i]
         # Interpolation matrices retain the full stacked covariance and noise
         # grid before interpolation, as in FSVD's ConvertSupport route.
-        h1 = _pace_interpolated_basis(g1, Matrix{T}(I, m1, m1), t1)
-        h2 = _pace_interpolated_basis(g2, Matrix{T}(I, m2, m2), t2)
+        h1 = _pace_interpolated_basis(g1, identity1, t1)
+        h2 = _pace_interpolated_basis(g2, identity2, t2)
         h = [h1 zeros(T, length(t1), m2); zeros(T, length(t2), m1) h2]
-        regularized = copy(projected)
-        for j in 1:m1
-            regularized[j,j] += something(f1.noise_variance, zero(T))
-        end
-        for j in 1:m2
-            regularized[m1+j,m1+j] += something(f2.noise_variance, zero(T))
-        end
         local_covariance = h * regularized * transpose(h)
-        factor = _pace_cholesky(local_covariance, i)
+        factor = _pace_cholesky(local_covariance, i; label="FSVD", interpolation=h,
+            advice="supply positive marginal noise variances")
         residual = vcat(y1 - vec(h1 * transpose(f1.mean.values)),
             y2 - vec(h2 * transpose(f2.mean.values)))
         solution = factor \ residual
@@ -106,8 +175,9 @@ end
 
 Base.@constprop :aggressive function fit(::Type{FSVD}, fd1::Union{GridFunctionalData,IrregularFunctionalData},
         fd2::Union{GridFunctionalData,IrregularFunctionalData};
-        ncomponents=FVE(0.9999), maxK=nothing, bandwidth=nothing,
+        ncomponents=FVE(0.9999), max_k=nothing, maxK=nothing, bandwidth=nothing,
         kernel=KernelSmoothing.GaussianKernel(), fpca_options1=(;), fpca_options2=(;))
+    max_k = _max_k_keyword(max_k, maxK)
     _cross_subjects(fd1, fd2)
     n = nobs(fd1)
     n >= 3 || throw(ArgumentError("FSVD requires at least three subjects for its n-2 divisor and component cap"))
@@ -153,19 +223,19 @@ Base.@constprop :aggressive function fit(::Type{FSVD}, fd1::Union{GridFunctional
         c = fit(SmoothedCrossCovariance, fd1, fd2, f1.mean, f2.mean;
             grid1=f1.grid, grid2=f2.grid, bandwidth, kernel)
     end
-    maxK === nothing && (maxK = min(20, n-2))
-    maxK isa Integer && !(maxK isa Bool) && 1 <= maxK <= typemax(Int) ||
-        throw(ArgumentError("FSVD maxK must be a positive integer representable as Int"))
+    max_k === nothing && (max_k = min(20, n-2))
+    _integer_in(max_k, 1) ||
+        throw(ArgumentError("FSVD max_k must be a positive integer representable as Int"))
     root1, root2 = sqrt.(c.weights1), sqrt.(c.weights2)
     weighted = c.surface .* (root1 * transpose(root2))
     all(isfinite, weighted) || throw(ArgumentError("FSVD weighted cross-covariance must be finite"))
     d = svd(weighted)
-    retained = min(Int(maxK), count(>(first(d.S)*_FPCA_EIGEN_TOL), d.S))
+    retained = min(Int(max_k), count(>(first(d.S)*_FPCA_EIGEN_TOL), d.S))
     retained > 0 || throw(ArgumentError("FSVD cross-covariance has no positive singular values above tolerance"))
     values = d.S[1:retained]
     fractions = cumsum((values ./ first(values)).^2) ./ sum((values ./ first(values)).^2)
     fractions[end] = one(eltype(fractions))
-    selection = _fpca_selection(ncomponents, fractions, Int(maxK))
+    selection = _fpca_selection(ncomponents, fractions, Int(max_k))
     k = selection.chosen
     values = values[1:k]
     left, right = d.U[:,1:k] ./ root1, d.V[:,1:k] ./ root2

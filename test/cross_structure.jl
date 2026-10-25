@@ -9,7 +9,18 @@ _m6_relative(a, b) = norm(a-b)/norm(b)
     l, r = _m6_read("dense_left"), _m6_read("dense_right")
     x = GridFunctionalData(_m6_read("dense_input1"), l[:,1]; ids=1:18)
     y = GridFunctionalData(_m6_read("dense_input2"), r[:,1]; ids=1:18)
-    f = @inferred StatsAPI.fit(FSVD, x, y; ncomponents=2, maxK=2)
+    f = @inferred StatsAPI.fit(FSVD, x, y; ncomponents=2, max_k=2)
+    @test (@inferred nobs(f)) == nobs(x)
+    @test (@inferred ncomponents(f)) == 2
+    @test (@inferred svdvals(f)) === f.singular_values
+    @test (@inferred left_functions(f)) === f.left_functions
+    @test (@inferred right_functions(f)) === f.right_functions
+    @test (@inferred left_scores(f)) === f.left_scores
+    @test (@inferred right_scores(f)) === f.right_scores
+    @test (@inferred fve(f)) === f.fve
+    independent_scores = copy(left_scores(f))
+    independent_scores[1,1] += 1
+    @test independent_scores[1,1] != left_scores(f)[1,1]
     expected = _m6_read("dense_values")
     @test _m6_relative(f.singular_values, expected[:,1]) < 1e-8
     @test _m6_relative(f.left_functions, l[:,2:end]) < 1e-8
@@ -23,8 +34,11 @@ _m6_relative(a, b) = norm(a-b)/norm(b)
     @test f.left_functions' * Diagonal(x.weights) * f.left_functions ≈ I
     @test f.right_functions' * Diagonal(y.weights) * f.right_functions ≈ I
     @test f.settings.effective_fpca_options1 == f.settings.effective_fpca_options2 == (;method=:auto)
-    @test StatsAPI.fit(FSVD,x,y).selection.maxK == 16
-    @test StatsAPI.fit(FSVD,x,y;ncomponents=FVE(.5),maxK=2).selection.chosen == 1
+    @test StatsAPI.fit(FSVD,x,y).selection.max_k == 16
+    selected = StatsAPI.fit(FSVD,x,y;ncomponents=FVE(.5),max_k=2)
+    @test selected.selection.chosen == 1
+    @test ncomponents(selected) == length(svdvals(selected)) == 1
+    @test length(fve(selected)) == 2
     @test occursin("denominator=16", sprint(show, f))
     @test f.cross_covariance.ids == x.ids
     @test f.cross_covariance.ids !== x.ids
@@ -47,7 +61,7 @@ _m6_relative(a, b) = norm(a-b)/norm(b)
     @test eltype((@inferred StatsAPI.fit(FSVD,xx,small;ncomponents=1)).singular_values) == Float64
     @test_throws ArgumentError StatsAPI.fit(FSVD,xx,yy;
         fpca_options1=(;presmooth=LocalPolynomial(bandwidth=1.)))
-    for kw in ((;maxK=0), (;ncomponents=0), (;maxK=1,ncomponents=2), (;maxK=true), (;ncomponents=true),
+    for kw in ((;max_k=0), (;ncomponents=0), (;max_k=1,ncomponents=2), (;max_k=true), (;ncomponents=true),
             (;bandwidth=.5), (;fpca_options1=[]), (;kernel=:gauss))
         @test_throws ArgumentError StatsAPI.fit(FSVD,xx,yy;kw...)
     end
@@ -71,10 +85,10 @@ end
     phi = hcat(ones(51),g .- .5)
     cov1, cov2 = phi*Diagonal([.8,.3])*phi', phi*Diagonal([.7,.2])*phi'
     o1 = (;grid=g, mean=(;grid=g,values=1 .+ g), covariance=(;grid=g,surface=cov1),
-        noise_variance=.2, ncomponents=2,maxK=2)
+        noise_variance=.2, ncomponents=2,max_k=2)
     o2 = (;grid=g, mean=(;grid=g,values=-.2 .+ .3g), covariance=(;grid=g,surface=cov2),
-        noise_variance=.2,ncomponents=2,maxK=2)
-    f = @inferred StatsAPI.fit(FSVD,nodes...;ncomponents=2,maxK=2,bandwidth=(.55,.8),
+        noise_variance=.2,ncomponents=2,max_k=2)
+    f = @inferred StatsAPI.fit(FSVD,nodes...;ncomponents=2,max_k=2,bandwidth=(.55,.8),
         kernel=KernelSmoothing.EpanechnikovKernel(),fpca_options1=o1,fpca_options2=o2)
     @test _m6_relative(f.cross_covariance.surface,_m6_read("sparse_cross")) < 1e-8
     @test _m6_relative(f.singular_values,_m6_read("sparse_values")[:,1]) < 1e-8
@@ -93,6 +107,51 @@ end
     @test norm(ls-f.left_scores) > .01
 end
 
+@testset "FSVD interpolation rank diagnostics" begin
+    FDA = FunctionalDataAnalysis
+    for T in (Float32,Float64)
+        grid = T[0,1]
+        # Three distinct times in one cell. With grid covariance 2I and
+        # positive grid noise 2I, H*(4I)*H' has exact zero Cholesky pivot:
+        # [4 2 0; 2 2 2; 0 2 4]. This avoids a roundoff-dependent failure.
+        times = T[0,.5,1]
+        fd = IrregularFunctionalData([times,times,times],
+            [T[1,2,3],T[2,3,4],T[3,4,5]])
+        h = FDA._pace_interpolated_basis(grid,Matrix{T}(I,2,2),times)
+        @test rank(h) == 2
+        @test T(4)*h*transpose(h) == T[4 2 0;2 2 2;0 2 4]
+        marginal = StatsAPI.fit(FPCA,fd;grid,method=:pace,ncomponents=1,max_k=2,
+            mean=(;grid,values=zeros(T,2)),
+            covariance=(;grid,surface=T(2)*Matrix{T}(I,2,2)),noise_variance=T(2))
+        @test marginal.covariance == T(2)*Matrix{T}(I,2,2)
+        @test marginal.noise_variance == T(2)
+        err = try
+            FDA._fsvd_joint_scores(fd,fd,marginal,marginal,(;surface=zeros(T,2,2)),
+                ones(T,2,1),ones(T,2,1),ones(T,1))
+        catch error
+            error
+        end
+        @test err isa ArgumentError
+        message = sprint(showerror,err)
+        @test occursin("FSVD covariance for curve 1",message)
+        @test occursin("numerical row rank 4 of 6",message)
+        @test occursin("refine the work grids",message)
+        @test occursin("additional grid noise cannot restore",message)
+
+        # Full row rank does not certify covariance positivity. Retain the
+        # noise advice in that case, together with the measured rank.
+        full_rank_error = try
+            FDA._pace_cholesky(T[-1 0;0 1],2;label="FSVD",
+                interpolation=Matrix{T}(I,2,2),advice="supply positive marginal noise variances")
+        catch error
+            error
+        end
+        @test full_rank_error isa ArgumentError
+        @test occursin("numerical row rank 2 of 2",sprint(showerror,full_rank_error))
+        @test occursin("supply positive marginal noise variances",sprint(showerror,full_rank_error))
+    end
+end
+
 @testset "FSVD mixed complete-grid and irregular marginals" begin
     rng = MersenneTwister(2026102501)
     g = _m6_read("dense_left")[:,1]
@@ -105,7 +164,7 @@ end
         [v + .4randn(rng, length(v)) for v in observations]; ids=1:18)
     # The complete grid has more points than the sample covariance's rank.
     @test length(g) > nobs(x)-1
-    f = @inferred StatsAPI.fit(FSVD,x,y;bandwidth=.6,ncomponents=2,maxK=2)
+    f = @inferred StatsAPI.fit(FSVD,x,y;bandwidth=.6,ncomponents=2,max_k=2)
     @test f.fpca1.method == f.fpca2.method == :pace
     @test f.fpca1.noise_variance > 0 && f.fpca2.noise_variance > 0
     @test length(f.fpca1.grid) == length(f.fpca2.grid) == 51
@@ -115,24 +174,24 @@ end
     @test f.settings.effective_fpca_options1 == f.settings.effective_fpca_options2 == (;method=:pace)
     @test occursin("effective_fpca_options1 = (method = :pace,)",sprint(show,f))
     # Changing only the representation must preserve the conditional scores.
-    irregular = StatsAPI.fit(FSVD,to_irregular(x),y;bandwidth=.6,ncomponents=2,maxK=2)
+    irregular = StatsAPI.fit(FSVD,to_irregular(x),y;bandwidth=.6,ncomponents=2,max_k=2)
     @test f.singular_values ≈ irregular.singular_values
     @test f.left_functions ≈ irregular.left_functions
     @test f.right_functions ≈ irregular.right_functions
     @test f.left_scores ≈ irregular.left_scores
     @test f.right_scores ≈ irregular.right_scores
-    reversed = @inferred StatsAPI.fit(FSVD,y,x;bandwidth=.6,ncomponents=2,maxK=2)
+    reversed = @inferred StatsAPI.fit(FSVD,y,x;bandwidth=.6,ncomponents=2,max_k=2)
     @test reversed.fpca1.method == reversed.fpca2.method == :pace
     @test reversed.singular_values ≈ f.singular_values
     @test all(isfinite,reversed.left_scores) && all(isfinite,reversed.right_scores)
     masked = StatsAPI.fit(FSVD,x,to_grid(y,g,NoInterpolation());
-        bandwidth=.6,ncomponents=2,maxK=2)
+        bandwidth=.6,ncomponents=2,max_k=2)
     @test masked.fpca1.method == masked.fpca2.method == :pace
     @test masked.left_scores ≈ f.left_scores
     @test masked.right_scores ≈ f.right_scores
     # Supplying noise alone must work without also supplying method=:pace.
     options = (;method=:auto,noise_variance=.25)
-    explicit = StatsAPI.fit(FSVD,x,y;bandwidth=.6,ncomponents=2,maxK=2,
+    explicit = StatsAPI.fit(FSVD,x,y;bandwidth=.6,ncomponents=2,max_k=2,
         fpca_options1=options)
     @test explicit.fpca1.noise_variance == .25
     @test explicit.settings.fpca_options1 == options
