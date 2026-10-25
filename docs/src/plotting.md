@@ -209,3 +209,9 @@ covplot
 designplot
 fitplot
 ```
+
+Derivative fits support `curve_data(d; curves=:all, grid=nothing)` and
+`plot(d; curves=1:3)` after loading Plots. They display reconstructed derivative
+paths, including for PACE fits. `mean_data(d)` returns the stored mean derivative.
+For nodewise derivatives, both data helpers return node payloads and the recipe
+creates one panel per node. See [Derivatives](fpca.md#Derivatives).

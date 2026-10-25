@@ -282,3 +282,32 @@ function _joint_fitted_curve_data(f::MFPCA, recovered::MultivariateFunctionalDat
     end
     (; nodes, curve=index)
 end
+
+"""
+    curve_data(d::FPCADerivative; grid=nothing, curves=:all)
+    curve_data(d::MultivariateFPCADerivative; grid=nothing, curves=:all)
+
+Copied derivative curve coordinates from `reconstruct(d)`. The default grid is
+stored on the fit. Multivariate results return one payload per node. No
+smoothing or score estimation is repeated. All derivative curves are drawn
+as paths, including curves reconstructed from sparse observations.
+"""
+function curve_data(d::FPCADerivative; grid=nothing, curves=:all)
+    recovered = grid === nothing ? reconstruct(d) : reconstruct(d; grid)
+    data = curve_data(recovered; curves)
+    merge(data, (; representation=:derivative, design=:regular))
+end
+function curve_data(d::MultivariateFPCADerivative; grid=nothing, curves=:all)
+    index = _plot_curves(d, curves)
+    grids = _multivariate_grids(d, grid)
+    (; nodes=[curve_data(node; grid=g, curves=index) for (node, g) in zip(d.nodes, grids)], curves=index)
+end
+
+"""
+    mean_data(d::Union{FPCADerivative,MultivariateFPCADerivative})
+
+Copied mean derivative coordinates on the stored work grid; multivariate
+results return `(; nodes)`. No resmoothing is performed.
+"""
+mean_data(d::FPCADerivative) = _plot_mean(d.mean)
+mean_data(d::MultivariateFPCADerivative) = (; nodes=mean_data.(d.nodes))

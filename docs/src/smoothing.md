@@ -315,3 +315,52 @@ its existing behavior. Both forms work for the mean and noise diagonal.
 The covariance surface uses a bivariate smoother. KernelSmoothing rules are
 univariate, so covariance `bandwidth` rejects rules and pilot-based `CurveCV`.
 Use `CurveCV` with explicit candidates for that bandwidth.
+
+## Derivatives
+
+A basis expansion can be differentiated without refitting. `derivative(fd, ν)`
+keeps its coefficients, ids, and metadata and replaces its basis with
+`DerivativeBasis(fd.basis, ν)`. The new functions are the analytic derivatives
+of the original basis functions. Their Gram and roughness matrices use
+BSplineKit Galerkin integration for B-splines and closed forms for Fourier and
+monomial bases. The Gram matrix may be singular, for example when the original
+basis contains a constant. This is different from fda 6.3.0 `deriv.fd`, which
+projects sampled derivatives back into the original basis; see the
+[reference audit](fdapace.md#Derivative-source-audit).
+
+Raw observations do not define a derivative. `derivative` on grid or irregular
+data throws and suggests smoothing or projection to a basis first. Estimate a
+velocity directly with a local polynomial instead:
+
+```@example smoothing
+position = GridFunctionalData(reshape(1 .+ 2t .+ t.^2, 1, :), t)
+velocity = smooth_curves(position,
+    LocalPolynomial(; bandwidth=0.3, derivative=1); grid=t)
+velocity.metadata
+mean_velocity = StatsAPI.fit(SmoothedMean, position;
+    grid=t, bandwidth=0.3, derivative=1)
+evaluate(mean_velocity, [0.25, 0.75])
+```
+
+The default polynomial degree is `ν+1`, so degree minus derivative order is
+odd (Fan and Gijbels, 1996, *Local Polynomial Modelling and Its Applications*).
+A degree at least `ν` can be supplied explicitly. Both per-curve and pooled
+fits pass the derivative order to KernelSmoothing.jl and retain it in their
+settings and display. A polynomial of degree at most the fitted degree has its
+analytic derivative reproduced, subject to floating-point error and sufficient
+local support. Curve fits keep out-of-range values missing. A singular local
+fit raises an error naming the curve/point.
+
+Positive-order pooled mean fits require a fixed bandwidth. The existing
+value-prediction CV criterion and value-oriented bandwidth selectors do not
+select derivative bandwidths. This restriction prevents an unstated tuning
+rule; zero-order mean fits retain their existing selectors. `evaluate`,
+`mean_data`, and `plot(mean_velocity)` use the stored derivative values.
+Only `SmoothedMean` fits with `derivative=0` can center observations in FPCA,
+covariance, or cross-covariance estimation. Supplying a positive-order mean
+derivative as a centering mean raises `ArgumentError`.
+
+```@docs
+DerivativeBasis
+derivative
+```

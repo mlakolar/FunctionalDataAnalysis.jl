@@ -99,7 +99,16 @@ end
 
 """
     fit(SmoothedMean, fd; grid, bandwidth,
-        kernel=KernelSmoothing.EpanechnikovKernel(), degree=1, weighting=:obs)
+        kernel=KernelSmoothing.EpanechnikovKernel(), derivative=0,
+        degree=derivative+1, weighting=:obs)
+
+Estimate the mean derivative of nonnegative order `derivative` with a local
+polynomial of default degree `derivative+1` (Fan and Gijbels, 1996). Positive
+derivatives require a fixed bandwidth: value-prediction bandwidth selectors
+do not target derivative risk. This explicit restriction avoids silently
+using a value-optimal bandwidth for a derivative.
+Only `derivative=0` fits can be supplied as centering means to FPCA or
+covariance estimators.
 
 Fit a local polynomial to all observed values of univariate grid or irregular
 data. `:obs` gives each observation weight one; `:subj` gives each observation
@@ -113,7 +122,7 @@ designs, where each curve contributes about one point per window, but they
 ignore within-curve correlation in dense designs. Use `CurveCV` for the
 final choice. Density-only and pointwise bandwidth rules raise `ArgumentError`.
 
-The fit stores grid, values, selected bandwidth, kernel, degree, weighting,
+The fit stores grid, values, selected bandwidth, kernel, degree, derivative, weighting,
 sampling design (`design`), `minobs=0`, `binning=:none`, and `folds` (zero for
 a fixed or rule-selected bandwidth). Fixed bandwidths store `selection=nothing`.
 A rule stores `rule`, `bandwidth`, and
@@ -131,12 +140,19 @@ struct SmoothedMean{T<:AbstractFloat,H<:AbstractFloat,K,S}
     bandwidth::H
     kernel::K
     degree::Int
+    derivative::Int
     weighting::Symbol
     design::Symbol
     minobs::Int
     binning::Symbol
     folds::Int
     selection::S
+end
+
+function _require_value_mean(mean::SmoothedMean)
+    mean.derivative == 0 || throw(ArgumentError(
+        "mean has derivative=$(mean.derivative); a centering mean must have derivative=0"))
+    nothing
 end
 
 function _mean_pool(fd, weighting)
@@ -157,7 +173,7 @@ end
 function _mean_predict(t, y, w, points, method; label="pooled mean")
     model = KernelSmoothing.fit(KernelSmoothing.LocalPolynomialRegression, t, y;
         bandwidth=method.bandwidth, kernel=method.kernel, degree=method.degree,
-        weights=w, points, minobs=0)
+        weights=w, points, derivative=method.derivative, minobs=0)
     values = KernelSmoothing.coef(model)
     for (point, value) in zip(points, values)
         isfinite(value) || throw(ArgumentError(
@@ -195,19 +211,23 @@ end
 
 function fit(::Type{SmoothedMean}, fd::Union{GridFunctionalData,IrregularFunctionalData};
         grid::AbstractVector{<:Real}, bandwidth,
-        kernel=KernelSmoothing.EpanechnikovKernel(), degree=1, weighting=:obs)
+        kernel=KernelSmoothing.EpanechnikovKernel(), derivative=0,
+        degree=nothing, weighting=:obs)
     weighting in (:obs, :subj) || throw(ArgumentError("weighting must be :obs or :subj"))
     x = _evaluation_points(fd, grid)
     quadrature_weights(x)
     # Validate settings before either fitting or selecting a bandwidth.
     method = LocalPolynomial(; bandwidth=_initial_bandwidth(bandwidth),
-        kernel, degree)
+        kernel, degree, derivative)
+    if method.derivative > 0 && !(bandwidth isa Real)
+        throw(ArgumentError("derivative mean estimation requires a fixed bandwidth; value-prediction selectors do not target derivatives"))
+    end
     t, y, w, subjects = _mean_pool(fd, weighting)
     h, selection = _resolve_bandwidth(bandwidth, fd, t, y, w, subjects, method.kernel, method.degree)
-    chosen = LocalPolynomial(; bandwidth=h, kernel=method.kernel, degree=method.degree)
+    chosen = LocalPolynomial(; bandwidth=h, kernel=method.kernel, degree=method.degree, derivative=method.derivative)
     values = Vector{eltype(x)}(_mean_predict(t, y, w, x, chosen))
     all(isfinite, values) || throw(ArgumentError("pooled mean values must remain finite after conversion"))
-    SmoothedMean(x, values, chosen.bandwidth, chosen.kernel, chosen.degree, weighting,
+    SmoothedMean(x, values, chosen.bandwidth, chosen.kernel, chosen.degree, chosen.derivative, weighting,
         sampling_design(fd), 0, :none, bandwidth isa CurveCV ? bandwidth.folds : 0, selection)
 end
 
@@ -240,7 +260,7 @@ function Base.show(io::IO, selector::CurveCV)
 end
 function Base.show(io::IO, m::SmoothedMean)
     print(io, "SmoothedMean(grid=", m.grid, ", bandwidth=", m.bandwidth,
-        ", kernel=", m.kernel, ", degree=", m.degree, ", weighting=", m.weighting,
+        ", kernel=", m.kernel, ", degree=", m.degree, ", derivative=", m.derivative, ", weighting=", m.weighting,
         ", design=", m.design, ", minobs=", m.minobs, ", binning=", m.binning,
         ", folds=", m.folds, ", selection=", m.selection, ")")
 end

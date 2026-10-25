@@ -10,7 +10,8 @@ pilot-based CurveCV are univariate and cannot select this 2D bandwidth.
 Every curve must have at least two observations. Stored data weights are unused.
 The supplied mean (`SmoothedMean` or one complete `GridFunctionalData` curve,
 including a multivariate FPCA mean) is interpolated at original observation
-times and held fixed through CV. Its grid must cover those times.
+times and held fixed through CV. Its grid must cover those times, and a
+`SmoothedMean` must have `derivative=0`.
 
 Optional integer `binning >= 2` snaps times to the nearest of that many equally
 spaced points over the observed domain (midpoint ties go upward). Products
@@ -63,7 +64,10 @@ struct SmoothedCovariance{T<:AbstractFloat,H,D,K,S,N,B}
     noise_details::N
 end
 
-_covariance_mean_values(mean::SmoothedMean, t) = evaluate(mean, t)
+function _covariance_mean_values(mean::SmoothedMean, t)
+    _require_value_mean(mean)
+    evaluate(mean, t)
+end
 function _covariance_mean_values(mean::GridFunctionalData, t)
     nobs(mean) == 1 && mean.observed === nothing || throw(ArgumentError(
         "a covariance mean must contain one complete grid curve"))
@@ -160,6 +164,7 @@ end
 function fit(::Type{SmoothedCovariance}, fd::Union{GridFunctionalData,IrregularFunctionalData},
         mean::Union{SmoothedMean,GridFunctionalData}; grid::AbstractVector{<:Real}, bandwidth, diagonal_bandwidth=nothing,
         kernel=KernelSmoothing.EpanechnikovKernel(), weighting=:obs, binning=nothing)
+    mean isa SmoothedMean && _require_value_mean(mean)
     weighting in (:obs, :subj) || throw(ArgumentError("weighting must be :obs or :subj"))
     binning === nothing || (binning isa Integer && 2 <= binning <= typemax(Int)) ||
         throw(ArgumentError("binning must be nothing or an integer of at least two"))

@@ -26,4 +26,5 @@ using Test
     include("mfpca.jl")
     include("cross_covariance.jl")
     include("plotting.jl")
+    include("derivatives.jl")
 end

@@ -488,3 +488,116 @@ Sparse Longitudinal Data*, JASA 100, 577–590;
 [doi:10.1198/016214504000001745](https://doi.org/10.1198/016214504000001745).
 Ramsay and Silverman (2005), *Functional Data Analysis*, second edition,
 Chapter 8; [doi:10.1007/b98888](https://doi.org/10.1007/b98888).
+
+## Derivative source audit
+
+The derivative reference is CRAN **fdapace 0.6.0**, specifically
+[`FPCAder.R`](https://github.com/cran/fdapace/blob/0.6.0/R/FPCAder.R),
+[`SetDerOptions.R`](https://github.com/cran/fdapace/blob/0.6.0/R/SetDerOptions.R),
+`Lwls1D.R`, `CPPlwls1d.cpp`, `ConvertSupport.R`, and `GetCEScores.R`.
+The method references are Liu and Müller (2009), *Estimating derivatives for
+samples of sparsely observed functions, with application to online auction
+dynamics*, and Dai, Müller and Tao (2018), *Derivatives and principal component
+analysis of curves*, *Statistica Sinica* 28, 779–801.
+
+### Audited rules
+
+- `SetDerOptions` defaults to `method="FPC"`, order `p=1`, and
+  `kernelType="gauss"`, independently of the original FPCA kernel.
+- If neither derivative bandwidth is given, a common `bw` is used. Without an
+  explicit `bw`, it is `p*0.10*diff(range(workGrid))` when nonnull `sigma2`
+  divided by the sum of selected `lambda` is at least 0.01; otherwise it is
+  `p*0.05*diff(range(workGrid))`. Separate `bwMu` and `bwCov` require both.
+- `FPC` supports orders one and two. `muDer` smooths the stored `mu` and
+  `phiDer` smooths each stored `phi` on `workGrid`, both with polynomial degree
+  **equal to p**, derivative order `p`, and unit point weights. Original scores
+  reconstruct derivatives as `muDer + phiDer %*% xiEst[i,]`. Order two emits an
+  experimental warning. The C++ fitter multiplies the derivative coefficient
+  by `p!`, with the sign correction for its reversed polynomial coordinates.
+  Gaussian windows include all inputs; compact kernels use their bandwidth
+  window. The package uses KernelSmoothing.jl's equivalent derivative fit and
+  validates unsupported kernels/orders rather than using a fallback kernel.
+- `DPC` supports first derivatives. It re-estimates the raw pooled mean:
+  degree one at `obsGrid` for centering, degree two/derivative one at `workGrid`
+  for `muDer`. It forms raw covariance bins but does not use them subsequently
+  in the implemented DPC branch. `cov10` is the columnwise first difference
+  of `smoothedCov`, divided by the first grid spacing, then interpolated from
+  `seq(min(workGrid),max(workGrid),length=nWorkGrid-1)` to `workGrid`.
+  This support assignment uses the endpoints, not interval midpoints.
+  Rowwise degree-two derivative smoothing gives `cov11`, then symmetrization.
+- Native DPC diagonalizes `cov11`, keeps nonnegative eigenvalues, scales them
+  by the first grid spacing, and chooses the first cumulative FVE reaching
+  **0.9999**. Eigenvectors are normalized by trapezoidal integrals. Its
+  cross-covariance `zeta=crossprod(cov10,phiDer)*gridSize` supplies CE score
+  numerators; the original fitted covariance supplies the denominator, with
+  noise `max(sigma2,rho)` when `rho` exists. For the score prior, however, it
+  substitutes eigenvalues of the twice-**unsmoothed-differenced** covariance.
+  Negative conditional score-covariance eigenvalues are clipped to zero.
+  In a dense cross-sectional fit `sigma2` can be NULL; the native DPC call then
+  fails in its `ifelse` noise expression unless that field is supplied.
+- `FPC1` is the only additional implemented branch. It supports first order,
+  re-estimates the pooled mean as DPC does, and uses `Lwls2DDeriv` (total degree
+  one, partial orders `(1,0)`) on binned raw off-diagonal covariance products.
+  It multiplies that derivative surface by `phi/lambda` and grid spacing.
+  This optional method is not implemented here because it needs a separate
+  bivariate derivative smoother. Unrecognized method strings in this package
+  raise `ArgumentError`.
+
+### Package DPC quantity and reference validation
+
+This package uses the linear local-polynomial derivative operator `D` on both
+arguments: `C10=D*G`, `C11=D*G*D'`. The mean derivative applies the corresponding
+mean-bandwidth operator to the **stored mean**, respecting supplied means.
+Dense `G` is the sample covariance. PACE `G` is the full positive-semidefinite
+projection retained by the original fit. This preserves consistency between
+the derivative prior and its curve-score cross-covariance, supports nonuniform
+work grids, and avoids introducing a second differentiation implementation.
+The eigenstep uses stored quadrature weights `W`, as all package FPCA does.
+For derivative functions `Psi`, the PACE numerator is the interpolation of
+`G*D'*W*Psi`; its denominator is the original `G(t_i,t_i)+sigma2*I`.
+The same derivative eigenvalues supply the score prior. This is the
+conditional-expectation construction of the derivative process, not native
+fdapace's unsmoothed-spectrum substitution. No posterior clipping is needed
+for the resulting positive-semidefinite joint covariance.
+
+Recreate `test/data/m5_fdapace_der.csv` with:
+
+```sh
+Rscript test/reference/fdapace_m5.R
+```
+
+The script records its R and fdapace versions in the CSV header. It reuses the
+fixed dense and sparse milestone 3 input CSVs (adding `0.2*t^2` to the supplied
+sparse mean so its second derivative is nonzero), `bwMu=.12`, `bwCov=.15`, Gaussian
+kernels, and three selected components. Original eigensystems are aligned to
+the package's trapezoidal convention in R before `FPCAder` runs. `FPC_order1` and
+`FPC_order2` rows refer to FPC derivative orders 1 and 2. Both orders compare the mean, functions, original
+spectrum/scores, and reconstructed curves at relative error below `1e-8`.
+
+For DPC, native `FPCAder` runs on both designs (dense `sigma2` is explicitly
+set to zero for its noise-expression issue). Its mean, functions, eigenvalues
+and scores are retained as `native_DPC`, exposing the native difference.
+The native mean derivative is compared directly with `fit(SmoothedMean, ...)`
+on the original pooled observations, using degree two, derivative order one,
+the Gaussian kernel and `bandwidth=.12`, at relative error below `1e-8`.
+This checks native `FPCAder` output independently of its covariance and score
+prior. Native DPC re-estimates this mean even when the original FPCA fit has
+a supplied mean; the package DPC differentiates the stored mean instead.
+For the dense common-grid fixture, these quantities coincide, and the package
+DPC mean derivative is also compared directly with native DPC at `1e-8`.
+`DPC` rows compare the documented aligned quantity above: fdapace `Lwls1D`
+in both covariance arguments, the stored mean, weighted eigenanalysis, and
+fdapace `GetCEScores` with the matching derivative prior. Tests compare mean,
+derivative covariance, functions, eigenvalues, scores and curves at relative
+error below `1e-8`; sparse conditional covariances have the same tolerance.
+The native DPC spectrum is explicitly checked to differ from this aligned
+spectrum. No tolerance is relaxed to claim native DPC equivalence.
+
+The other basis reference is **fda 6.3.0**,
+[`R/deriv.fd.R`](https://github.com/cran/fda/blob/6.3.0/R/deriv.fd.R).
+Its default `int2Lfd(1)` requests a first derivative. It evaluates derivatives
+on `10*nbasis+1` equally spaced points and calls `project.basis` into the
+**original** basis. This package instead retains exact derivative basis
+functions and original coefficients, as required by the derivative API;
+it does not perform this projection. Analytic polynomial, Fourier, and
+in-span B-spline tests validate this deliberately different quantity.

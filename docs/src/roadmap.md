@@ -67,7 +67,11 @@
   Plots.jl, including observed data, means, modes, scree plots, covariance
   surfaces, observation designs, and fitted paths. See [Plotting](plotting.md)
   for defaults, simulated figures, and the fdapace 0.6.0 source audit.
-  Remaining tasks: derivatives, confidence bands, datasets, and the
+  Task 2 adds exact derivative bases, polynomial curve/mean derivatives,
+  FPC and DPC derivative fits, reconstruction and nodewise plotting. The
+  derivative reference audit documents the consistent weighted DPC quantity
+  and its departures from fdapace.
+  Remaining tasks: confidence bands, datasets, and the
   noise-variance estimator benchmark (issue #17). Makie recipes are deferred.
   This scope follows the Tier 1 Gap Map and Mladen's 24 October decision,
   replacing the original milestone 5 scope.

@@ -40,9 +40,15 @@ function _interval(interval::Tuple{<:Real,<:Real})
 end
 
 function _derivative_order(order)
-    order isa Integer && order >= 0 ||
-        throw(ArgumentError("derivative order must be a nonnegative integer"))
+    order isa Integer && 0 <= order <= typemax(Int) ||
+        throw(ArgumentError("derivative order must be a nonnegative integer representable as Int"))
     Int(order)
+end
+
+function _derivative_sum(a, b)
+    nu = _derivative_order(b)
+    a <= typemax(Int) - nu || throw(ArgumentError("total derivative order exceeds Int"))
+    a + nu
 end
 
 function _basispoints(b, t::AbstractVector{<:Real})
