@@ -23,9 +23,13 @@ function gram end
 
 """
     penalty(b, order)
+    penalty(b::FourierBasis, :harmonic_acceleration)
 
 Return the matrix of integrals of pairwise products of derivatives of the
 nonnegative integer `order`. Order zero is the Gram matrix.
+For a Fourier basis, `:harmonic_acceleration` integrates products of
+`Lφ = D³φ + (2π/domain_width)² Dφ`, the default operator in fda 6.3.0
+`fdPar`. Its null space contains the constant and first sine/cosine pair.
 """
 function penalty end
 
@@ -234,10 +238,19 @@ function penalty(b::BSplineBasis{T}, order) where {T}
     d = BSplineKit.Derivative(m)
     out = zeros(T, nbasis(b), nbasis(b))
     BSplineKit.galerkin_matrix!(out, b.backend, (d, d))
-    out
+    (out + transpose(out)) / 2
 end
 
 function penalty(b::FourierBasis{T}, order) where {T}
+    if order === :harmonic_acceleration
+        omega = T(2) * T(pi) / (b.interval[2] - b.interval[1])
+        diagonal = zeros(T, nbasis(b))
+        for k in 2:div(b.n - 1, 2)
+            value = ((k * omega) * (omega^2 - (k * omega)^2))^2
+            diagonal[2k] = diagonal[2k + 1] = value
+        end
+        return Matrix(Diagonal(diagonal))
+    end
     m = _derivative_order(order)
     diagonal = zeros(T, nbasis(b))
     diagonal[1] = m == 0 ? one(T) : zero(T)

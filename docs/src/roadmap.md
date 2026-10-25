@@ -94,9 +94,15 @@
   are documented on the [FPCA page](fpca.md). The cross-structure task adds
   weighted FSVD with dense integration and joint PACE scores, concurrent
   correlation through five local linear smooths, and dynamic correlation; see
-  [Cross-structure](cross_structure.md). Sparse FACE, roughness-penalized
-  FPCA and functional CCA, and the Discovery scaling study remain subsequent
-  tasks. Multi-penalty REML belongs to milestone 7.
+  [Cross-structure](cross_structure.md). Roughness-penalized basis FPCA reuses
+  the FPCA result and eigenstep,
+  with exact basis prediction/reconstruction and explicit leave-one-curve-out
+  lambda selection with an explicit fixed component count. Functional CCA adds
+  paired basis weights, variates,
+  penalized squared correlations, and optional leading-variate CV.
+  The fda 6.3.0 reference and defaults are on the [FPCA](fpca.md#Smoothed-FPCA)
+  and [CCA](cca.md) pages. Sparse FACE and the Discovery scaling study remain
+  subsequent tasks. Multi-penalty REML belongs to milestone 7.
 - Milestone 7: functional regression.
 - Milestone 8: depth, outliers, and clustering.
 - Milestone 9: registration.

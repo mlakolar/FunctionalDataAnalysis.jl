@@ -18,6 +18,7 @@ using Test
     include("covariance.jl")
     include("fpcbasis.jl")
     include("fpca.jl")
+    include("smoothed_fpca.jl")
     include("face.jl")
     include("face_sparse.jl")
     include("pace.jl")
