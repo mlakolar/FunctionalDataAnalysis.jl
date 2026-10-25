@@ -6,6 +6,10 @@ package_root = dirname(@__DIR__)
 project_path = joinpath(package_root, "Project.toml")
 original_project = read(project_path, String)
 project = TOML.parse(original_project)
+suite_flags = filter(flag -> flag in ARGS,
+    ["--coverage-study", "--jet", "--threaded-smoke", "--dataset-smoke"])
+length(suite_flags) <= 1 || error("select only one test suite")
+suite_flag = isempty(suite_flags) ? "" : only(suite_flags)
 deps = copy(get(project, "deps", Dict{String,Any}()))
 extras = merge(get(project, "weakdeps", Dict()), get(project, "extras", Dict()))
 for name in get(get(project, "targets", Dict()), "test", String[])
@@ -14,6 +18,11 @@ end
 deps[project["name"]] = project["uuid"]
 compat = Dict(name => value for (name, value) in get(project, "compat", Dict())
               if name == "julia" || haskey(deps, name))
+if suite_flag == "--jet"
+    tools = TOML.parsefile(joinpath(package_root, "test", "jet", "Project.toml"))
+    merge!(deps, tools["deps"])
+    merge!(compat, tools["compat"])
+end
 sources = Dict{String,Any}()
 for name in keys(deps)
     if name == project["name"]
@@ -28,6 +37,7 @@ for name in keys(deps)
     end
 end
 environment = joinpath(package_root, ".master-test-env", "v$(VERSION.major).$(VERSION.minor)")
+suite_flag == "--jet" && (environment = joinpath(environment, "jet"))
 mkpath(environment)
 open(joinpath(environment, "Project.toml"), "w") do io
     TOML.print(io, Dict("deps" => deps, "compat" => compat, "sources" => sources))
@@ -48,7 +58,10 @@ if !("--setup-only" in ARGS)
     depwarn = get(ENV, "JULIA_TEST_DEPWARN", "yes")
     depwarn in ("yes", "no", "error") || error("invalid JULIA_TEST_DEPWARN")
     coverage = get(ENV, "JULIA_TEST_COVERAGE", "false") == "true" ? "user" : "none"
-    suite = "--coverage-study" in ARGS ? "bands_coverage.jl" : "runtests.jl"
+    suite = get(Dict("--coverage-study" => "bands_coverage.jl",
+        "--jet" => joinpath("jet", "runtests.jl"),
+        "--threaded-smoke" => joinpath("ci", "threaded_smoke.jl"),
+        "--dataset-smoke" => joinpath("ci", "datasets_smoke.jl")), suite_flag, "runtests.jl")
     test_file = joinpath(package_root, "test", suite)
     run(`$(Base.julia_cmd()) --startup-file=no --check-bounds=yes --depwarn=$depwarn --code-coverage=$coverage --project=$environment $test_file`)
 end
