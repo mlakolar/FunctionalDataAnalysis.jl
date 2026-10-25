@@ -8,9 +8,9 @@ source object, archive URL and SHA-256, citation, transformations, units,
 component order, and original row indices. Every call returns fresh arrays.
 
 Full data use a single lazy Julia artifact. Importing the package and listing
-datasets do not download it. The release download URL is a placeholder until
-the data release is published; use `sample=true` for the committed offline
-subsets. These subsets use the same exporter and loader as the full data.
+datasets do not download it; the first full `load_dataset` call downloads it
+from the repository's `datasets-v1` release. Use `sample=true` for the
+committed offline subsets. These subsets use the same exporter and loader as the full data.
 The examples below always use the samples, so this page builds without the
 artifact or a network connection.
 

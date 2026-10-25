@@ -21,7 +21,7 @@ The full tarball is left locally at **`data/build/fda-datasets-v1.tar.gz`**
 (ignored, so binary data and source archives are not committed). The script
 also installs the content in the local artifact cache. The repository includes
 `Artifacts.toml` with `lazy = true`, an immutable git-tree hash, tarball SHA-256,
-and a deliberately nonworking `DATASETS_RELEASE_TAG` URL placeholder.
+and the URL of the tarball attached to the `datasets-v1` release.
 
 - git-tree-sha1: `b4a7d08b6826cf57a804710db60204957237f738`
 - tarball SHA-256: `ed2db0310705dac6852d37aca6d14bf59e2c68e24269c87254ceffdb16660cd2`
