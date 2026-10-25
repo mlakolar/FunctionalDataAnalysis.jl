@@ -8,6 +8,7 @@ import Tables
 using RecipesBase: @recipe, @series
 import RecipesBase
 using Random: AbstractRNG, rand, randn, randperm
+import Random
 
 export AbstractFunctionalData, AbstractBasis, nobs, domain, evaluate,
     sampling_design, quadrature_weights
@@ -27,6 +28,7 @@ export ids, RegularSampling, SparseSampling, simulate_kl,
 export curve_data, mean_data, modes_of_variation, scree_data, covariance_data,
     design_data, fitted_curve_data
 export modesplot, screeplot, covplot, designplot, fitplot
+export FittedBands, MeanBands, fitted_bands, mean_bands, band_data, bandplot
 
 include("interface.jl")
 include("quadrature.jl")
@@ -50,6 +52,7 @@ include("multivariate_fpca.jl")
 include("mfpca.jl")
 include("cross_covariance.jl")
 include("derivatives.jl")
+include("bands.jl")
 include("plot_data.jl")
 include("recipes.jl")
 

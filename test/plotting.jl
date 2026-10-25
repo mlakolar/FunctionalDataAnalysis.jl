@@ -1,4 +1,5 @@
 using Test, LinearAlgebra, DelimitedFiles
+using Random
 using FunctionalDataAnalysis
 import StatsAPI
 import RecipesBase
@@ -312,5 +313,51 @@ end
         @test occursin("FVE=", modes[6].plotattributes[:title])
         @test !isdefined(Main, :Plots)
         @test all(s -> s.args != (nothing,), modes)
+    end
+
+    @testset "Band coordinates and ribbon recipes" begin
+        fixture = plotting_fixture()
+        b = fitted_bands(fixture.pace; curves=[2, 1], coverage=:band)
+        d = @inferred band_data(b)
+        @test d.grid == b.grid && d.grid !== b.grid
+        @test d.values == b.fitted && d.values !== b.fitted
+        @test d.lower == b.lower && d.lower !== b.lower
+        @test d.upper == b.upper && d.upper !== b.upper
+        @test d.curves == [2, 1] && d.types == [:band, :band]
+        series = plotting_series(FunctionalDataAnalysis._plot_payload(Val(:band), d);
+            attrs=Dict{Symbol,Any}(:fillalpha => 0.4, :linewidth => 3))
+        @test length(series) == 2
+        @test series[1].args == (b.grid, b.fitted[1, :])
+        @test series[1].plotattributes[:ribbon][1] ≈ b.fitted[1, :] - b.lower[1, :]
+        @test series[1].plotattributes[:ribbon][2] ≈ b.upper[1, :] - b.fitted[1, :]
+        @test all(s -> s.plotattributes[:fillalpha] == 0.4 && s.plotattributes[:linewidth] == 3, series)
+        mean = StatsAPI.fit(SmoothedMean, fixture.fd; grid=fixture.grid, bandwidth=2.0)
+        mb = mean_bands(fixture.fd, mean; B=19, rng=MersenneTwister(1))
+        md = @inferred band_data(mb)
+        @test md.types == [:interval, :band] && size(md.values) == (2, 5)
+        @test md.lower[1, :] == mb.interval.lower && md.upper[2, :] == mb.band.upper
+        @test (@inferred band_data(mb; coverage=:band)).types == [:band]
+        @test length(plotting_series(FunctionalDataAnalysis._plot_payload(Val(:band), md))) == 2
+        onlypoint = mean_bands(fixture.fd, mean; B=9, rng=MersenneTwister(1), coverage=:interval)
+        @test_throws ArgumentError band_data(onlypoint; coverage=:both)
+        @test_throws ArgumentError band_data(onlypoint; coverage=:band)
+        @test_throws ArgumentError band_data(mb; coverage=:unknown)
+        sandwich = mean_bands(fixture.fd, mean; method=:sandwich)
+        @test band_data(sandwich).types == [:interval]
+        # Never clip a percentile interval to force it to include the estimate.
+        shifted = band_data(mb; coverage=:interval)
+        shifted.lower .= shifted.values .+ 2
+        shifted.upper .= shifted.values .+ 3
+        ribbon = only(plotting_series(FunctionalDataAnalysis._FDAPlot{:band}(shifted))).plotattributes[:ribbon]
+        @test ribbon[1] ≈ fill(-2.0, 5)
+        @test ribbon[2] ≈ fill(3.0, 5)
+        nodes = @inferred band_data((; nodes=[b, b]))
+        panels = plotting_series(FunctionalDataAnalysis._plot_payload(Val(:band), nodes))
+        @test length(panels) == 4
+        @test panels[3].plotattributes[:subplot] == 2
+        @test occursin("Node 2", panels[3].plotattributes[:title])
+        d.values[1, 1] = 999
+        @test b.fitted[1, 1] != 999
+        @test !isdefined(Main, :Plots)
     end
 end

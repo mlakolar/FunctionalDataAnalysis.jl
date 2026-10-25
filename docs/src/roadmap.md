@@ -21,7 +21,8 @@
   regression `BandwidthSelector`s and pilot-centred `CurveCV(; pilot, multipliers)`;
   the 2D covariance bandwidth needs a number or explicit `CurveCV` candidates.
   Both weighting schemes match fixed-bandwidth fdapace covariance fixtures.
-  Pointwise mean bands await cluster-robust variance support in KernelSmoothing.jl.
+  Mean uncertainty is available through the milestone 5 curve bootstrap and
+  KernelSmoothing curve-cluster sandwich intervals.
 - Milestone 3 (done): dense univariate FPCA is implemented, with a
   stored weighted eigenbasis, quadrature scores, FVE or fixed component
   selection, optional per-curve presmoothing, prediction, and reconstruction.
@@ -71,7 +72,10 @@
   FPC and DPC derivative fits, reconstruction and nodewise plotting. The
   derivative reference audit documents the consistent weighted DPC quantity
   and its departures from fdapace.
-  Remaining tasks: confidence bands, datasets, and the
+  Task 3 adds conditional PACE fitted-curve intervals and simultaneous bands,
+  curve-bootstrap mean intervals and sup-t bands, curve-cluster sandwich mean
+  intervals, and ribbon recipes. See [Uncertainty](uncertainty.md).
+  Remaining tasks: datasets, and the
   noise-variance estimator benchmark (issue #17). Makie recipes are deferred.
   This scope follows the Tier 1 Gap Map and Mladen's 24 October decision,
   replacing the original milestone 5 scope.

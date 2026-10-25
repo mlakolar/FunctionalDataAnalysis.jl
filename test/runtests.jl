@@ -27,4 +27,6 @@ using Test
     include("cross_covariance.jl")
     include("plotting.jl")
     include("derivatives.jl")
+    include("bands.jl")
+    include("bands_coverage.jl")
 end
