@@ -27,6 +27,18 @@ Pkg.add(url = "https://github.com/mlakolar/KernelSmoothing.jl") # required on Ju
 Pkg.add(url = "https://github.com/mlakolar/FunctionalDataAnalysis.jl")
 ```
 
+## Development tests
+
+From a master checkout's package root, run:
+
+```sh
+julia scripts/test_master.jl
+```
+
+This prepares the dedicated master-based test environment, including test extras
+and sibling workspace dependencies, and runs the complete suite. Package version
+numbers and dependency declarations remain unchanged.
+
 ## Quadrature
 
 Use [`quadrature_weights`](@ref) to integrate sampled curves on a finite,

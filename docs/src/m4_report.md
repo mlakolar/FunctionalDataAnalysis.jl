@@ -43,8 +43,8 @@ noise estimate, and smoothing provenance.
 | Pooled `method` | `:auto`, resolving to dense. | Pooled route requires complete common-grid data; `:dense` is also accepted. |
 | Marginal `grid` | Data grid for dense; 51 equally spaced observed-range points for PACE. | Dense data representation; fdapace 0.6.0 `nRegGrid` and `FPCA.R`. |
 | `ncomponents` | `FVE(0.99)` per node or on the pooled spectrum. | Task API and fdapace 0.6.0 `FVEthreshold`. |
-| `maxK`, dense and pooled | `max(1,min(g-2,n-2))`; explicit caps no larger than `min(g,n-1)`. | Task requires the dense cap; fdapace 0.6.0 cross-sectional `SetOptions.R`. |
-| `maxK`, marginal PACE | `max(1,min(20,g-2,n-2))`. | fdapace 0.6.0 smoothing-route `SetOptions.R`. |
+| `max_k`, dense and pooled | `max(1,min(g-2,n-2))`; explicit caps no larger than `min(g,n-1)`. | Task requires the dense cap; fdapace 0.6.0 cross-sectional `SetOptions.R`. |
+| `max_k`, marginal PACE | `max(1,min(20,g-2,n-2))`. | fdapace 0.6.0 smoothing-route `SetOptions.R`. |
 | Marginal PACE mean/covariance | Estimate missing inputs with existing local-linear smoothers. | Yao, Müller, and Wang (2005), inherited milestone 3 route. |
 | Marginal PACE `noise_variance` | Covariance smoother's nonnegative estimate; supplied surfaces require an explicit value. | Inherited milestone 3 contract and fdapace covariance smoothing. |
 | Marginal PACE `kernel` | Gaussian when a smoother runs. | fdapace 0.6.0 non-dense `SetOptions.R`. |
@@ -71,7 +71,7 @@ remain separate from per-node score variances.
   equals the number of nodes. A vector of grids denotes per-node grids.
   Other vector-valued keyword containers must have one entry per node.
   Per-node `nothing` leaves that node's univariate default active.
-- Pooled `maxK` retains the task's dense-route bound `min(g,n-1)`. The
+- Pooled `max_k` retains the task's dense-route bound `min(g,n-1)`. The
   frozen FGM implementation allows `min(g,p*(n-1))` because averaging node
   covariances can increase rank. FDA follows the requested dense cap;
   this restriction is explicit and does not imply that the pooled
@@ -83,7 +83,7 @@ remain separate from per-node score variances.
   training mean curves. Near-zero overlap uses the existing largest-entry
   fallback, with the first entry breaking ties. This choice affects only
   signs, not the pooled covariance or score variances.
-- Pooled tuning accepts shared `ncomponents`, `maxK`, `eigen_tol`, and
+- Pooled tuning accepts shared `ncomponents`, `max_k`, `eigen_tol`, and
   `sign_tol`, with `method=:auto` or `:dense`. Presmoothing, custom work
   grids, and PACE-specific options are rejected explicitly. The task did
   not define pooled presmoothing or a new pooled work-grid method.

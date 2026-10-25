@@ -207,7 +207,7 @@ end
     blocks[2,1].surface[1,1] += 1
     @test blocks[1,2].surface != transpose(blocks[2,1].surface)
     for basis in (:marginal,:pooled)
-        fpca = StatsAPI.fit(FPCA,mfd; basis, ncomponents=1, maxK=2)
+        fpca = StatsAPI.fit(FPCA,mfd; basis, ncomponents=1, max_k=2)
         b = cross_covariances(mfd; fpca, bandwidth=2., grid=[grid, [0.,.5,1.]])
         @test b[1,2].mean1.values == fpca.means[1].values
         @test b[1,2].mean2.values == fpca.means[2].values
@@ -241,9 +241,9 @@ end
     end
     wrongids = MultivariateFunctionalData([GridFunctionalData(values,grid; ids=6:-1:1),
         GridFunctionalData(values,grid; ids=6:-1:1)])
-    fpca = StatsAPI.fit(FPCA,wrongids; ncomponents=1,maxK=2)
+    fpca = StatsAPI.fit(FPCA,wrongids; ncomponents=1,max_k=2)
     @test_throws ArgumentError cross_covariances(mfd; fpca,bandwidth=2.)
-    fewer = StatsAPI.fit(FPCA,mfd[1:5]; ncomponents=1,maxK=2)
+    fewer = StatsAPI.fit(FPCA,mfd[1:5]; ncomponents=1,max_k=2)
     @test_throws DimensionMismatch cross_covariances(mfd; fpca=fewer,bandwidth=2.)
     @test size(cross_covariances(MultivariateFunctionalData([x]); bandwidth=2.)) == (1,1)
 end

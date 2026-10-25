@@ -25,7 +25,7 @@ function bands_coverage(; replicates=400, n=300, B=399, seed=20261025)
         fd = IrregularFunctionalData(times, values; domain=(0.0, 1.0))
         model = StatsAPI.fit(FPCA, fd; method=:pace, grid,
             mean=(; grid, values=truth_mean), covariance=(; grid, surface),
-            noise_variance=0.2, ncomponents=2, maxK=2)
+            noise_variance=0.2, ncomponents=2, max_k=2)
         truth = transpose(truth_mean) .+ latent * phi'
         point = fitted_bands(model)
         band = fitted_bands(model; coverage=:band)

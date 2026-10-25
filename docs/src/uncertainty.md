@@ -10,7 +10,7 @@ independent curves. These have different targets and assumptions.
 bands = fitted_bands(pace; alpha=0.05, coverage=:interval, curves=[1, 3])
 simultaneous = fitted_bands(pace; coverage=:band)
 # After loading Plots:
-bandplot(bands)
+band_plot(bands)
 ```
 
 For curve i, the stored conditional score covariance is Ωᵢ. The variance
@@ -69,7 +69,7 @@ uncertainty = mean_bands(fd, m; B=1000, rng=MersenneTwister(42))
 # Recreate the bootstrap from its stored initial RNG state:
 repeated = mean_bands(fd, m; B=uncertainty.B, rng=uncertainty.rng_state)
 # After loading Plots:
-bandplot(uncertainty; coverage=:band)
+band_plot(uncertainty; coverage=:band)
 ```
 
 The bootstrap samples whole curves with replacement, retaining all their
@@ -176,5 +176,5 @@ MeanBands
 fitted_bands
 mean_bands
 band_data
-bandplot
+band_plot
 ```

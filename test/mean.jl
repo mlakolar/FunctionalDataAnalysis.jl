@@ -139,7 +139,7 @@ end
     for weighting in (:obs, :subj)
         w = vcat([fill(weighting == :obs ? 1. : 1/length(t), length(t)) for t in times]...)
         for rule in (KernelSmoothing.RuleOfThumb(), KernelSmoothing.IMSEOptimal())
-            direct = KernelSmoothing.selectbandwidth(rule,
+            direct = KernelSmoothing.select_bandwidth(rule,
                 KernelSmoothing.SmoothingData(x, y; weights=w), kernel; degree=1)
             # KernelSmoothing selectors' `details` types depend on the data (and on
             # the KernelSmoothing version), so selector fits are not inferred.
@@ -157,7 +157,7 @@ end
         @test_throws ArgumentError("CurveCV multipliers must be finite and positive") CurveCV(; pilot, multipliers=[1., -2.])
         multipliers[1] = 10.
         m = StatsAPI.fit(SmoothedMean, fd; grid, bandwidth=cv, kernel, weighting)
-        h = KernelSmoothing.selectbandwidth(pilot,
+        h = KernelSmoothing.select_bandwidth(pilot,
             KernelSmoothing.SmoothingData(x, y; weights=w), kernel; degree=1).h
         candidates = [1., 2., 4.] .* h
         explicit = StatsAPI.fit(SmoothedMean, fd; grid, kernel, weighting,

@@ -8,7 +8,7 @@ julia> using FunctionalDataAnalysis
 
 julia> b = MonomialBasis((0, 1), 2);
 
-julia> basismatrix(b, [0.0, 0.5, 1.0])
+julia> basis_matrix(b, [0.0, 0.5, 1.0])
 3×3 Matrix{Float64}:
  1.0  0.0  0.0
  1.0  0.5  0.25
@@ -34,7 +34,7 @@ BSplineBasis
 FourierBasis
 MonomialBasis
 nbasis
-basismatrix
+basis_matrix
 gram
 penalty
 ```

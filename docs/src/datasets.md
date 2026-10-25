@@ -43,7 +43,7 @@ growth.covariates
 ```
 
 ```@example datasets
-model = StatsAPI.fit(FPCA, growth.data; ncomponents=2, maxK=2)
+model = StatsAPI.fit(FPCA, growth.data; ncomponents=2, max_k=2)
 mu = mean_data(model)
 plot(mu.grid, mu.values; title="Mean height: four Berkeley sample curves",
     xlabel="Age (years)", ylabel="Height (cm)")
@@ -53,7 +53,7 @@ savefig("datasets-growth-mean.svg"); nothing # hide
 ![](datasets-growth-mean.svg)
 
 ```@example datasets
-modesplot(model, 1; xlabel="Age (years)", ylabel="Height (cm)")
+modes_plot(model, 1; xlabel="Age (years)", ylabel="Height (cm)")
 savefig("datasets-growth-modes.svg"); nothing # hide
 ```
 

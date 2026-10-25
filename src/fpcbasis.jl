@@ -7,7 +7,7 @@ must be finite and strictly increasing, with at least two points. At least
 one function is required; values must be finite and weights must be finite,
 positive and have the same length as the grid.
 
-[`basismatrix`](@ref) evaluates the piecewise-linear interpolants inside the
+[`basis_matrix`](@ref) evaluates the piecewise-linear interpolants inside the
 closed grid range and throws outside it. Only derivative zero is supported;
 [`penalty`](@ref) likewise supports only order zero. [`gram`](@ref) gives
 exact integrals of products of the piecewise-linear interpolants.
@@ -64,7 +64,7 @@ end
 
 Base.show(io::IO, ::MIME"text/plain", b::FPCBasis) = show(io, b)
 
-function basismatrix(b::FPCBasis, t::AbstractVector{<:Real}; derivative=0)
+function basis_matrix(b::FPCBasis, t::AbstractVector{<:Real}; derivative=0)
     _derivative_order(derivative) == 0 ||
         throw(ArgumentError("FPCBasis evaluation supports derivative=0 only"))
     points = _basispoints(b, t)

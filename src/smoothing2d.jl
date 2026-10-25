@@ -1,7 +1,7 @@
 # Product-kernel local linear covariance surface on the grid g1 × g2, from
 # KernelSmoothing's bivariate smoother. Unidentified fits throw with their point.
 function _local_linear_surface(pool, g1, g2, h, kernel)
-    surface = KernelSmoothing.localpolynomial((pool.x, pool.y), pool.z, (g1, g2);
+    surface = KernelSmoothing.local_polynomial((pool.x, pool.y), pool.z, (g1, g2);
         bandwidth=h, degree=1, kernel, weights=pool.weights)
     for j in axes(surface, 2), i in axes(surface, 1)
         isfinite(surface[i, j]) || throw(ArgumentError(

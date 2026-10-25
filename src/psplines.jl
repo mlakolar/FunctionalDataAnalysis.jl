@@ -120,8 +120,8 @@ end
 Base.eltype(::Type{<:_RInitializationBasis{T}}) where {T} = T
 nbasis(b::_RInitializationBasis) = nbasis(b.basis)
 domain(b::_RInitializationBasis) = domain(b.basis)
-basismatrix(b::_RInitializationBasis, t::AbstractVector{<:Real}; derivative=0) =
-    basismatrix(b.basis, t; derivative)
+basis_matrix(b::_RInitializationBasis, t::AbstractVector{<:Real}; derivative=0) =
+    basis_matrix(b.basis, t; derivative)
 penalty(b::_RInitializationBasis, order) = order == 2 ? copy(b.roughness) : penalty(b.basis, order)
 
 # Initialization only: reproduce stats::smooth.spline's default knot count and
@@ -133,10 +133,10 @@ function _face_initial_curve(t, y, targets)
     nk = _spline_nknots(length(t))
     indices = floor.(Int, range(1, length(t); length=nk))
     cubic = BSplineBasis(4, x[indices])
-    slopes = diff(basismatrix(cubic, cubic.breakpoints; derivative=2); dims=1)
+    slopes = diff(basis_matrix(cubic, cubic.breakpoints; derivative=2); dims=1)
     roughness = penalty(cubic, 2) - transpose(slopes)*(diff(cubic.breakpoints) .* slopes)/3000
     basis = _RInitializationBasis(cubic, roughness)
-    X = basismatrix(basis, x)
+    X = basis_matrix(basis, x)
     P = penalty(basis, 2)
     XtX = transpose(X)*X
     inner = 3:(nbasis(basis)-3)

@@ -28,7 +28,7 @@ end
 # Same whole-curve CurveCV loss as the package, using sufficient statistics
 # at exact duplicate coordinates within each training/held-out fold. On dense
 # data this avoids predicting the same pair once per subject. No smoother is
-# implemented here; every prediction uses KernelSmoothing.localpolynomial.
+# implemented here; every prediction uses KernelSmoothing.local_polynomial.
 function grouped_cv(selector::CurveCV, fd, pool, kernel, kind)
     assignments = collect(1:nobs(fd))
     if selector.folds != nobs(fd)
@@ -52,7 +52,7 @@ function grouped_cv(selector::CurveCV, fd, pool, kernel, kind)
 end
 
 cv_predictions(train, held, h, kernel, ::Val{:covariance}) =
-    KernelSmoothing.localpolynomial((train.x, train.y), train.z, hcat(held.x, held.y);
+    KernelSmoothing.local_polynomial((train.x, train.y), train.z, hcat(held.x, held.y);
         bandwidth=h, kernel, weights=train.weights)
 cv_predictions(train, held, h, kernel, ::Val{:mean}) =
     FDA._mean_predict(train.x, train.z, train.weights, held.x,
@@ -115,7 +115,7 @@ function estimate(prepared, estimator)
         # Benchmark-only FGM-inspired reference: use the package eigen step,
         # all positive components, and FGM's relative cutoff, not an FPCA K cap.
         system = FDA._fpca_eigen(surface, quadrature_weights(grid), mean.values;
-            maxK=length(grid), eigen_tol=100eps(Float64), sign_tol=1e-12)
+            max_k=length(grid), eigen_tol=100eps(Float64), sign_tol=1e-12)
         surface = (system.eigenfunctions .* system.eigenvalues') * system.eigenfunctions'
         surface = (surface + surface')/2
         # FGM bsplinekit 6f0eac3, src/doubly.jl:223-226: arithmetic mean on

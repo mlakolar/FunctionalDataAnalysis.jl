@@ -7,6 +7,7 @@ using Test
 
 @testset "FunctionalDataAnalysis" begin
     include("aqua.jl")
+    include("naming.jl")
     include("quadrature.jl")
     include("bases.jl")
     include("data.jl")

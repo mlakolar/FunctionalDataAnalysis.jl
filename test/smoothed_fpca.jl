@@ -23,7 +23,7 @@ end
         @test penalty(FourierBasis((0, 2), 1), :harmonic_acceleration) == zeros(1,1)
         @test (@inferred penalty(FourierBasis((0.0f0, 2.0f0), 5), :harmonic_acceleration)) isa Matrix{Float32}
         points = collect(range(0, 2; length=401))
-        L = basismatrix(b, points; derivative=3) + pi^2*basismatrix(b, points; derivative=1)
+        L = basis_matrix(b, points; derivative=3) + pi^2*basis_matrix(b, points; derivative=1)
         @test transpose(L)*(quadrature_weights(points).*L) ≈ P atol=1e-9 rtol=1e-12
     end
 
@@ -48,10 +48,10 @@ end
         @test_throws ArgumentError fitted_bands(model)
         points = [0.0, .073, .2, .497, .799, 1.0]
         @test reconstruct(model; grid=points).values ≈ evaluate(fd, points)
-        @test basismatrix(eigenfunctions(model), points; derivative=1) ≈
-            basismatrix(b, points; derivative=1)*eigenfunctions(model).coefs
-        @test basismatrix(DerivativeBasis(eigenfunctions(model)), points) ≈
-            basismatrix(eigenfunctions(model), points; derivative=1)
+        @test basis_matrix(eigenfunctions(model), points; derivative=1) ≈
+            basis_matrix(b, points; derivative=1)*eigenfunctions(model).coefs
+        @test basis_matrix(DerivativeBasis(eigenfunctions(model)), points) ≈
+            basis_matrix(eigenfunctions(model), points; derivative=1)
         @test_throws ArgumentError derivative(model)
         @test penalty(eigenfunctions(model), 2) ≈ penalty(b, 2)
         @test domain(eigenfunctions(model)) == domain(fd)
@@ -135,7 +135,7 @@ end
                 f = @inferred StatsAPI.fit(FPCA, left; lambda, ncomponents=2)
                 @test eigvals(f) ≈ vec(ref["eigenvalues"])[1:2] rtol=1e-8
                 @test f.all_eigenvalues ≈ vec(ref["eigenvalues"]) rtol=1e-8
-                @test basismatrix(eigenfunctions(f), points) ≈ ref["harmonics"] rtol=1e-8
+                @test basis_matrix(eigenfunctions(f), points) ≈ ref["harmonics"] rtol=1e-8
                 @test scores(f) ≈ ref["scores"] rtol=1e-8
                 @test scree_data(f).individual[1:2] ≈ vec(ref["varprop"]) rtol=1e-8
                 @test f.settings.original_harmonic_norms[1:2] ≈ vec(ref["harmonic_norms"]) rtol=1e-8
@@ -143,7 +143,7 @@ end
                 @test vec(sum(abs2, scores(f); dims=1))/nobs(left) ≈
                     eigvals(f) ./ f.settings.original_harmonic_norms[1:2].^2 rtol=1e-8
                 @test StatsAPI.predict(f,left) ≈ scores(f)
-                @test reconstruct(f; grid=points).values ≈ evaluate(f.mean,points) .+ scores(f)*transpose(basismatrix(eigenfunctions(f),points))
+                @test reconstruct(f; grid=points).values ≈ evaluate(f.mean,points) .+ scores(f)*transpose(basis_matrix(eigenfunctions(f),points))
                 cc = @inferred StatsAPI.fit(FunctionalCCA, left, right; lambda)
                 @test cc.correlations ≈ vec(ref["correlations"]) rtol=1e-8
                 @test cc.squared_correlations ≈ vec(ref["correlations"]).^2 rtol=1e-8
@@ -177,19 +177,19 @@ end
         values = 1 .+ transpose(grid) .+ latent*transpose(functions)
         fd = GridFunctionalData(values,grid)
         dense = @inferred (data -> StatsAPI.fit(FPCA,data;
-            method=:dense,ncomponents=2,maxK=2))(fd)
+            method=:dense,ncomponents=2,max_k=2))(fd)
         @test (@inferred StatsAPI.predict(dense,fd)) ≈ scores(dense)
         @test (@inferred reconstruct(dense)).values ≈ values
         @test fitted_curve_data(dense,1).observed.values == values[1,:]
         @test eigenfunctions(dense) isa FPCBasis
-        face = @inferred (data -> StatsAPI.fit(FPCA,data;method=:face,ncomponents=2,maxK=2,
+        face = @inferred (data -> StatsAPI.fit(FPCA,data;method=:face,ncomponents=2,max_k=2,
             mean=(;grid,values=1 .+ grid),face=(;knots=4,lambda=1.0)))(fd)
         @test StatsAPI.predict(face,fd).scores ≈ scores(face)
         @test eigenfunctions(face) isa FPCBasis
         @test size(reconstruct(face).values) == size(values)
         irregular = to_irregular(fd)
         surface = functions*Diagonal([2.,.5])*transpose(functions)
-        pace = @inferred StatsAPI.fit(FPCA,irregular;grid,ncomponents=2,maxK=2,
+        pace = @inferred StatsAPI.fit(FPCA,irregular;grid,ncomponents=2,max_k=2,
             mean=(;grid,values=1 .+ grid), covariance=(;grid,surface),noise_variance=.1)
         @test StatsAPI.predict(pace,irregular).scores ≈ scores(pace)
         @test eigenfunctions(pace) isa FPCBasis
@@ -197,10 +197,10 @@ end
         # Basis FPCA must not widen the established multivariate fit APIs.
         multivariate = MultivariateFunctionalData([fd, fd])
         marginal = @inferred (data -> StatsAPI.fit(FPCA,data;
-            ncomponents=2,maxK=2))(multivariate)
+            ncomponents=2,max_k=2))(multivariate)
         @test scores(marginal) == [scores(dense), scores(dense)]
         joint = @inferred StatsAPI.fit(MFPCA,multivariate;ncomponents=2,
-            univariate=(;ncomponents=2,maxK=2))
+            univariate=(;ncomponents=2,max_k=2))
         @test (@inferred StatsAPI.predict(joint,multivariate)) ≈ scores(joint)
         @test length((@inferred modes_of_variation(joint,1)).nodes) == 2
         growth = load_dataset(:growth;sample=true).data
@@ -246,8 +246,8 @@ end
         @test_throws DimensionMismatch StatsAPI.fit(FPCA,fd;penalty=ones(3,3))
         @test_throws ArgumentError StatsAPI.fit(FPCA,fd;penalty=-1)
         @test_throws ArgumentError StatsAPI.fit(FPCA,fd;center=1)
-        @test_throws ArgumentError StatsAPI.fit(FPCA,fd;maxK=0)
-        @test_throws ArgumentError StatsAPI.fit(FPCA,fd;maxK=5)
+        @test_throws ArgumentError StatsAPI.fit(FPCA,fd;max_k=0)
+        @test_throws ArgumentError StatsAPI.fit(FPCA,fd;max_k=5)
         @test_throws ArgumentError StatsAPI.fit(FPCA,fd;ncomponents=0)
         @test_throws ArgumentError StatsAPI.fit(FPCA,fd;ncomponents=AIC())
         @test_throws ArgumentError StatsAPI.fit(FPCA,fd;eigen_tol=NaN)

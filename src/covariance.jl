@@ -172,7 +172,7 @@ function _covariance_selection(selector::CurveCV, fd, pool, kernel)
     # Leaving out a fold of curves is leaving out a group of pairs. The within-cell
     # scatter of binned products adds the same constant to every candidate.
     hs = Float64.(selector.bandwidths)
-    cv = KernelSmoothing.selectbandwidth(KernelSmoothing.CrossValidation(), (pool.x, pool.y), pool.z;
+    cv = KernelSmoothing.select_bandwidth(KernelSmoothing.CrossValidation(), (pool.x, pool.y), pool.z;
         kernel, weights=pool.weights, groups=assignments[pool.subjects], bandwidths=hs)
     scatter = sum(pool.scatter) / sum(pool.weights)
     T = promote_type(eltype(pool.z), eltype(selector.bandwidths))

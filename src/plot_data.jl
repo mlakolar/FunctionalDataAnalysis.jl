@@ -171,7 +171,7 @@ Accepts `SmoothedCovariance`, `SmoothedCrossCovariance`, or exact dense
 
 FPCA defaults to its stored estimated surface (`:stored`, a package display
 choice). `surface=:fitted` returns the positive-semidefinite projection over
-all retained components up to `maxK`, including unselected components, as in
+all retained components up to `max_k`, including unselected components, as in
 fdapace 0.6.0's full fitted covariance used for CE scores. It does not refit
 or diagonalize a surface. Other symbols throw.
 """

@@ -35,8 +35,8 @@ end
 Base.eltype(::Type{<:_BasisEigenfunctions{T}}) where {T} = T
 nbasis(b::_BasisEigenfunctions) = size(b.coefs, 2)
 domain(b::_BasisEigenfunctions) = domain(b.basis)
-basismatrix(b::_BasisEigenfunctions, t::AbstractVector{<:Real}; derivative=0) =
-    basismatrix(b.basis, t; derivative) * b.coefs
+basis_matrix(b::_BasisEigenfunctions, t::AbstractVector{<:Real}; derivative=0) =
+    basis_matrix(b.basis, t; derivative) * b.coefs
 penalty(b::_BasisEigenfunctions, order) =
     transpose(b.coefs) * penalty(b.basis, order) * b.coefs
 
@@ -84,7 +84,7 @@ function _basis_cholesky(matrix, label)
 end
 
 # Reuse the common eigenvalue cutoff, spectrum accounting, and FVE machinery.
-function _basis_pca(residuals::Matrix{T}, G, P, lambda, maxK, eigen_tol,
+function _basis_pca(residuals::Matrix{T}, G, P, lambda, max_k, eigen_tol,
         sign_tol) where {T}
     n, k = size(residuals)
     U = _basis_cholesky(G + lambda * P, "FPCA penalized Gram matrix").U
@@ -92,7 +92,7 @@ function _basis_pca(residuals::Matrix{T}, G, P, lambda, maxK, eigen_tol,
     covariance = transpose(residuals) * residuals / n
     transformed = J * covariance * transpose(J)
     transformed = Matrix(Symmetric((transformed + transpose(transformed)) / 2))
-    system = _fpca_eigen(transformed, ones(T, k), zeros(T, k); maxK,
+    system = _fpca_eigen(transformed, ones(T, k), zeros(T, k); max_k,
         eigen_tol, sign_tol)
     raw = U \ system.eigenfunctions
     norms = sqrt.(vec(sum(raw .* (G * raw); dims=1)))
@@ -108,11 +108,11 @@ function _basis_cv_error(err, lambda, i)
 end
 
 function _basis_pca_lambda(lambda::Real, residuals::Matrix{T}, G, P,
-        rule, maxK, eigen_tol, sign_tol) where {T}
+        rule, max_k, eigen_tol, sign_tol) where {T}
     _basis_lambda(lambda, T), nothing
 end
 function _basis_pca_lambda(cv::LambdaCV, residuals::Matrix{T}, G, P,
-        rule, maxK, eigen_tol, sign_tol) where {T}
+        rule, max_k, eigen_tol, sign_tol) where {T}
     rule isa Integer && !(rule isa Bool) && rule >= 1 || throw(ArgumentError(
         "FPCA LambdaCV requires a positive integer ncomponents so all folds and candidates use the same subspace count"))
     n = size(residuals, 1)
@@ -125,8 +125,8 @@ function _basis_pca_lambda(cv::LambdaCV, residuals::Matrix{T}, G, P,
     for (c, lam) in enumerate(candidates), i in 1:n
         try
             train = residuals[[j for j in 1:n if j != i], :]
-            system = _basis_pca(train, G, P, lam, maxK, eigen_tol, sign_tol)
-            chosen = _fpca_selection(rule, system.fve, maxK).chosen
+            system = _basis_pca(train, G, P, lam, max_k, eigen_tol, sign_tol)
+            chosen = _fpca_selection(rule, system.fve, max_k).chosen
             for m in 1:chosen
                 H = system.coefs[:, 1:m]
                 rhs = transpose(H) * G * residuals[i, :]
@@ -149,7 +149,7 @@ _basis_pca_lambda(lambda, args...) = throw(ArgumentError("lambda must be a nonne
 
 """
     fit(FPCA, fd::BasisFunctionalData; lambda=0, penalty=nothing,
-        center=true, ncomponents=FVE(0.99), maxK=nothing, grid=nothing,
+        center=true, ncomponents=FVE(0.99), max_k=nothing, maxK=nothing, grid=nothing,
         eigen_tol=1e-10, sign_tol=1e-12)
 
 Roughness-penalized basis FPCA, following fda 6.3.0 `pca.fd`/`fdPar` and
@@ -167,7 +167,7 @@ Each harmonic is divided by its exact L² norm q; scores are R's scores divided
 by q. Thus score variances (denominator n) are ν/q², and positive-lambda
 harmonics are individually L²-normalized but generally not L²-orthogonal.
 The package's `FVE(0.99)` default departs from R's `nharm=2`; a fixed integer
-reproduces `nharm`. The default `maxK=min(nbasis,n-1)` (n when uncentered)
+reproduces `nharm`. The default `max_k=min(nbasis,n-1)` (n when uncentered)
 retains the available rank, unlike the grid routes' caps.
 
 The same FPCA result supports exact basis prediction and reconstruction,
@@ -178,15 +178,16 @@ No noise model is assumed; noise and score covariances are `nothing`.
 All settings and input copies are retained. See the FPCA page for conversions.
 """
 function fit(::Type{FPCA}, fd::BasisFunctionalData{T}; lambda=0, penalty=nothing,
-        center=true, ncomponents=FVE(0.99), maxK=nothing, grid=nothing,
+        center=true, ncomponents=FVE(0.99), max_k=nothing, maxK=nothing, grid=nothing,
         eigen_tol=_FPCA_EIGEN_TOL, sign_tol=_FPCA_SIGN_TOL) where {T}
+    max_k = _max_k_keyword(max_k, maxK)
     center isa Bool || throw(ArgumentError("center must be Boolean"))
     n, k = size(fd.coefs)
     n >= 2 || throw(ArgumentError("basis FPCA requires at least two curves"))
     limit = min(k, center ? n-1 : n)
-    cap = maxK === nothing ? limit : maxK
+    cap = max_k === nothing ? limit : max_k
     cap isa Integer && !(cap isa Bool) && 1 <= cap <= limit ||
-        throw(ArgumentError("basis FPCA maxK must be between 1 and min(nbasis, centered rank bound)"))
+        throw(ArgumentError("basis FPCA max_k must be between 1 and min(nbasis, centered rank bound)"))
     _fpca_tolerance(eigen_tol, "eigen_tol")
     _fpca_tolerance(sign_tol, "sign_tol")
     b = deepcopy(fd.basis)
@@ -205,7 +206,7 @@ function fit(::Type{FPCA}, fd::BasisFunctionalData{T}; lambda=0, penalty=nothing
     points = grid === nothing ? collect(range(T.(domain(b))...; length=201)) :
         Vector{T}(_basispoints(b, grid))
     weights = quadrature_weights(points)
-    X = Matrix{T}(basismatrix(b, points))
+    X = Matrix{T}(basis_matrix(b, points))
     values = X * system.coefs
     oriented = _fpca_orient!(copy(values), X * mu, sign_tol)
     H = copy(system.coefs)
@@ -221,7 +222,7 @@ function fit(::Type{FPCA}, fd::BasisFunctionalData{T}; lambda=0, penalty=nothing
     all(isfinite, projected) && all(isfinite, covariance) && all(isfinite, fitted) ||
         throw(ArgumentError("basis FPCA results must be finite; rescale data"))
     settings = (; lambda=lam, penalty=specification, penalty_matrix=P, center,
-        lambda_selection=tuning, ncomponents=deepcopy(ncomponents), maxK=Int(cap),
+        lambda_selection=tuning, ncomponents=deepcopy(ncomponents), max_k=Int(cap), maxK=Int(cap),
         eigen_tol, sign_tol, covariance_denominator=n, normalization=:exact_L2,
         original_harmonic_norms=system.normalization, eigenvalue_scale=:penalized_metric,
         grid_source=grid === nothing ? :display_201 : :user_display,

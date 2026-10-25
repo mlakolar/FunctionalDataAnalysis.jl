@@ -23,7 +23,7 @@ import RecipesBase
     @test gram(d.basis)[4,4] ≈ 9/5
     @test penalty(d.basis,1)[4,4] ≈ 12
     @test penalty(d.basis,3) == zeros(4,4)
-    @test basismatrix(d.basis,t;derivative=1) ≈ basismatrix(b,t;derivative=2)
+    @test basis_matrix(d.basis,t;derivative=1) ≈ basis_matrix(b,t;derivative=2)
     @test domain(d.basis) == (0.,1.)
     @test d.basis == deepcopy(d.basis)
     @test isequal(d.basis,deepcopy(d.basis))
@@ -56,7 +56,7 @@ import RecipesBase
     for nu in (-1,1.5,NaN,big(typemax(Int))+1)
         @test_throws ArgumentError derivative(fd,nu)
     end
-    @test_throws ArgumentError basismatrix(DerivativeBasis(b,typemax(Int)),t;derivative=1)
+    @test_throws ArgumentError basis_matrix(DerivativeBasis(b,typemax(Int)),t;derivative=1)
     @test_throws ArgumentError evaluate(d,[-.1])
 end
 
@@ -109,7 +109,7 @@ end
         covariance = (; grid, surface=ones(length(grid), length(grid)))
         mfd = MultivariateFunctionalData([raw, raw])
         @test (@inferred StatsAPI.fit(FPCA, raw; method=:pace, grid, mean=m,
-            covariance, noise_variance=.1, ncomponents=1, maxK=1)).method === :pace
+            covariance, noise_variance=.1, ncomponents=1, max_k=1)).method === :pace
         @test (@inferred StatsAPI.fit(SmoothedCovariance, raw, m;
             grid, bandwidth=2.)) isa SmoothedCovariance
         @test (@inferred StatsAPI.fit(SmoothedCrossCovariance, raw, raw, m, m;
@@ -119,9 +119,9 @@ end
                 grid, bandwidth=2., derivative=nu, degree=3)
             err = ArgumentError("mean has derivative=$nu; a centering mean must have derivative=0")
             @test_throws err StatsAPI.fit(FPCA, raw; method=:pace, grid, mean=dm,
-                covariance, noise_variance=.1, ncomponents=1, maxK=1)
+                covariance, noise_variance=.1, ncomponents=1, max_k=1)
             @test_throws err StatsAPI.fit(FPCA, raw; method=:pace, grid, mean=dm,
-                covariance_bandwidth=2., noise_variance=.1, ncomponents=1, maxK=1)
+                covariance_bandwidth=2., noise_variance=.1, ncomponents=1, max_k=1)
             @test_throws err StatsAPI.fit(SmoothedCovariance, raw, dm;
                 grid, bandwidth=2.)
             for means in ([dm, m], [m, dm])
@@ -145,13 +145,13 @@ function derivative_fixture(design)
     values = [Float64.(data[data[:,1].==i,3]) for i in 1:n]
     if design=="dense"
         fd = GridFunctionalData(permutedims(hcat(values...)),first(times);ids=collect(1:n))
-        f = StatsAPI.fit(FPCA,fd;ncomponents=3,maxK=5)
+        f = StatsAPI.fit(FPCA,fd;ncomponents=3,max_k=5)
     else
         m = read("m3_sparse_mean.csv"); grid=Float64.(m[:,1])
         fd = IrregularFunctionalData(times,values;ids=collect(1:n))
         f = StatsAPI.fit(FPCA,fd;grid,mean=(;grid,values=m[:,2]+.2grid.^2),
             covariance=(;grid,surface=read("m3_sparse_surface.csv")),
-            noise_variance=.12,ncomponents=3,maxK=5)
+            noise_variance=.12,ncomponents=3,max_k=5)
     end
     fd,f
 end
@@ -244,13 +244,13 @@ end
     t = [0.,.03,.1,.2,.4,.65,.8,.9,1.]
     v = collect(-3.:3.) .* transpose(t.^2 .+ t) .+ transpose(1 .+ t)
     fd = GridFunctionalData(v,t;ids=collect(1:7))
-    f = StatsAPI.fit(FPCA,fd;ncomponents=1,maxK=1)
+    f = StatsAPI.fit(FPCA,fd;ncomponents=1,max_k=1)
     d = @inferred (f -> derivative(f;method=:DPC,bandwidth=2.,ncomponents=1))(f)
     # The quadratic local derivative is exact on this nonuniform grid.
     @test reconstruct(d).values ≈ collect(-3.:3.) .* transpose(2t .+ 1) .+ 1 atol=1e-10
     mfd = MultivariateFunctionalData([fd,fd])
     for mode in (:marginal,:pooled)
-        mf = StatsAPI.fit(FPCA,mfd;basis=mode,ncomponents=1,maxK=1)
+        mf = StatsAPI.fit(FPCA,mfd;basis=mode,ncomponents=1,max_k=1)
         md = derivative(mf;bandwidth=[.2,.3])
         @test md isa MultivariateFPCADerivative
         @test nobs(md)==7 && ncomponents(md)==[1,1]
@@ -278,7 +278,7 @@ end
     fd2 = GridFunctionalData(collect(-3.:3.) .* transpose(t.^3 .- .5t) .+
         transpose(1 .+ t.^2), t; ids=collect(1:7))
     mixed = MultivariateFunctionalData([fd, fd2])
-    pooled = StatsAPI.fit(FPCA, mixed; basis=:pooled, ncomponents=1, maxK=2)
+    pooled = StatsAPI.fit(FPCA, mixed; basis=:pooled, ncomponents=1, max_k=2)
     dd = derivative(pooled; method=:DPC, bandwidth=2., degree=3, ncomponents=1)
     truth2 = collect(-3.:3.) .* transpose(3t.^2 .- .5) .+ transpose(2t)
     @test component(reconstruct(dd), 2).values ≈ truth2 atol=1e-10
@@ -291,7 +291,7 @@ end
     sparsefd, sparsefit = derivative_fixture("sparse")
     mixed_design = MultivariateFunctionalData([densefd, sparsefd[1:nobs(densefd)]])
     sg = sparsefit.grid
-    mf = StatsAPI.fit(FPCA, mixed_design; ncomponents=3, maxK=5,
+    mf = StatsAPI.fit(FPCA, mixed_design; ncomponents=3, max_k=5,
         grid=[nothing, sg], mean=[nothing, (; grid=sg, values=vec(sparsefit.mean.values))],
         covariance=[nothing, (; grid=sg, surface=sparsefit.covariance)],
         noise_variance=[nothing, .12])
@@ -312,11 +312,11 @@ end
         sim = simulate_kl(MersenneTwister(512),250;mean=t->2+t,eigenfunctions=funcs,eigenvalues=lambda,
             sampling,noise_sd=design===:dense ? 0. : .05)
         if design===:dense
-            f = StatsAPI.fit(FPCA,sim.data;ncomponents=2,maxK=2)
+            f = StatsAPI.fit(FPCA,sim.data;ncomponents=2,max_k=2)
         else
             phi = hcat([fun.(grid) for fun in funcs]...)
             # Supplied covariance isolates derivative/CE recovery from smoothing bias.
-            f = StatsAPI.fit(FPCA,sim.data;grid,ncomponents=2,maxK=2,
+            f = StatsAPI.fit(FPCA,sim.data;grid,ncomponents=2,max_k=2,
                 mean=(;grid,values=2 .+ grid),covariance=(;grid,surface=phi*Diagonal(lambda)*transpose(phi)),
                 noise_variance=.05^2)
         end

@@ -55,7 +55,7 @@ using DelimitedFiles
         predicted, variance = Float64[], Float64[]
         for i in subjects
             t,_ = fd[i]
-            phi = basismatrix(full.covariance.basis,t)*full.settings.eigenfunction_coefficients
+            phi = basis_matrix(full.covariance.basis,t)*full.settings.eigenfunction_coefficients
             append!(predicted, FDA._face_sparse_mean_values(full.settings.mean,t)+phi*scores(full)[i,:])
             append!(variance,diag(phi*score_covariances(full)[:,:,i]*phi'))
         end
@@ -77,7 +77,7 @@ using DelimitedFiles
         # Independent observation-space BLUP, with exact splines at new times.
         for i in 1:nobs(heldout)
             t,y = heldout[i]
-            B = basismatrix(f.covariance.basis,t)
+            B = basis_matrix(f.covariance.basis,t)
             Phi = B*f.settings.eigenfunction_coefficients
             theta = f.covariance.coefficient_root*f.covariance.coefficient_root'
             V = B*theta*B' + noise_variance(f)*I
@@ -150,7 +150,7 @@ using DelimitedFiles
         for selector in (AIC(),BIC(),0,true,:invalid)
             @test_throws ArgumentError StatsAPI.fit(FPCA,fd;method=:face,ncomponents=selector)
         end
-        @test_throws ArgumentError StatsAPI.fit(FPCA,fd;method=:face,maxK=11)
+        @test_throws ArgumentError StatsAPI.fit(FPCA,fd;method=:face,max_k=11)
         @test_throws ArgumentError StatsAPI.fit(FPCA,fd;method=:face,ncomponents=11)
         @test_throws ArgumentError StatsAPI.fit(FPCA,fd;method=:face,noise_variance=1)
         @test_throws ArgumentError StatsAPI.fit(FPCA,fd;method=:face,presmooth=:invalid)

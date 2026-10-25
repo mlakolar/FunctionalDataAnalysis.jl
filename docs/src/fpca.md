@@ -68,8 +68,8 @@ some older help text. See [Comparison with fdapace](fdapace.md) for details.
 | `grid`, PACE | 51 equally spaced points over the observed time range. | fdapace [`nRegGrid=51` and work-grid construction](https://github.com/cran/fdapace/blob/0.6.0/R/FPCA.R), with the count set in [`SetOptions`](https://github.com/cran/fdapace/blob/0.6.0/R/SetOptions.R). Pass a strictly increasing `grid` covering all observations. |
 | `grid`, dense | The data grid and its stored quadrature weights. | Preserve the data representation. A new grid requires an explicit data conversion before fitting. |
 | `ncomponents` | `FVE(0.99)`. | fdapace [`FVEthreshold`](https://github.com/cran/fdapace/blob/0.6.0/R/SetOptions.R). Pass `FVE(threshold)` or a fixed integer; PACE also accepts `AIC()` and `BIC()` from [Yao, Müller, and Wang (2005), section 2.5](https://doi.org/10.1198/016214504000001745). |
-| `maxK`, PACE | `max(1, min(20, g-2, n-2))`. | fdapace [`SetOptions`, smoothing route](https://github.com/cran/fdapace/blob/0.6.0/R/SetOptions.R). Pass an integer no larger than `g`. |
-| `maxK`, dense | `max(1, min(g-2, n-2))`, without a cap of 20. | fdapace [`SetOptions`, cross-sectional route](https://github.com/cran/fdapace/blob/0.6.0/R/SetOptions.R). An explicit cap may be as large as `min(g, n-1)`, the sample covariance rank bound. |
+| `max_k`, PACE | `max(1, min(20, g-2, n-2))`. | fdapace [`SetOptions`, smoothing route](https://github.com/cran/fdapace/blob/0.6.0/R/SetOptions.R). Pass an integer no larger than `g`. |
+| `max_k`, dense | `max(1, min(g-2, n-2))`, without a cap of 20. | fdapace [`SetOptions`, cross-sectional route](https://github.com/cran/fdapace/blob/0.6.0/R/SetOptions.R). An explicit cap may be as large as `min(g, n-1)`, the sample covariance rank bound. |
 | `kernel`, PACE | `KernelSmoothing.GaussianKernel()`. | fdapace [`SetOptions`, non-dense data](https://github.com/cran/fdapace/blob/0.6.0/R/SetOptions.R). Pass another KernelSmoothing kernel. Unlike compact kernels, the Gaussian has no empty windows from finite support. Direct `SmoothedMean` and `SmoothedCovariance` calls retain their Epanechnikov default. |
 | `weighting`, PACE | `:obs`, equal weight per observation. | fdapace [default smoothing weighting](https://github.com/cran/fdapace/blob/0.6.0/R/SetOptions.R). Pass `:subj` for equal curve weights. Neither weighting scheme dominates in all designs; see [Zhang and Wang (2016)](https://doi.org/10.1214/16-AOS1446). |
 | `mean_bandwidth`, PACE | `0.05r`. | fdapace [`methodBwMu="Default"`, `userBwMu`](https://github.com/cran/fdapace/blob/0.6.0/R/SetOptions.R). Pass a number, `CurveCV`, or a supported KernelSmoothing regression bandwidth selector. |
@@ -84,9 +84,9 @@ some older help text. See [Comparison with fdapace](fdapace.md) for details.
 | `presmooth`, dense | `nothing`. | Dense noise-free approximation in [Ramsay and Silverman (2005), chapter 8](https://doi.org/10.1007/b98888). Pass a `LocalPolynomial` or `PenalizedSpline` object, or use `method=:pace`. |
 
 All tuning settings are stored on the fit and displayed by `show`. The
-`selection` record stores the rule, FVE threshold when applicable, `maxK`,
+`selection` record stores the rule, FVE threshold when applicable, `max_k`,
 chosen component count, and rule scores. `all_eigenvalues` and `fve(model)`
-refer to every retained positive eigenvalue up to `maxK`, before component
+refer to every retained positive eigenvalue up to `max_k`, before component
 selection. Negative eigenvalues are removed before selection. Their count,
 absolute total, and share of the absolute spectrum are recorded in `dropped`.
 Values at or below the positive relative tolerance are excluded from the FVE
@@ -501,7 +501,7 @@ selection metadata, the origin of every supplied or estimated input, and the
 noise truncation details are retained on the fit. Inputs are copied.
 
 Let ``\widetilde G`` denote the positive-semidefinite projection of the work-grid
-surface over **all** positive components retained up to `maxK`. Negative
+surface over **all** positive components retained up to `max_k`. Negative
 eigenvalues are dropped and reported in `model.dropped`. The selected component
 count ``K`` can be smaller than this retained rank. At subject ``i``'s observed
 times, let ``\Phi_i`` contain the selected eigenfunctions and
@@ -596,7 +596,7 @@ import KernelSmoothing
 model = StatsAPI.fit(FPCA, simulation.data;
     method=:pace,
     grid=collect(range(extrema(simulation.data.times)...; length=61)),
-    ncomponents=2, maxK=6,
+    ncomponents=2, max_k=6,
     kernel=KernelSmoothing.GaussianKernel(), weighting=:subj,
     mean_bandwidth=0.15, covariance_bandwidth=0.25,
     diagonal_bandwidth=0.20, binning=nothing)
@@ -698,8 +698,8 @@ Eigenanalysis, signs, and numerical tolerances are shared with the dense route.
 For `AIC()` and `BIC()`, each candidate ``k`` uses its own ``k``-component
 covariance plus ``\sigma^2 I`` in the Gaussian likelihood. The criterion is
 minus twice the log likelihood plus ``2k`` or ``k\log(n)``, respectively.
-`selection.scores` stores the full criterion curve for `k=1:maxK`;
-`selection.candidates` records those counts. When `maxK` exceeds the retained
+`selection.scores` stores the full criterion curve for `k=1:max_k`;
+`selection.candidates` records those counts. When `max_k` exceeds the retained
 positive rank, the additional components have zero variance, leave the
 likelihood unchanged, and increase only the penalty.
 Selection stops at the first increase, following fdapace. The chosen count
@@ -781,7 +781,7 @@ node count throws. For example:
 
 ```julia
 model = StatsAPI.fit(FPCA, mfd;
-    basis=:marginal, ncomponents=[2, 3], maxK=[4, 5],
+    basis=:marginal, ncomponents=[2, 3], max_k=[4, 5],
     grid=[work_grid_node_1, work_grid_node_2])
 ```
 
@@ -805,12 +805,12 @@ pooled surface and node scores are
 
 The weighted eigenstep and positive-eigenvalue cutoff are the same as for
 univariate FPCA. `ncomponents` is an integer or `FVE(threshold)`, defaulting
-to `FVE(0.99)`; `maxK` follows
+to `FVE(0.99)`; `max_k` follows
 the dense route. Selection uses the pooled spectrum. The sign rule uses
 the average of the node mean curves as its common reference and records
 `sign_reference=:average_node_mean`. Near-zero overlap uses the same
 largest-absolute-entry fallback as univariate FPCA. The pooled tuning
-keywords are `ncomponents`, `maxK`, `eigen_tol`, and `sign_tol`;
+keywords are `ncomponents`, `max_k`, `eigen_tol`, and `sign_tol`;
 `method=:auto` or `:dense` is accepted. Pooled presmoothing, custom work
 grids, and PACE smoothing options throw because no corresponding pooled
 method is implemented. Each node keeps its own sample mean, and
