@@ -489,7 +489,7 @@ score variances with denominator `n`. FDA uses `n-1`, so matching eigenvalues
 are the reference values multiplied by `n/(n-1)`. Dense scores retain their
 scale. Reference dense eigenfunction signs must be aligned before comparing
 scores. See [Milestone 4 comparison report](m4_report.md) for the frozen
-reference, sparse-route differences, defaults, and development checks.
+reference, sparse-route differences and defaults.
 
 Cross-covariances arrive in a later milestone 4 task.
 Smoothed FPCA with a roughness penalty, FACE, and fdapace's conditional-score

@@ -78,11 +78,8 @@ weighting is one per observation pair. The script asserts that fdapace's
 exact-duplicate aggregation is exercised. CSV headers retain versions.
 CI reads these files and does not run R.
 
-Development checks use **Julia 1.13.2** and KernelSmoothing 0.1.0 from its
-configured GitHub `master` source, rather than the older local checkout.
-At the final run the source HEAD was `8ee5a5dc3b7644ec36dabbaf0405664c915f30d1`;
-the resolved package tree was `3178afc11653d934bdb8aec4a68539fe1473ec46`.
-Create a temporary environment without a Manifest in this worktree:
+To rerun these tests against KernelSmoothing's GitHub `master` in a
+temporary environment without a Manifest:
 
 ```sh
 testenv=$(mktemp -d)
@@ -91,36 +88,7 @@ FDA_M4_CROSS_REPORT=true julia +release --project="$testenv" -e 'using Functiona
 git diff --check
 ```
 
-The final focused command used
-`--project=/private/tmp/fda-m4-cross-env.NQVTrA` and produced:
-
-```text
-Test Summary:           | Pass  Total  Time
-Sample cross-covariance |   26     26  2.4s
-Test Summary:             | Pass  Total  Time
-Smoothed cross-covariance |  155    155  7.1s
-Test Summary:           | Pass  Total  Time
-Cross-covariance blocks |   43     43  6.9s
-Test Summary:                                      | Pass  Total  Time
-Sparse shared-score and measurement-error recovery |    6      6  0.5s
-Test Summary:                     | Pass  Total  Time
-Covariance with an FPCA grid mean |    5      5  0.4s
-Test Summary:     | Pass  Total  Time
-Pooled covariance |  708    708  3.7s
-Test Summary:                             | Pass  Total  Time
-Noise diagonal bandwidth rules and pilots |   82     82  2.7s
-```
-
-All **1,025 checks passed**. The existing noise-pilot checks emitted four
-KernelSmoothing `CrossValidation` warnings that the minimum was at its lower
-candidate-grid boundary (`h=0.12625`); no check failed. `git diff --check`
-passed. Reference generation exited successfully. No worktree Manifest was
-created. Inference checks cover dense and smoothed fits, scalar and axis
-bandwidths, CV, mixed numeric types and representations, evaluation, and the
-block helper. Error-path checks include counts, IDs, coverage, invalid
-settings, absent products, and overflow. Independent weighted QR fits check
-the fixed-bandwidth surfaces and subject-CV losses for both weightings,
-exclusions, and binning settings.
+Observed errors at the stated tolerances:
 
 | Reference / recovery quantity | Observed error or bias |
 |:--|--:|
@@ -131,10 +99,6 @@ exclusions, and binning settings.
 | Independent-noise surface change after exclusion: maximum absolute difference | `0.020234531887112994` |
 | Balanced correlated noise, pairs kept: mean diagonal bias | `1.357528666109249` |
 | Balanced correlated noise, pairs excluded: maximum absolute error | `0.00494651811319613` |
-
-The controller runs the full suite on Julia 1.10 and the current release,
-Aqua, and the documentation build. Those checks were not run during this
-development round. No branches, commits, pushes, or PRs were created.
 
 ## Recovery interpretation
 
