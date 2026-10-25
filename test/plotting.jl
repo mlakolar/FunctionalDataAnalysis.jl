@@ -363,3 +363,54 @@ end
         @test !isdefined(Main, :Plots)
     end
 end
+
+# Convenience functions must prepare the correct recipe payload and forward
+# plot attributes even when no plotting backend is loaded. Inspect the actual
+# missing-backend call instead of installing test-only RecipesBase methods.
+function plotting_boundary_payload(call)
+    failure = try
+        call()
+        nothing
+    catch error
+        error
+    end
+    @test failure isa MethodError
+    failure isa MethodError || return nothing
+    if failure.f === Core.kwcall
+        @test failure.args[1] == (; color=:blue)
+        @test failure.args[2] === RecipesBase.plot
+    else
+        @test failure.f === RecipesBase.plot
+    end
+    last(failure.args)
+end
+
+@testset "plot convenience functions reach the backend boundary" begin
+    f = plotting_fixture()
+    cross = StatsAPI.fit(CrossCovariance, f.fd, f.fd)
+    bands = fitted_bands(f.pace; curves=[1])
+    mean = StatsAPI.fit(SmoothedMean, f.fd; grid=f.grid, bandwidth=2.0)
+    mean_uncertainty = mean_bands(f.fd, mean; method=:sandwich)
+    custom_grid = [0.0, 0.5, 1.0]
+    cases = (
+        (() -> modes_plot(f.model, 1; multipliers=[-1, 1], color=:blue),
+            :modes, modes_of_variation(f.model, 1; multipliers=[-1, 1])),
+        (() -> scree_plot(f.model; color=:blue), :scree, scree_data(f.model)),
+        (() -> cov_plot(cross; color=:blue), :covariance, covariance_data(cross)),
+        (() -> cov_plot(f.model; surface=:fitted, color=:blue),
+            :covariance, covariance_data(f.model; surface=:fitted)),
+        (() -> design_plot(f.irregular; diagonal=true, color=:blue),
+            :design, design_data(f.irregular; diagonal=true)),
+        (() -> fit_plot(f.model, 1; color=:blue), :fit, fitted_curve_data(f.model, 1)),
+        (() -> fit_plot(f.model, 1; grid=custom_grid, color=:blue),
+            :fit, fitted_curve_data(f.model, 1; grid=custom_grid)),
+        (() -> band_plot(bands; color=:blue), :band, band_data(bands)),
+        (() -> band_plot(mean_uncertainty; coverage=:interval, color=:blue),
+            :band, band_data(mean_uncertainty; coverage=:interval)),
+    )
+    for (call, kind, expected) in cases
+        payload = plotting_boundary_payload(call)
+        @test payload isa FunctionalDataAnalysis._FDAPlot{kind}
+        @test isequal(payload.data, expected)
+    end
+end
