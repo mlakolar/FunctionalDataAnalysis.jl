@@ -57,8 +57,8 @@ and `m4_fdapace_crosscov.csv` using `GetCrCovYX` itself, Epanechnikov,
 `bw1=.55,bw2=.8`, and both `rmDiag` values. Supplied linear means agree
 exactly under interpolation. Tests compare the full returned 51 by 51
 surface in its original orientation at relative error below `1e-8`.
-The fixture exercises fdapace's duplicate grouping; FDA uses unsnapped,
-unaggregated raw observation pairs, which have the same weighted fit.
+The fixture exercises exact duplicate grouping. FDA also combines exact
+duplicate coordinates with their original weights, without snapping times.
 The generating script and CSV headers record R and fdapace versions.
 
 ## Defaults and data routes
