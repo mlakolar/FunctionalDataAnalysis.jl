@@ -13,6 +13,9 @@ import StatsAPI
     times = [grid[isodd(i) ? [1,2,3,5] : [1,3,4,5]] for i in 1:6]
     irregular = IrregularFunctionalData(times,[[sin(i+t)+i*t+t^2 for t in ts]
         for (i,ts) in enumerate(times)])
+    unique_times = [[.1,.3,.6,.9] .+ i/1000 for i in 1:6]
+    untied = IrregularFunctionalData(unique_times,
+        [[sin(i+t)+i*t+t^2 for t in ts] for (i,ts) in enumerate(unique_times)])
     mean = GridFunctionalData(zeros(1,length(grid)),grid)
     kernel = KernelSmoothing.GaussianKernel()
 
@@ -48,7 +51,7 @@ import StatsAPI
         errors/sum(pool.weights)
     end
 
-    for fd in (complete,masked,irregular), weighting in (:obs,:subj), binning in (nothing,4)
+    for fd in (complete,masked,irregular,untied), weighting in (:obs,:subj), binning in (nothing,4)
         raw = FDA._covariance_pool(fd,mean,weighting,binning)
         collapsed = FDA._covariance_collapse_pairs(raw)
         grouped = FDA._covariance_pool(fd,mean,weighting,binning;aggregate=true)
@@ -56,7 +59,12 @@ import StatsAPI
         @test grouped.x == collapsed.x && grouped.y == collapsed.y
         @test grouped.z ≈ collapsed.z rtol=1e-13
         @test grouped.scatter ≈ collapsed.scatter rtol=1e-12 atol=1e-13
-        @test length(grouped.z) < length(raw.z)
+        if fd === untied && binning === nothing
+            @test grouped.z == raw.z
+            @test grouped.weights == raw.weights
+        else
+            @test length(grouped.z) < length(raw.z)
+        end
         for name in (:times,:original_times,:squares,:diagonal_weights,:diagonal_subjects)
             @test getproperty(grouped,name) == getproperty(raw,name)
         end
@@ -75,7 +83,7 @@ import StatsAPI
     grid2 = [0.,.35,.65,1.]
     second = GridFunctionalData([cos(i+t)+i*t^2 for i in 1:6,t in grid2],grid2)
     mean2 = GridFunctionalData(zeros(1,length(grid2)),grid2)
-    for fd in (complete,irregular), weighting in (:obs,:subj), binning in (nothing,4), exclude in (false,true)
+    for fd in (complete,irregular,untied), weighting in (:obs,:subj), binning in (nothing,4), exclude in (false,true)
         raw = FDA._cross_pool(fd,second,mean,mean2,weighting,exclude,binning)
         grouped = FDA._cross_pool(fd,second,mean,mean2,weighting,exclude,binning;aggregate=true)
         check_moments(raw,grouped)

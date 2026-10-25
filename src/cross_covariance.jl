@@ -111,6 +111,9 @@ function _cross_pool(fd1, fd2, mean1, mean2, weighting, exclude_same_time, binni
     all(isfinite, r1) && all(isfinite, r2) || throw(ArgumentError(
         "cross-covariance residuals must be finite"))
     x1, x2 = _covariance_snap(t1, binning), _covariance_snap(t2, binning)
+    # A unique axis prevents duplicates across subjects. Optional binning's
+    # within-subject duplicates are still combined by the existing cell map.
+    aggregate = aggregate && !(allunique(x1) || allunique(x2))
     T = promote_type(eltype(r1), eltype(r2), eltype(t1), eltype(t2))
     pool = (; x=T[], y=T[], z=T[], weights=T[], scatter=T[], subjects=Int[])
     offsets1 = _pooled_subject_offsets(subjects1, nobs(fd1))

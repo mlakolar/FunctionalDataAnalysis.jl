@@ -169,6 +169,9 @@ function _covariance_pool(fd, mean, weighting, binning; aggregate=false)
     all(isfinite, residual) || throw(ArgumentError("covariance residuals must be finite"))
     original_times = t
     t = _covariance_snap(t, binning)
+    # Distinct pooled observation times cannot produce duplicate coordinates.
+    # Avoid a dictionary entry per pair for continuous sparse designs.
+    aggregate = aggregate && !allunique(t)
     T = eltype(residual)
     x, yy, z, pw, scatter = T[], T[], T[], T[], T[]
     ps = Int[]
