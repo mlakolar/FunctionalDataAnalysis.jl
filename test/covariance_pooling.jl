@@ -71,7 +71,9 @@ import StatsAPI
         fit = StatsAPI.fit(SmoothedCovariance,fd,mean;grid,bandwidth=2.,kernel,weighting,binning)
         surface = FDA._local_linear_surface(raw,grid,grid,2.,kernel)
         @test fit.surface ≈ (surface+surface')/2 rtol=1e-12 atol=1e-13
-        @test fit.noise_details.latent_diagonal ≈ FDA._rotated_covariance_diagonal(raw,grid,2.,kernel) rtol=1e-12 atol=1e-13
+        points = fit.noise_details.integration_grid
+        fd === untied && @test points == grid[2:4]
+        @test fit.noise_details.latent_diagonal ≈ FDA._rotated_covariance_diagonal(raw,points,2.,kernel) rtol=1e-12 atol=1e-13
         selected = StatsAPI.fit(SmoothedCovariance,fd,mean;grid,
             bandwidth=CurveCV([1.2,2.];folds=3,rng=MersenneTwister(71)),kernel,weighting,binning)
         @test selected.selection.errors ≈ raw_cv(raw,selected.selection,kernel) rtol=1e-12
