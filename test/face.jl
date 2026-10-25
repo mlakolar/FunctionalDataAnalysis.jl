@@ -300,7 +300,7 @@ end
         # Observation-space matrices provide an independent check of both the
         # cross-covariance numerator and the full max_k covariance denominator.
         G = Matrix(f.settings.full_projected_covariance)
-        L = FunctionalDataAnalysis.KernelSmoothing.smoothermatrix(grid, grid;
+        L = FunctionalDataAnalysis.KernelSmoothing.smoother_matrix(grid, grid;
             bandwidth=0.4, derivative=1, degree=2,
             kernel=FunctionalDataAnalysis.KernelSmoothing.GaussianKernel())
         cross = transpose(L * G) * (f.weights .* d.basis.values)
