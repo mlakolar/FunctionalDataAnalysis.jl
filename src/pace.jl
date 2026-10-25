@@ -328,7 +328,7 @@ function _fit_pace(fd; method=:auto, grid=nothing, ncomponents=FVE(0.99), max_k=
     _fpca_tolerance(sign_tol, "sign_tol")
     requested_max_k = max_k
     max_k === nothing && (max_k = max(1, min(20, length(workgrid)-2, nobs(fd)-2)))
-    max_k isa Integer && 1 <= max_k <= length(workgrid) ||
+    _integer_in(max_k, 1, length(workgrid)) ||
         throw(ArgumentError("PACE max_k must be between 1 and the work-grid length"))
     resolved_mean, mean_source = _pace_mean(fd, mean, workgrid, mean_bandwidth, kernel, weighting)
     resolved_covariance, covariance_source = _pace_covariance(fd, resolved_mean,

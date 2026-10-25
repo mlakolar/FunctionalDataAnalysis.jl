@@ -314,7 +314,7 @@ end
 
 function _mean_bands(fd, m, initial; alpha, B, coverage)
     a = _band_alpha(alpha)
-    B isa Integer && !(B isa Bool) && 2 <= B <= typemax(Int) ||
+    _integer_in(B, 2) ||
         throw(ArgumentError("B must be an integer of at least two"))
     coverage in (:interval, :band, :both) ||
         throw(ArgumentError("coverage must be :interval, :band, or :both"))

@@ -131,7 +131,7 @@ function _multivariate_pooled(mfd::MultivariateFunctionalData{T};
     rank = p * (n - 1)
     requested_max_k = max_k
     max_k = max_k === nothing ? max(1, min(g-2, rank-1)) : max_k
-    max_k isa Integer && 1 <= max_k <= min(g, rank) || throw(ArgumentError(
+    _integer_in(max_k, 1, min(g, rank)) || throw(ArgumentError(
         "pooled FPCA max_k must be between 1 and min(grid length, nodes*(nobs-1))"))
     grid, weights = copy(firstnode.grid), copy(firstnode.weights)
     means = GridFunctionalData{T}[]

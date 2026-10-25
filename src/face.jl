@@ -113,13 +113,13 @@ Base.@constprop :aggressive function _fit_face(fd::GridFunctionalData{T}; ncompo
     _fpca_tolerance(eigen_tol, "eigen_tol")
     _fpca_tolerance(sign_tol, "sign_tol")
     ncomponents isa Union{AIC,BIC} && throw(ArgumentError("AIC and BIC component selection require method=:pace"))
-    ncomponents isa FVE || (ncomponents isa Integer && !(ncomponents isa Bool) && 1 <= ncomponents <= typemax(Int)) ||
+    ncomponents isa FVE || (_integer_in(ncomponents, 1)) ||
         throw(ArgumentError("FACE ncomponents must be FVE or a positive integer representable as Int"))
     setting = _pspline_setting(fd.grid, knots, p, m)
     c = size(setting.A, 2)
     cap = min(n, c)
     max_k = max_k === nothing ? cap : max_k
-    max_k isa Integer && !(max_k isa Bool) && 1 <= max_k <= cap || throw(ArgumentError("FACE max_k must be between 1 and min(nobs, knots+p)"))
+    _integer_in(max_k, 1, cap) || throw(ArgumentError("FACE max_k must be between 1 and min(nobs, knots+p)"))
     mu, mean_settings = _face_mean(fd, mean, center, mean_smoother)
     Y, initialization = _face_initialize(fd, mu)
     all(isfinite, Y) || throw(ArgumentError("FACE centered observations must be finite; rescale the observations"))

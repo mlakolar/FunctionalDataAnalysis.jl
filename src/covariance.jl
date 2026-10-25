@@ -198,7 +198,7 @@ function fit(::Type{SmoothedCovariance}, fd::Union{GridFunctionalData,IrregularF
         "noise_method must be :surface_diagonal or :rotated"))
     noise_interval isa Symbol && noise_interval in (:middle_half, :full) || throw(ArgumentError(
         "noise_interval must be :middle_half or :full"))
-    binning === nothing || (binning isa Integer && 2 <= binning <= typemax(Int)) ||
+    binning === nothing || (_integer_in(binning, 2)) ||
         throw(ArgumentError("binning must be nothing or an integer of at least two"))
     binning = binning === nothing ? nothing : Int(binning)
     grid = _evaluation_points(fd, grid)

@@ -71,3 +71,8 @@ component. For example, `all(==(:regular), sampling_design(mfd))` checks that
 all components are regular; there is no aggregate multivariate design.
 """
 function sampling_design end
+
+# Counts and orders accept non-Bool integers representable as Int. Each caller
+# supplies its own lower/upper bounds (zero is valid for derivative orders).
+_integer_in(x, lower, upper=typemax(Int)) =
+    x isa Integer && !(x isa Bool) && lower <= x <= min(upper, typemax(Int))

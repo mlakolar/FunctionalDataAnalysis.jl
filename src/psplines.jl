@@ -1,7 +1,7 @@
 # Internal P-splines. Unlike penalty(basis, m), this penalizes coefficient
 # differences, not integrated derivatives. refund 0.1-40 pspline.setting.R.
 function _difference_penalty(k::Integer, m::Integer, ::Type{T}=Float64) where {T}
-    0 <= m < k || throw(ArgumentError("difference penalty order m must be in 0:nbasis-1"))
+    _integer_in(k, 1) && _integer_in(m, 0, k-1) || throw(ArgumentError("difference penalty order m must be in 0:nbasis-1"))
     D = zeros(T, k-m, k)
     for i in axes(D, 1), j in 0:m
         D[i, i+j] = T((-1)^j * binomial(big(m), j))
@@ -14,11 +14,11 @@ end
 
 function _pspline_design(x::AbstractVector{T}, knots, p, m;
         interval=(minimum(x), maximum(x))) where {T<:AbstractFloat}
-    knots isa Integer && !(knots isa Bool) && knots >= 1 || throw(ArgumentError("FACE knots must be a positive integer (number of equal intervals)"))
-    p isa Integer && !(p isa Bool) && p >= 0 || throw(ArgumentError("FACE degree p must be a nonnegative integer"))
+    _integer_in(knots, 1) || throw(ArgumentError("FACE knots must be a positive integer (number of equal intervals)"))
+    _integer_in(p, 0) || throw(ArgumentError("FACE degree p must be a nonnegative integer"))
     knots < length(x) && p < length(x)-knots || throw(ArgumentError("FACE knots + p must be smaller than the number of design points"))
     k = Int(knots+p)
-    m isa Integer && !(m isa Bool) && 0 <= m < k || throw(ArgumentError("FACE difference penalty order m must be in 0:knots+p-1"))
+    _integer_in(m, 0, k-1) || throw(ArgumentError("FACE difference penalty order m must be in 0:knots+p-1"))
     p, m, knots = Int(p), Int(m), Int(knots)
     # R uses simple knots extending p intervals beyond each endpoint, rather
     # than clamped endpoints. BSplineKit's augment=false preserves these knots.

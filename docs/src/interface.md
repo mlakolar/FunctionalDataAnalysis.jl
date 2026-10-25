@@ -105,6 +105,25 @@ StatsAPI.residuals(::FPCA)
 StatsAPI.coef(::BasisFunctionalData)
 ```
 
+## Counts, orders and array inputs
+
+Counts and orders must be integers other than `Bool`, representable as `Int`,
+within the argument's documented bounds. Zero remains valid for polynomial
+and derivative orders where documented; positive counts and minimum-two
+quantities retain their existing bounds. This includes component caps and
+counts, CCA counts, bootstrap replicates, curve folds, bin counts, basis
+sizes/orders, FACE intervals/degrees/difference orders and simulation counts.
+`true` and `false` are rejected even though Julia makes `Bool <: Integer`.
+
+One-based array views and ranges are supported; offset-indexed inputs remain
+unsupported. Float32 smoke tests use relative tolerance `2e-3` and absolute
+tolerance `2e-5` against Float64 calculations, including fully estimated
+PACE and curve smoothing. These checks supplement the unchanged Float64 R
+contracts below `1e-8`. KernelSmoothing currently computes curve-smoother
+matrices in Float64; the cache retains those operators and multiplication
+precision before converting output to the work-grid type. Float32 input/output
+support does not imply that every backend workspace uses Float32.
+
 ## Tuning vocabulary
 
 | Route / keyword | Meaning and default | Distinction / compatibility |

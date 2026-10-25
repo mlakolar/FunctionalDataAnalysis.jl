@@ -113,7 +113,7 @@ function _basis_pca_lambda(lambda::Real, residuals::Matrix{T}, G, P,
 end
 function _basis_pca_lambda(cv::LambdaCV, residuals::Matrix{T}, G, P,
         rule, max_k, eigen_tol, sign_tol) where {T}
-    rule isa Integer && !(rule isa Bool) && rule >= 1 || throw(ArgumentError(
+    _integer_in(rule, 1) || throw(ArgumentError(
         "FPCA LambdaCV requires a positive integer ncomponents so all folds and candidates use the same subspace count"))
     n = size(residuals, 1)
     n >= 3 || throw(ArgumentError("LambdaCV requires at least three curves"))
@@ -186,7 +186,7 @@ function fit(::Type{FPCA}, fd::BasisFunctionalData{T}; lambda=0, penalty=nothing
     n >= 2 || throw(ArgumentError("basis FPCA requires at least two curves"))
     limit = min(k, center ? n-1 : n)
     cap = max_k === nothing ? limit : max_k
-    cap isa Integer && !(cap isa Bool) && 1 <= cap <= limit ||
+    _integer_in(cap, 1, limit) ||
         throw(ArgumentError("basis FPCA max_k must be between 1 and min(nbasis, centered rank bound)"))
     _fpca_tolerance(eigen_tol, "eigen_tol")
     _fpca_tolerance(sign_tol, "sign_tol")
@@ -416,7 +416,7 @@ function fit(::Type{FunctionalCCA}, fd1::BasisFunctionalData, fd2::BasisFunction
     ncan = something(ncomponents, ncan, 2)
     _cca_subjects(fd1, fd2)
     center isa Bool || throw(ArgumentError("center must be Boolean"))
-    ncan isa Integer && !(ncan isa Bool) && 1 <= ncan <= min(nbasis(fd1.basis), nbasis(fd2.basis)) ||
+    _integer_in(ncan, 1, min(nbasis(fd1.basis), nbasis(fd2.basis))) ||
         throw(ArgumentError("ncan must be between one and the smaller basis dimension"))
     T = promote_type(eltype(fd1), eltype(fd2))
     b, d = deepcopy(fd1.basis), deepcopy(fd2.basis)

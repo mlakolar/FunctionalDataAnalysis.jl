@@ -23,7 +23,7 @@ struct LocalPolynomial{T<:AbstractFloat,K<:KernelSmoothing.AbstractKernel}
             throw(ArgumentError("bandwidth must be a finite positive number"))
         nu = _derivative_order(derivative)
         degree = degree === nothing ? _derivative_sum(nu, 1) : degree
-        degree isa Integer && 0 <= degree <= typemax(Int) ||
+        _integer_in(degree, 0) ||
             throw(ArgumentError("degree must be a nonnegative integer representable as Int"))
         degree >= nu || throw(ArgumentError("degree must be at least derivative order"))
         kernel isa KernelSmoothing.AbstractKernel ||
@@ -107,6 +107,8 @@ function smooth_curves(fd::Union{GridFunctionalData,IrregularFunctionalData},
     T = eltype(x)
     out = Matrix{Union{Missing,T}}(missing, nobs(fd), length(x))
     # Curves observed at the same times (complete grid data) share one smoother matrix.
+    # KernelSmoothing computes smoother matrices in Float64, even for Float32
+    # data. Preserve that arithmetic before casting output to the grid type.
     smoothers = Dict{Vector{eltype(fd)},Tuple{Vector{Int},Matrix{Float64}}}()
     for i in 1:nobs(fd)
         t, y = fd[i]
