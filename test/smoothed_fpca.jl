@@ -40,6 +40,7 @@ end
         @test model.settings.penalty === :harmonic_acceleration
         @test model.settings.covariance_denominator == 10
         @test model.method == :basis
+        _test_prediction_contract(model, fd)
         @test gram(eigenfunctions(model)) ≈ Matrix{Float64}(I, 5, 5)
         @test (@inferred StatsAPI.predict(model, fd)) ≈ scores(model)
         @test (@inferred reconstruct(model)).values ≈ evaluate(fd, model.grid)
@@ -77,6 +78,10 @@ end
         @test reconstruct(uncentered).values ≈ evaluate(shifted, uncentered.grid)
         small = BasisFunctionalData(Float32.(C[:,1:3]), FourierBasis((0.0f0,1.0f0),3))
         f32 = @inferred StatsAPI.fit(FPCA, small)
+        @test (@inferred project_scores(f32, small)) isa Matrix{Float32}
+        @test (@inferred predict_scores(f32, small)).scores isa Matrix{Float32}
+        @test predict_scores(f32, small).covariances === nothing
+        @test (@inferred StatsAPI.residuals(f32)) isa BasisFunctionalData{Float32}
         @test (@inferred StatsAPI.predict(f32, small)) isa Matrix{Float32}
         @test (@inferred reconstruct(f32)) isa GridFunctionalData{Float32}
         @test_throws ArgumentError StatsAPI.fit(FPCA,small;lambda=1e-60)

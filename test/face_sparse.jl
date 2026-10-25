@@ -25,6 +25,7 @@ using DelimitedFiles
         q(name) = quantity(golden,name)
         options = case=="default" ? (;) : (; lambda=2.5,lambda_mean=.75)
         f = StatsAPI.fit(FPCA,fd;method=:face,face=options)
+        _test_prediction_contract(f, fd)
         subjects = Int.(vec(q("subjects")))
         @test f.method == :face
         @test f.grid ≈ vec(q("grid")) rtol=1e-14
@@ -103,6 +104,8 @@ using DelimitedFiles
         f32 = @inferred ((d)->StatsAPI.fit(FPCA,d;method=:face,ncomponents=2,
             face=(;lambda=2.5,lambda_mean=.75)))(fd32)
         @test eltype(scores(f32)) == Float32
+        @test (@inferred project_scores(f32, fd32)) isa Matrix{Float32}
+        @test (@inferred predict_scores(f32, fd32)).covariances isa Array{Float32,3}
         @test eltype(eigvals(f32)) == Float32
         @test f32.basis.values'*(f32.weights .* f32.basis.values) ≈ I atol=1e-5
         # A deterministic example with a negative joint diagonal coefficient:
@@ -130,6 +133,7 @@ using DelimitedFiles
         marginal = StatsAPI.fit(FPCA,multivariate;method=:face,ncomponents=2,
             face=(;lambda=2.5,lambda_mean=.75))
         @test all(f.settings.route == :sparse for f in marginal.fits)
+        _test_prediction_contract(marginal, multivariate)
         @test all(p.scores ≈ s for (p,s) in zip(StatsAPI.predict(marginal,multivariate),scores(marginal)))
         snapshot = deepcopy(f)
         fd.values[1] += 10

@@ -65,6 +65,7 @@ end
         @test StatsAPIReconstructionClient.reconstruct === FunctionalDataAnalysis.reconstruct
         @test StatsAPIReconstructionClient.reconstruct(model).values ≈ values
         @test model.method == :dense
+        _test_prediction_contract(model, fd)
         @test model.design == :regular
         @test model.grid == grid
         @test model.weights == weights
@@ -266,6 +267,7 @@ end
         fd = GridFunctionalData([i + (i - 2)t for i in 1:4, t in grid], grid)
         localmethod = LocalPolynomial(; bandwidth=0.75)
         localfit = StatsAPI.fit(FPCA, fd; presmooth=localmethod, ncomponents=1)
+        _test_prediction_contract(localfit, fd)
         direct = StatsAPI.fit(FPCA, smooth_curves(fd, localmethod; grid); ncomponents=1)
         @test eigvals(localfit) ≈ eigvals(direct)
         @test scores(localfit) ≈ scores(direct)
@@ -306,6 +308,9 @@ end
         @test eigvals(model32) isa Vector{Float32}
         @test scores(model32) isa Matrix{Float32}
         @test (@inferred StatsAPI.predict(model32, f32)) isa Matrix{Float32}
+        @test (@inferred project_scores(model32, f32)) isa Matrix{Float32}
+        @test (@inferred predict_scores(model32, f32)).scores isa Matrix{Float32}
+        @test predict_scores(model32, f32).covariances === nothing
         @test (@inferred reconstruct(model32)) isa GridFunctionalData{Float32}
     end
 

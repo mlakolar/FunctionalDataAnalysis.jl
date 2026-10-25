@@ -273,12 +273,19 @@ _multivariate_prediction(::Type{T}, predicted::NamedTuple) where {T} =
 """
     predict(f::MultivariateFPCA, newmfd::MultivariateFunctionalData)
 
-Predict node by node with the training means and bases. Return a vector:
+Deprecated compatibility API; prefer [`project_scores`](@ref) or
+[`predict_scores`](@ref). Predict node by node with the training means and
+bases. Return a vector:
 dense nodes give score matrices and PACE/FACE nodes give `(scores, covariances)`
 named tuples, as in univariate FPCA. Node counts must match. Dense nodes
 require their training grids and complete observations.
 """
 function predict(f::MultivariateFPCA{T}, mfd::MultivariateFunctionalData{S}) where {T,S}
+    _deprecated_score_prediction()
+    _predict_result(f, mfd)
+end
+
+function _predict_result(f::MultivariateFPCA{T}, mfd::MultivariateFunctionalData{S}) where {T,S}
     ncomponents(mfd) == length(f.scores) || throw(DimensionMismatch(
         "prediction node count must match the multivariate FPCA fit"))
     R = promote_type(T, S)
@@ -288,7 +295,7 @@ function predict(f::MultivariateFPCA{T}, mfd::MultivariateFunctionalData{S}) whe
         if f.basis === :marginal
             node isa Union{GridFunctionalData,IrregularFunctionalData} || throw(ArgumentError(
                 "multivariate FPCA prediction requires grid or irregular nodes"))
-            push!(out, _multivariate_prediction(R, predict(f.fits[j], node)))
+            push!(out, _multivariate_prediction(R, _predict_result(f.fits[j], node)))
         else
             node isa GridFunctionalData && node.observed === nothing || throw(ArgumentError(
                 "pooled FPCA prediction requires complete grid nodes; pooled PACE is not implemented"))

@@ -238,8 +238,11 @@ function fit(::Type{FPCA}, fd::BasisFunctionalData{T}; lambda=0, penalty=nothing
 end
 
 function predict(f::FPCA, fd::BasisFunctionalData)
-    _basis_predict(f, fd, f.mean)
+    _deprecated_score_prediction()
+    _predict_result(f, fd)
 end
+
+_predict_result(f::FPCA, fd::BasisFunctionalData) = _basis_predict(f, fd, f.mean)
 function _basis_predict(f, fd, mu::BasisFunctionalData)
     fd.basis == mu.basis || throw(ArgumentError("prediction basis must equal the FPCA training basis"))
     projected = (fd.coefs .- mu.coefs) * gram(mu.basis) * f.basis.coefs

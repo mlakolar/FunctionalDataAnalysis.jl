@@ -5,6 +5,8 @@ using Random
 using Tables
 using Test
 
+include("support/prediction.jl")
+
 @testset "FunctionalDataAnalysis" begin
     include("aqua.jl")
     include("naming.jl")

@@ -24,6 +24,7 @@ import StatsAPI
         model = @inferred StatsAPI.fit(FPCA, fd; grid, ncomponents=1, max_k=2,
             mean=supplied_mean, covariance=supplied_covariance, noise_variance=sigma2)
         @test model.method == :pace
+        _test_prediction_contract(model, fd)
         @test model.design == :sparse
         @test nobs(model) == 4
         @test ncomponents(model) == 1

@@ -6,10 +6,12 @@ components and evaluation points are columns where a matrix is returned.
 
 ## Fitting and prediction
 
-`fit` and `predict` extend StatsAPI. Per-curve smoothers return functional
+`fit` extends StatsAPI. Prefer `project_scores` for score-only projection and
+`predict_scores` for explicit score predictions with available uncertainty. Per-curve smoothers return functional
 data directly, while pooled smoothers return dedicated mean/covariance
 summaries and decompositions return model objects. The table records the
-current result contracts. Here `n` is the new subject count, `K` a selected
+current legacy `StatsAPI.predict` contracts, retained with deprecation warnings
+for FPCA, MultivariateFPCA and MFPCA. CCA variate prediction is unchanged. Here `n` is the new subject count, `K` a selected
 component count, and `K_j` the selected count for node `j`.
 
 | `StatsAPI.fit` call | Return value | `StatsAPI.predict` result |
@@ -41,9 +43,72 @@ settings and restrictions. Derivative results come from `derivative(model, ...)`
 rather than `fit`; they support reconstruction as described under
 [derivatives](fpca.md#Derivatives).
 
+## Explicit score prediction
+
+| Route | `project_scores(model, data)` | `predict_scores(model, data)` |
+|:--|:--|:--|
+| Dense FPCA | `n × K` matrix | `ScorePrediction(matrix, nothing)` |
+| Exact-basis FPCA | `n × K` matrix | `ScorePrediction(matrix, nothing)` |
+| PACE | `n × K` matrix | `ScorePrediction(matrix, covariance)` with `K × K × n` covariance |
+| Common-grid FACE (complete or masked) | `n × K` matrix | Same result type and covariance dimensions as PACE |
+| Sparse FACE | `n × K` matrix | Same result type and covariance dimensions as PACE |
+| Marginal MultivariateFPCA, including mixed routes | Vector of `n × K_j` matrices | Vector of node `ScorePrediction`s |
+| Pooled MultivariateFPCA | Vector of `n × K_j` matrices | Vector of `ScorePrediction(matrix, nothing)` |
+| Joint MFPCA | `n × K` matrix | `ScorePrediction(matrix, nothing)` |
+
+`ScorePrediction` has named `scores` and `covariances` fields. It is not an
+array and does not implicitly discard uncertainty. `nothing` means no
+conditional score covariance is supplied; it does **not** assert zero
+uncertainty. Joint MFPCA does not assume independent node errors or propagate
+marginal covariances. PACE/FACE covariances retain their documented conditional
+interpretation and exclusions. All prediction arrays are newly computed and
+independent of training scores and input arrays. Modifying a result changes
+that result only. There is no new FSVD prediction algorithm, and CCA retains
+its separate `(variates1, variates2)` prediction contract.
+
+Legacy `StatsAPI.predict(model, data)` keeps exactly its original matrix,
+named tuple, or vector of alternatives and warns for the three FPCA model
+types. Replace it explicitly with one of the two score APIs; no automatic
+return-type switch is implied for a later release. Input requirements and
+numerical calculations are shared with the legacy routes in the first table.
+
+```julia
+projected = project_scores(model, newdata)
+prediction = predict_scores(model, newdata)
+# prediction.scores is the matrix; prediction.covariances may be nothing.
+```
+
+## Statistical accessors
+
+`StatsAPI.fitted(model)` returns `reconstruct(model)` for FPCA,
+MultivariateFPCA and MFPCA: latent training curves on the stored work/display
+grids with training IDs, without added noise or parameter uncertainty.
+`StatsAPI.residuals(model)` subtracts those latent functions at the original
+observations, before presmoothing. Grid masks, irregular times/offsets, IDs,
+node order and exact basis representations are preserved. Grid/PACE/FACE
+residuals use the existing piecewise-linear reconstruction; basis residuals
+use exact coefficient arithmetic. Missing or imputed FACE values are not
+promoted to observed residuals. Both accessors return independent data.
+
+`StatsAPI.coef(data::BasisFunctionalData)` returns the stored curve-by-basis
+coefficient matrix; copy it before mutation. There are no ambiguous model
+`coef` methods, and no fitted-observation or residual methods for FSVD, CCA
+or derivative summaries. Residuals contain truncation/smoothing error as well
+as noise and are not independent noise estimates.
+
+```@docs
+ScorePrediction
+project_scores
+predict_scores
+StatsAPI.fitted(::Union{FPCA,MultivariateFPCA,MFPCA})
+StatsAPI.residuals(::FPCA)
+StatsAPI.coef(::BasisFunctionalData)
+```
+
 ## Generic ownership and storage
 
-`nobs`, `fit`, `predict` and `reconstruct` are StatsAPI generics. StatsAPI
+`nobs`, `fit`, `predict`, `reconstruct`, `fitted`, `residuals` and `coef` are
+StatsAPI generics. StatsAPI
 **1.8 or newer** is required for the shared `reconstruct` binding. Existing
 FDA reconstruction calls and return values are unchanged; qualified imports
 now identify the same generic:

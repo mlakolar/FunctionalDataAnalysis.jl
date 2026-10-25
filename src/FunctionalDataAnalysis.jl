@@ -1,7 +1,7 @@
 module FunctionalDataAnalysis
 
 using LinearAlgebra
-import StatsAPI: nobs, fit, predict, reconstruct
+import StatsAPI: nobs, fit, predict, reconstruct, fitted, residuals, coef
 import KernelSmoothing
 import BSplineKit
 import Tables
@@ -26,6 +26,7 @@ export FSVD, svdvals, left_functions, right_functions, left_scores, right_scores
 export FPCA, FPCBasis, FVE, AIC, BIC, eigenfunctions, eigvals, scores,
     score_covariances, fve, noise_variance, reconstruct, predict, pace_bandwidth_candidates
 export MultivariateFPCA, MFPCA, score_array
+export ScorePrediction, project_scores, predict_scores, fitted, residuals, coef
 export LambdaCV, FunctionalCCA, canonical_weights, canonical_variates,
     canonical_correlations, squared_canonical_correlations
 export LocalPolynomial, PenalizedSpline, GCV, smooth_curves
@@ -65,6 +66,7 @@ include("mfpca.jl")
 include("cross_covariance.jl")
 include("cross_structure.jl")
 include("derivatives.jl")
+include("prediction.jl")
 include("bands.jl")
 include("plot_data.jl")
 include("recipes.jl")
