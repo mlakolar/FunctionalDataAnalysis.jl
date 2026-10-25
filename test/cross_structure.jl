@@ -259,3 +259,30 @@ end
     masked = Matrix{Union{Missing,Float64}}(x.values); masked[1,1] = missing
     @test_throws ArgumentError dynamic_correlation(GridFunctionalData(masked,g),y)
 end
+
+@testset "Dense FSVD selected right vectors and owned surfaces" begin
+    g1 = collect(range(0.,1.;length=17)).^1.2
+    g2 = collect(range(-1.,2.;length=23))
+    latent = [cos(2pi*k*(i-.5)/12) for i in 1:12, k in 1:3]
+    first_values = 2 .+ g1' .+ (latent .* [3. 1. .25]) * hcat(ones(17),g1,sinpi.(g1))'
+    second_values = 1 .+ .2g2' .+ (latent .* [2. .8 .1]) * hcat(ones(23),g2,cospi.(g2/3))'
+    for T in (Float32,Float64)
+        x = GridFunctionalData(T.(first_values), T.(g1))
+        y = GridFunctionalData(second_values, g2)
+        before1, before2 = copy(x.values), copy(y.values)
+        full = StatsAPI.fit(FSVD,x,y;ncomponents=3,max_k=3)
+        selected = StatsAPI.fit(FSVD,x,y;ncomponents=1,max_k=3)
+        @test size(selected.right_functions) == (23,1)
+        @test selected.right_functions == full.right_functions[:,1:1]
+        @test selected.left_functions == full.left_functions[:,1:1]
+        @test selected.singular_values == full.singular_values[1:1]
+        @test selected.fve == full.fve
+        @test x.values == before1 && y.values == before2
+        standalone = StatsAPI.fit(CrossCovariance,x,y)
+        @test full.cross_covariance.surface ≈ standalone.surface .* (11/10)
+        saved = copy(standalone.surface)
+        full.cross_covariance.surface[1,1] += 1
+        @test standalone.surface == saved
+        @test x.values == before1 && y.values == before2
+    end
+end

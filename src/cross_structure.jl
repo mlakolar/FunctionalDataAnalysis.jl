@@ -217,7 +217,8 @@ Base.@constprop :aggressive function fit(::Type{FSVD}, fd1::Union{GridFunctional
             "complete-grid FSVD requires dense marginal FPCA fits"))
         c0 = fit(CrossCovariance, fd1, fd2)
         T = eltype(c0.surface)
-        c = CrossCovariance(c0.grid1, c0.grid2, c0.surface .* (T(n-1)/T(n-2)),
+        c0.surface .*= T(n-1)/T(n-2)
+        c = CrossCovariance(c0.grid1, c0.grid2, c0.surface,
             c0.weights1, c0.weights2, c0.mean1, c0.mean2, n-2, c0.ids)
     else
         c = fit(SmoothedCrossCovariance, fd1, fd2, f1.mean, f2.mean;
@@ -227,9 +228,10 @@ Base.@constprop :aggressive function fit(::Type{FSVD}, fd1::Union{GridFunctional
     _integer_in(max_k, 1) ||
         throw(ArgumentError("FSVD max_k must be a positive integer representable as Int"))
     root1, root2 = sqrt.(c.weights1), sqrt.(c.weights2)
-    weighted = c.surface .* (root1 * transpose(root2))
+    weighted = similar(c.surface)
+    weighted .= c.surface .* (root1 .* transpose(root2))
     all(isfinite, weighted) || throw(ArgumentError("FSVD weighted cross-covariance must be finite"))
-    d = svd(weighted)
+    d = svd!(weighted)
     retained = min(Int(max_k), count(>(first(d.S)*_FPCA_EIGEN_TOL), d.S))
     retained > 0 || throw(ArgumentError("FSVD cross-covariance has no positive singular values above tolerance"))
     values = d.S[1:retained]
@@ -238,7 +240,11 @@ Base.@constprop :aggressive function fit(::Type{FSVD}, fd1::Union{GridFunctional
     selection = _fpca_selection(ncomponents, fractions, Int(max_k))
     k = selection.chosen
     values = values[1:k]
-    left, right = d.U[:,1:k] ./ root1, d.V[:,1:k] ./ root2
+    left = d.U[:,1:k]
+    # SVD stores Vt. Extract only selected columns of V, avoiding its full copy.
+    right = Matrix(transpose(view(d.Vt, 1:k, :)))
+    left ./= root1
+    right ./= root2
     for j in 1:k
         if left[argmax(abs.(left[:,j])),j] < 0
             left[:,j] .*= -1

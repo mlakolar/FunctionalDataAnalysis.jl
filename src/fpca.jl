@@ -309,9 +309,12 @@ function _fpca_eigen(surface::AbstractMatrix{<:Real}, weights::AbstractVector{<:
     T = _floattype(promote_type(eltype(surface), eltype(weights), eltype(mean)))
     w = Vector{T}(weights)
     root = sqrt.(w)
-    weighted = Matrix{T}(surface) .* (root * transpose(root))
+    weighted = Matrix{T}(undef, m, m)
+    # Keep surface * (root_i * root_j) parenthesized as before, without
+    # allocating a converted surface and a grid-square outer product.
+    weighted .= T.(surface) .* (root .* transpose(root))
     all(isfinite, weighted) || throw(ArgumentError("weighted covariance must be finite; rescale the data"))
-    decomposition = eigen(Symmetric(weighted))
+    decomposition = eigen!(Symmetric(weighted))
     spectrum = decomposition.values
     all(isfinite, spectrum) || throw(ArgumentError("FPCA eigenvalues must be finite; rescale the data"))
     scale = maximum(abs, spectrum)
@@ -328,11 +331,14 @@ function _fpca_eigen(surface::AbstractMatrix{<:Real}, weights::AbstractVector{<:
     isempty(indices) && throw(ArgumentError("FPCA covariance has no positive eigenvalues above eigen_tol"))
     indices = indices[1:min(Int(max_k), length(indices))]
     values = spectrum[indices]
-    functions = decomposition.vectors[:, indices] ./ root
+    functions = decomposition.vectors[:, indices]
+    functions ./= root
     normalization_root = sqrt.(normalization_weights)
+    weighted_phi = Vector{promote_type(T, eltype(normalization_root))}(undef, m)
     for j in axes(functions, 2)
         phi = view(functions, :, j)
-        phi ./= norm(normalization_root .* phi)
+        weighted_phi .= normalization_root .* phi
+        phi ./= norm(weighted_phi)
     end
     _fpca_orient!(functions, mean, sign_tol)
     scaled_values = values ./ scale
@@ -427,7 +433,9 @@ Base.@constprop :aggressive function fit(::Type{FPCA}, fd::GridFunctionalData; m
     values, preprocessing = _fpca_preprocess(fd, presmooth)
     T = eltype(values)
     mu = vec(sum(values; dims=1) ./ n)
-    residuals = values .- transpose(mu)
+    # Every preprocessing route returns owned values; center that buffer.
+    residuals = values
+    residuals .-= transpose(mu)
     covariance = transpose(residuals) * residuals / (n-1)
     all(isfinite, covariance) && all(isfinite, mu) ||
         throw(ArgumentError("dense FPCA mean and covariance must be finite; rescale the observations"))

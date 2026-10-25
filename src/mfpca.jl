@@ -82,6 +82,13 @@ function fit(::Type{MFPCA}, mfd::MultivariateFunctionalData;
     _mfpca(marginal, weights, ncomponents, eigen_tol, univariate)
 end
 
+function _mfpca_weighted_scores!(destination, scores, offsets, root)
+    for j in eachindex(scores)
+        view(destination, :, offsets[j]+1:offsets[j+1]) .= scores[j] .* root[j]
+    end
+    destination
+end
+
 function _mfpca(marginal::MultivariateFPCA{U}, weights::AbstractVector{W},
         count, eigen_tol, options::NamedTuple) where {U,W<:Real}
     T = promote_type(U, _floattype(W))
@@ -93,12 +100,11 @@ function _mfpca(marginal::MultivariateFPCA{U}, weights::AbstractVector{W},
     count <= total || throw(ArgumentError("MFPCA ncomponents exceeds the total univariate component count ($total)"))
     root = sqrt.(w)
     weighted_scores = Matrix{T}(undef, nobs(marginal), total)
-    for j in eachindex(counts)
-        weighted_scores[:, offsets[j]+1:offsets[j+1]] = marginal.scores[j] .* root[j]
-    end
+    _mfpca_weighted_scores!(weighted_scores, marginal.scores, offsets, root)
     all(isfinite, weighted_scores) || throw(ArgumentError("MFPCA weighted scores must be finite; rescale observations or weights"))
     # Divide before the cross product to avoid unnecessary intermediate overflow.
-    scaled = weighted_scores ./ sqrt(T(nobs(marginal)-1))
+    scaled = weighted_scores
+    scaled ./= sqrt(T(nobs(marginal)-1))
     centered = scaled .- sum(scaled; dims=1) ./ nobs(marginal)
     covariance = transpose(centered) * centered
     system = _fpca_eigen(covariance, ones(T, total), zeros(T, total);
@@ -111,16 +117,23 @@ function _mfpca(marginal::MultivariateFPCA{U}, weights::AbstractVector{W},
     scaled_projection = scaled * c
     normalization_factors = [inv(norm(column)) for column in eachcol(scaled_projection)]
     score_scales = sqrt.(values) .* normalization_factors
-    function_coefficients = (transpose(scaled) * scaled_projection) .*
-        transpose(normalization_factors ./ sqrt.(values))
+    function_coefficients = transpose(scaled) * scaled_projection
+    function_coefficients .*= transpose(normalization_factors ./ sqrt.(values))
     all(isfinite, normalization_factors) && all(isfinite, function_coefficients) ||
         throw(ArgumentError("MFPCA normalization must be finite; rescale observations or weights"))
-    projected = (weighted_scores * c) .* transpose(score_scales)
+    # The covariance-only centered buffer is dead now. Refill it with the
+    # original uncentered weighted scores; do not reconstruct them by undoing
+    # centering/scaling, which would introduce different rounding.
+    _mfpca_weighted_scores!(centered, marginal.scores, offsets, root)
+    projected = scaled_projection
+    mul!(projected, centered, c)
+    projected .*= transpose(score_scales)
     all(isfinite, projected) || throw(ArgumentError("MFPCA scores must be finite; rescale observations or weights"))
     bases = FPCBasis{T}[]
     for j in eachindex(counts)
         b = marginal.bases[j]
-        functions = Matrix{T}(b.values) * function_coefficients[offsets[j]+1:offsets[j+1], :] ./ root[j]
+        functions = convert(Matrix{T}, b.values) * view(function_coefficients, offsets[j]+1:offsets[j+1], :)
+        functions ./= root[j]
         push!(bases, FPCBasis(Vector{T}(b.grid), functions; weights=Vector{T}(b.weights)))
     end
     sign_rule = (; method=:largest_absolute_coefficient, ties=:first_entry)
@@ -199,11 +212,9 @@ function _predict_result(f::MFPCA{T}, mfd::MultivariateFunctionalData{S}) where 
     R = promote_type(T, S)
     weighted_scores = Matrix{R}(undef, nobs(mfd), size(f.coefficients, 1))
     offsets = f.settings.offsets
-    for j in eachindex(predicted)
-        weighted_scores[:, offsets[j]+1:offsets[j+1]] =
-            predicted[j] .* sqrt(f.weights[j])
-    end
-    projected = (weighted_scores * f.coefficients) .* transpose(f.settings.score_scales)
+    _mfpca_weighted_scores!(weighted_scores, predicted, offsets, sqrt.(f.weights))
+    projected = weighted_scores * f.coefficients
+    projected .*= transpose(f.settings.score_scales)
     all(isfinite, projected) || throw(ArgumentError("MFPCA prediction scores must be finite; rescale observations or weights"))
     projected
 end
