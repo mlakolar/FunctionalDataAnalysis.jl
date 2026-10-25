@@ -25,7 +25,9 @@ julia> penalty(b, 2)
 Galerkin matrices. Its order is degree plus one. Integer order is a runtime
 argument; the wrapper retains a concrete return type for constructors.
 The Fourier basis starts with a constant and then sine/cosine pairs. It is
-orthonormal on its domain. Monomials use the original time coordinate.
+orthonormal on its domain. `penalty(b, :harmonic_acceleration)` for a Fourier
+basis integrates products of `D³φ + (2π/domain_width)² Dφ`, the default
+operator for [smoothed FPCA](fpca.md#Smoothed-FPCA). Monomials use the original time coordinate.
 
 ```@docs
 BSplineBasis

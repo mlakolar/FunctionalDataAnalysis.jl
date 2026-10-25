@@ -69,6 +69,13 @@ end
 _multivariate_node_fit(fd; kwargs...) = throw(ArgumentError(
     "marginal FPCA requires grid or irregular nodes; convert basis data explicitly first"))
 
+# Marginal nodes can have different FPCA settings and training-data types.
+# Keep their scalar type visible to collection inference without asking it to
+# join every parameter of the heterogeneous univariate fits.
+struct _MultivariateNodeFit{T<:AbstractFloat}
+    fit::FPCA{T}
+end
+
 _multivariate_uncertainty(::Type{T}, ::Nothing) where {T} = nothing
 _multivariate_uncertainty(::Type{T}, covariance::AbstractArray{<:Real,3}) where {T} =
     convert(Array{T,3}, covariance)
@@ -77,12 +84,13 @@ function _multivariate_marginal(mfd, options)
     p = ncomponents(mfd)
     per_node = map((name, value) -> _multivariate_keyword(value, name, p),
         keys(options), values(options))
-    fitted = map(1:p) do j
+    nodes = map(1:p) do j
         node_options = NamedTuple{keys(options)}(map((value, split) ->
             split ? value[j] : value, values(options), per_node))
-        _multivariate_node_fit(component(mfd, j); node_options...)
+        _MultivariateNodeFit(_multivariate_node_fit(component(mfd, j); node_options...))
     end
-    T = mapreduce(f -> eltype(f.scores), promote_type, fitted)
+    T = mapreduce(node -> eltype(node.fit.scores), promote_type, nodes)
+    fitted = FPCA[node.fit for node in nodes]
     projected = Matrix{T}[scores(f) for f in fitted]
     uncertainties = Union{Nothing,Array{T,3}}[
         _multivariate_uncertainty(T, score_covariances(f)) for f in fitted]
@@ -93,7 +101,7 @@ function _multivariate_marginal(mfd, options)
     means = GridFunctionalData{T}[f.mean isa GridFunctionalData{T} ? f.mean :
         GridFunctionalData(Matrix{T}(f.mean.values), Vector{T}(f.grid)) for f in fitted]
     settings = (; requested=deepcopy(options), node_settings=[deepcopy(f.settings) for f in fitted])
-    MultivariateFPCA(:marginal, FPCA[f for f in fitted], nothing, projected, uncertainties,
+    MultivariateFPCA(:marginal, fitted, nothing, projected, uncertainties,
         eigenvalues, bases, means, ids(mfd), settings, nothing)
 end
 

@@ -25,6 +25,7 @@ export FSVD, concurrent_correlation, dynamic_correlation
 export FPCA, FPCBasis, FVE, AIC, BIC, eigenfunctions, eigvals, scores,
     score_covariances, fve, noise_variance, reconstruct, predict, pace_bandwidth_candidates
 export MultivariateFPCA, MFPCA, score_array
+export LambdaCV, FunctionalCCA
 export LocalPolynomial, PenalizedSpline, GCV, smooth_curves
 export ids, RegularSampling, SparseSampling, simulate_kl,
     fourier_eigenfunctions, legendre_eigenfunctions
@@ -51,6 +52,7 @@ include("smoothing2d.jl")
 include("covariance.jl")
 include("fpcbasis.jl")
 include("fpca.jl")
+include("smoothed_fpca.jl")
 include("pace_defaults.jl")
 include("pace.jl")
 include("psplines.jl")

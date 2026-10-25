@@ -72,7 +72,9 @@ No grid or smoothing choice is made.
 """
 mean_data(m::SmoothedMean) = (; grid=copy(m.grid), values=copy(m.values))
 _plot_mean(m::GridFunctionalData) = (; grid=copy(m.grid), values=vec(copy(m.values)))
-mean_data(f::FPCA) = _plot_mean(f.mean)
+_plot_mean(m::BasisFunctionalData, grid) = (; grid=copy(grid), values=vec(evaluate(m, grid)))
+_plot_mean(m, grid) = _plot_mean(m)
+mean_data(f::FPCA) = _plot_mean(f.mean, f.grid)
 mean_data(f::MultivariateFPCA) = (; nodes=_plot_mean.(f.means))
 mean_data(f::MFPCA) = mean_data(f.univariate)
 
@@ -246,7 +248,8 @@ Return `(; curve, observed, grid, values, ncomponents, method)` with copied
 Original observations are retained even when dense fitting used presmoothing.
 The default work grid and selected K follow fdapace 0.6.0 `CreatePathPlot`.
 Reconstruction delegates to [`reconstruct`](@ref), including its explicit
-piecewise-linear evaluation and grid validation; scores are not recomputed.
+evaluation and grid validation; scores are not recomputed. Basis fits evaluate
+their exact input curves on the requested grid for `observed` coordinates.
 MFPCA returns `(; nodes, curve)`; `grid=nothing` uses each node's work grid,
 or pass a shared real vector or a vector of node grids as for `reconstruct`.
 """
@@ -254,10 +257,14 @@ function fitted_curve_data(f::FPCA, i; grid=f.grid)
     index = _fitted_curve_index(f, i)
     grid isa AbstractVector{<:Real} || throw(ArgumentError("fitted curve grid must be a real vector"))
     recovered = reconstruct(f, f.scores[index:index, :]; grid)
-    times, values = f.training_data[index]
+    times, values = _fpca_observations(f.training_data, index, grid)
     (; curve=index, observed=(; times, values), grid=copy(recovered.grid),
         values=vec(copy(recovered.values)), ncomponents=ncomponents(f), method=f.method)
 end
+
+_fpca_observations(fd, i, grid) = fd[i]
+_fpca_observations(fd::BasisFunctionalData, i, grid) =
+    (copy(grid), vec(evaluate(fd[i], grid)))
 
 function _plot_observations(f::FPCA, i, ::Type{T}) where {T}
     times, values = f.training_data[i]

@@ -851,10 +851,10 @@ scale. Reference dense eigenfunction signs must be aligned before comparing
 scores. See [Milestone 4 comparison report](m4_report.md) for the frozen
 reference, sparse-route differences and defaults.
 
-Cross-covariances arrive in a later milestone 4 task.
-Smoothed FPCA with a roughness penalty, FACE, and fdapace's conditional-score
-`rho` regularization are not yet implemented. Presmoothing individual curves
-does not implement a roughness penalty on the FPCA eigenfunctions.
+Cross-covariances are described on the cross-structure page. FACE and
+roughness-penalized basis FPCA are described on this page. fdapace's
+conditional-score `rho` regularization remains unimplemented. Presmoothing
+individual curves does not implement a roughness penalty on FPCA eigenfunctions.
 
 ```@docs
 FPCA
@@ -958,4 +958,135 @@ These are finite simulation checks, not general recovery guarantees.
 ```@docs
 FPCADerivative
 MultivariateFPCADerivative
+```
+
+## Smoothed FPCA
+
+Basis data use `fit(FPCA, fd::BasisFunctionalData; lambda=0, penalty=nothing)`.
+This is the roughness-penalized method of
+[Silverman (1996)](https://doi.org/10.1214/aos/1033066196), implemented in
+fda **6.3.0** `pca.fd`. Eigenfunctions remain exact linear combinations of the
+input basis. Prediction requires that same basis. Reconstruction evaluates
+the original basis at the requested points; it does not interpolate a sampled
+harmonic. The usual `scores`, `eigvals`, `fve`, mean/mode/scree/covariance
+coordinates, fitted paths, and plot recipes accept this FPCA result.
+
+```@example smoothed_fpca
+using FunctionalDataAnalysis, LinearAlgebra
+import StatsAPI
+height = load_dataset(:growth; sample=true).data
+b = BSplineBasis(4, domain(height), 5)
+height_basis = to_basis(height, b)
+smoothed = StatsAPI.fit(FPCA, height_basis; lambda=0.1, ncomponents=2)
+(size(scores(smoothed)), eigvals(smoothed), smoothed.settings.lambda)
+```
+
+`lambda=LambdaCV([0.0, 0.1, 1.0])` opts into leave-one-curve-out selection.
+For example, `fit(FPCA, height_basis; lambda=LambdaCV([0.0, 0.1, 1.0]),
+ncomponents=2)` compares two leading subspaces. fda does not provide an
+automatic selector for this function, so the default remains zero.
+FPCA with `LambdaCV` requires a positive integer `ncomponents`; the default
+`FVE(0.99)` remains available with a fixed lambda.
+
+### Reference, scale, and defaults
+
+The reference sources are fda 6.3.0
+[`pca.fd.R`](https://github.com/cran/fda/blob/6.3.0/R/pca.fd.R) and
+[`fdPar.R`](https://github.com/cran/fda/blob/6.3.0/R/fdPar.R).
+For centered coefficient rows C, Gram matrix G, and roughness matrix P, they
+solve
+
+```math
+G(C^\top C/n)G h_j = \nu_j (G+\lambda P)h_j,
+\qquad h_j^\top(G+\lambda P)h_k=\delta_{jk}.
+```
+
+The source's `inprod.R` uses Romberg integration with a hard-coded relative
+stopping rule `EPS=1e-4`. Its B-spline fast path checks `is.integer` on the
+default Lfd objects and does not trigger for these calls. Even Fourier
+cross-products and harmonic-acceleration penalties can therefore have errors
+larger than `1e-8`. The package uses its exact basis Gram/penalty matrices.
+The R generator keeps the complete `pca.fd` body and supplies exact
+matching-basis inner products in a private function environment. For the
+Fourier differential operator it supplies independently integrated products
+with `rel.tol=1e-12`, `abs.tol=1e-14`. No installed R namespace is modified.
+These are the documented exact-inner-product reference quantities compared
+at `1e-8`; the CSVs also retain native `pca.fd` eigenvalues as
+`native_eigenvalues`. Native `cca.fd` uses `eval.penalty` for its Gram
+matrices and needs no such change for the second-derivative comparisons.
+
+The denominator is **n**, including when centering is disabled. This differs
+from dense-grid FPCA's `n-1`. We keep R's eigenvalues ν and their variance
+proportions. Write q_j² = h_jᵀ G h_j. The package harmonic is h_j/q_j, and
+its score is R's score divided by q_j. Consequently the score second moment
+is ν_j/q_j², rather than ν_j, for a positive penalty. With centering on, this
+is the score variance using denominator n. Harmonics have unit exact L² norm;
+positive-lambda harmonics generally are **not L²-orthogonal**. Reconstruction
+uses these L²-normalized harmonics and their inner-product scores, as for the
+other FPCA routes. It is not an orthogonal subspace projection at positive
+lambda. `settings.original_harmonic_norms` records all q_j.
+
+| Choice | Default and source |
+|:--|:--|
+| `lambda` | `0`, fda `fdPar`; a fixed finite nonnegative value or explicit `LambdaCV` candidates |
+| `penalty` | `nothing` resolves to derivative order `max(0, b.order-2)` for B-splines, including order 2 for cubic splines; harmonic acceleration for Fourier; order 0 for monomials. These follow `fdPar`. A derivative order or a symmetric positive-semidefinite matrix overrides this. |
+| Fourier operator | `D³ + (2π/domain_width)² D`; `penalty(b, :harmonic_acceleration)` exposes its matrix. It leaves the constant and first sine/cosine pair unpenalized. |
+| `center` | `true`, fda `pca.fd`'s `centerfns`; false stores a zero mean for consistent prediction and reconstruction. R still returns the empirical mean when centering is off. |
+| `ncomponents` | `FVE(0.99)`, retained for consistency with the package. R uses `nharm=2`; a fixed integer reproduces that count. AIC/BIC require PACE. |
+| `maxK` | `min(nbasis, n-1)` with centering, `min(nbasis,n)` without it; the available rank bound, with no grid-route cap |
+| `eigen_tol`, `sign_tol` | `1e-10`, `1e-12`, the shared FPCA cutoff and sign conventions |
+| `grid` | 201 equally spaced display points, as in `curve_data`; a supplied grid must be strictly increasing inside the basis domain |
+| Signs | Shared mean alignment on the display grid, with largest-absolute-entry fallback; R instead orients the whitened eigenvectors by their coefficient sums |
+| Noise and score uncertainty | `nothing`, since the basis-data method specifies no measurement-noise model |
+
+Exact basis Gram matrices determine inner products and normalization; stored
+trapezoidal weights accompany the display grid only. `eigenfunctions(f)`
+implements `basismatrix`, including exact derivatives, `gram`, `penalty`,
+`domain`, and `nbasis`. The original basis and eigenfunction coefficients are
+also available as `.basis` and `.coefs`. The plot-data layer samples those
+functions. `fitted_curve_data` reports input basis curves evaluated on the
+requested grid. `covariance_data(f)` samples the original coefficient
+covariance; `surface=:fitted` samples the retained sum
+Σ_j ν_j φ_j(s)φ_j(t), in the documented normalized scale.
+`fitted_bands` is unavailable without a noise model.
+The grid-based `derivative(f::FPCA)` fit is unsupported for this route;
+`DerivativeBasis(eigenfunctions(f), order)` instead gives the exact derivative
+basis, and `evaluate(f.mean, points; derivative=order)` differentiates the mean.
+
+`LambdaCV` follows Ramsay and Silverman (2005), §9.3.3, equation (9.3).
+It centers once using the overall mean, then fits each leave-one-curve-out
+sample without further centering. For each held-out curve it computes exact
+L² **orthogonal** projection residuals for subspaces m=1,…,K and sums their
+squared norms. Projection solves the subspace Gram system, since smoothed
+harmonics need not be L²-orthogonal. A positive integer `ncomponents=K` is
+required so that every fold and candidate uses the same number of subspaces.
+An FVE rule would compare sums with different numbers of terms and is rejected.
+The smallest total wins. Candidates remain in user order, and ties select the
+first. All scores, the criterion, centering rule,
+fold count, and selected index are in `settings.lambda_selection`. An invalid
+candidate/fold throws with its context rather than being silently dropped.
+
+### Reference values
+
+Run `Rscript test/reference/fda_m6.R` with **fda 6.3.0** to recreate the small
+CSV fixtures. Headers record the R and fda versions. The inputs are five-basis
+coefficient matrices for the 54 girls in `growth` (height and interval growth
+rate) and the 35 Canadian weather stations (temperature and log10
+precipitation). Both datasets use cubic B-splines and Fourier bases. Lambdas
+are `(0, 0.1, 10)` for growth and `(0, 1e4, 1e6)` for weather. They are fixed
+values, with no optimizer comparison. Julia tests compare eigenvalues,
+harmonics on 101 points, scores, variance proportions, canonical correlations,
+weight functions, and variates at relative tolerance `1e-8`.
+
+For a nonzero lower domain endpoint, R's Fourier basis uses sin(ωt), while the
+package uses sin(ω(t-a)). The generator rotates coefficient pairs by ωa
+before exporting inputs. This orthogonal transformation preserves norms and
+penalties. FPCA comparisons apply the q_j normalization and package sign rule.
+CCA comparisons keep R's coefficient norm and apply paired signs in the
+rotated basis. The generator also evaluates both CV criteria independently
+through R fits. CI consumes these fixtures without running R.
+
+```@docs
+LambdaCV
+StatsAPI.fit(::Type{FPCA}, ::BasisFunctionalData)
 ```

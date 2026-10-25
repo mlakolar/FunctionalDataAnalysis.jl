@@ -133,6 +133,8 @@ end
         @test (@inferred scree_data(joint)).threshold === nothing
         @test scree_data(joint).eigenvalues == joint.settings.all_eigenvalues
         @test length(scree_data(joint.univariate).nodes) == 2
+        @test scree_data(joint.univariate).nodes[1].eigenvalues ==
+            component(joint, 1).all_eigenvalues
         @test modes_of_variation(joint.univariate, 1).nodes[2].eigenvalue ≈ 8
         samegrid = MultivariateFunctionalData([f.fd, GridFunctionalData(2 .* f.fd.values, f.grid)])
         pooled = StatsAPI.fit(FPCA, samegrid; basis=:pooled, ncomponents=1, maxK=2)

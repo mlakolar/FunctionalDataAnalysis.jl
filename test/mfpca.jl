@@ -19,6 +19,8 @@ end
         data = mfpca_fixture().data
         fitted = @inferred StatsAPI.fit(MFPCA, data; ncomponents=3)
         marginal = StatsAPI.fit(FPCA, data; basis=:marginal)
+        @test fitted.univariate isa MultivariateFPCA{Float64}
+        @test all(f -> f isa FPCA{Float64}, fitted.univariate.fits)
         @test fitted.weights == ones(3)
         @test fitted.settings.univariate == (;)
         @test fitted.settings.eigen_tol == 1e-10

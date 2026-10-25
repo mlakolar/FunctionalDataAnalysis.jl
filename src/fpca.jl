@@ -61,6 +61,10 @@ PACE. `method=:pace` forces PACE on either data representation, while
 `method=:dense` requires complete `GridFunctionalData`. Pooled smoothing
 keywords are accepted only on the PACE route.
 
+`BasisFunctionalData` dispatches to exact-basis roughness-penalized FPCA;
+see `fit(FPCA, fd::BasisFunctionalData)` for its lambda, penalty, centering,
+normalization, and leave-one-curve-out selection settings.
+
 `method=:face` explicitly selects fast covariance estimation for common-grid
 data, including masked observations (Xiao et al., 2016). Its `face` named tuple
 accepts `knots=35`, `p=3`, `m=2`, `lambda=nothing`, `alpha=1`, `center=true`,
@@ -236,7 +240,7 @@ observations (before presmoothing) for [`fitted_curve_data`](@ref).
 Inputs are copied. Dense noise variance and
 score covariances are `nothing`.
 """
-struct FPCA{T<:AbstractFloat,M,C,N,SC,P,S,D,R,O}
+struct FPCA{T<:AbstractFloat,M,C,N,SC,P,S,D,R,O,B,TD}
     method::Symbol
     design::Symbol
     grid::Vector{T}
@@ -247,7 +251,7 @@ struct FPCA{T<:AbstractFloat,M,C,N,SC,P,S,D,R,O}
     eigenvalues::Vector{T}
     all_eigenvalues::Vector{T}
     fve::Vector{T}
-    basis::FPCBasis{T}
+    basis::B
     selection::S
     dropped::D
     sign_rule::R
@@ -256,7 +260,7 @@ struct FPCA{T<:AbstractFloat,M,C,N,SC,P,S,D,R,O}
     ids::Union{Nothing,Vector{Any}}
     presmooth::P
     settings::O
-    training_data::Union{GridFunctionalData{T},IrregularFunctionalData{T}}
+    training_data::TD
 end
 
 function _fpca_tolerance(value, name)
@@ -456,7 +460,9 @@ end
 """
     eigenfunctions(f::FPCA)
 
-Return the selected eigenfunctions as an [`FPCBasis`](@ref).
+Return the selected eigenfunctions as an [`FPCBasis`](@ref) for grid/PACE
+fits, or an exact linear combination of the input basis for basis-data fits.
+Both implement `basismatrix`, `gram`, `penalty`, `domain`, and `nbasis`.
 """
 eigenfunctions(f::FPCA) = f.basis
 
@@ -482,7 +488,7 @@ scores(f::FPCA) = f.scores
 Return conditional score covariance matrices of size `K × K × n` for PACE or FACE,
 quantifying each curve's remaining score uncertainty given its observations.
 These omit uncertainty from estimating the mean, covariance, or noise.
-Dense FPCA returns `nothing`. Use a copy for independent array storage.
+Dense and basis FPCA return `nothing`. Use a copy for independent array storage.
 """
 score_covariances(f::FPCA) = f.score_covariances
 
@@ -497,7 +503,7 @@ fve(f::FPCA) = f.fve
 """
     noise_variance(f::Union{FPCA,SmoothedCovariance})
 
-Return estimated or supplied measurement-error variance. Dense FPCA returns `nothing`;
+Return estimated or supplied measurement-error variance. Dense and basis FPCA return `nothing`;
 `SmoothedCovariance` returns its stored nonnegative variance estimate.
 """
 noise_variance(f::Union{FPCA,SmoothedCovariance}) = f.noise_variance
@@ -520,7 +526,7 @@ function _fpca_prediction_method(f)
 end
 
 """
-    predict(f::FPCA, newdata::Union{GridFunctionalData,IrregularFunctionalData})
+    predict(f::FPCA, newdata::Union{GridFunctionalData,IrregularFunctionalData,BasisFunctionalData})
 
 Project new dense curves using the training mean, basis, weights, and fitted
 preprocessing. Return an `n × K` score matrix. Data must be complete and use
@@ -540,6 +546,9 @@ scores. No mean or covariance is refitted.
 Sparse FACE accepts either representation within its work grid, evaluates
 the fitted splines at observation times, and uses the full positive spline
 covariance in its BLUP and selected-score covariance.
+
+Basis FPCA requires `BasisFunctionalData` in the same basis as training. It
+returns exact L² inner-product scores against the stored normalized harmonics.
 """
 function predict(f::FPCA, fd::GridFunctionalData)
     _fpca_predict(f, fd, f.noise_variance)
@@ -550,6 +559,7 @@ _fpca_predict(f, fd::GridFunctionalData, ::Real) =
         _face_sparse_predict(f, fd) : _face_predict(f, fd)) : _pace_predict(f, fd)
 
 function _fpca_predict(f, fd::GridFunctionalData, ::Nothing)
+    f.method === :basis && throw(ArgumentError("basis FPCA prediction requires BasisFunctionalData in the training basis"))
     length(fd.grid) == length(f.grid) || throw(DimensionMismatch("prediction grid length must match the FPCA training grid"))
     fd.grid == f.grid || throw(ArgumentError("prediction grid must exactly match the FPCA training grid"))
     fd.observed === nothing || throw(ArgumentError("dense FPCA prediction requires complete grid data"))
@@ -573,7 +583,8 @@ end
 
 Return `GridFunctionalData` containing `mean + scores * eigenfunctions'`.
 The finite increasing grid must lie inside the work-grid domain. Both the mean
-and eigenfunctions are linearly interpolated. Subject ids are retained when
+and eigenfunctions are linearly interpolated for grid/PACE/FACE fits; basis
+fits evaluate their exact basis expansions. Subject ids are retained when
 the supplied scores are the training score object; other score matrices have
 no inferred ids. Scores must be finite with one column per selected component.
 """
@@ -585,10 +596,13 @@ function reconstruct(f::FPCA, projected::AbstractMatrix{<:Real}=scores(f);
     all(isfinite, projected) || throw(ArgumentError("reconstruction scores must be finite"))
     quadrature_weights(grid)
     functions = basismatrix(f.basis, grid)
-    mu = evaluate(f.mean, grid, PiecewiseLinear())
+    mu = _fpca_mean_values(f.mean, grid)
     reconstructed = projected * transpose(functions) .+ mu
     GridFunctionalData(reconstructed, grid; ids=projected === f.scores ? f.ids : nothing)
 end
+
+_fpca_mean_values(mu::GridFunctionalData, grid) = evaluate(mu, grid, PiecewiseLinear())
+_fpca_mean_values(mu::BasisFunctionalData, grid) = evaluate(mu, grid)
 
 function Base.show(io::IO, f::FPCA)
     print(io, "FPCA(method=", f.method, ", design=", f.design, ", n=", nobs(f),
