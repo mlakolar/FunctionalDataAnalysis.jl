@@ -41,11 +41,12 @@ function _check_node_buffers(out::AbstractVector, p)
     nothing
 end
 
-# Dense column-contiguous storage uses the allocating multiplication's mul!
-# path. Other layouts use a product workspace, retaining exact arithmetic.
-_buffer_direct(out) = out isa StridedMatrix && stride(out, 1) == 1
+# A dense matrix with matching input types uses the allocating multiplication's
+# mul! path. Views and mixed inputs retain the original product workspace: their
+# BLAS dispatch, promotion or leading dimensions can change rounding.
+_buffer_direct(out) = out isa Matrix
 function _buffer_product!(out, left, right)
-    if _buffer_direct(out)
+    if _buffer_direct(out) && eltype(out) === eltype(left) === eltype(right)
         mul!(out, left, right)
     else
         copyto!(out, left * right)
@@ -143,7 +144,8 @@ _buffer_reconstruction_type(parts) =
 
 function _write_reconstruction!(out, parts)
     product_type = promote_type(eltype(parts.projected), eltype(parts.functions))
-    if _buffer_direct(out) && eltype(out) === product_type === _buffer_reconstruction_type(parts)
+    if _buffer_direct(out) && eltype(out) === eltype(parts.projected) ===
+            eltype(parts.functions) === product_type === _buffer_reconstruction_type(parts)
         mul!(out, parts.projected, transpose(parts.functions))
         out .+= parts.mu
     else
@@ -173,8 +175,8 @@ Each buffer must use one-based indexing and exactly the floating element
 type of its allocating result. Shape/type errors and conservative
 `Base.mightalias` checks reject overlap with scores, grids, model storage or
 other node buffers before writing. Computation errors can leave partial
-output. Inputs are never modified. Dense column-contiguous products write
-directly into the buffer; basis/mean preparation and other layouts can still
+output. Inputs are never modified. Dense matrix products with matching input
+types write directly into the buffer; basis/mean preparation, mixed inputs and other layouts can still
 allocate workspaces. The allocating methods keep their existing ownership.
 """
 function reconstruct!(out::AbstractMatrix, f::Union{FPCA,FPCADerivative},
