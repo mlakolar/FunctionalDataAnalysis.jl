@@ -6,6 +6,8 @@ using Tables
 using Test
 
 include("support/prediction.jl")
+include("support/goldens.jl")
+using .GoldenTestHelpers
 
 @testset "FunctionalDataAnalysis" begin
     include("aqua.jl")

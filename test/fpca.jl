@@ -1,5 +1,4 @@
 import StatsAPI
-using DelimitedFiles
 
 module StatsAPIReconstructionClient
 import StatsAPI: reconstruct
@@ -7,17 +6,16 @@ end
 
 @testset "FPCA" begin
     @testset "fdapace 0.6.0 dense golden values" begin
-        input = readdlm(joinpath(@__DIR__, "data", "m3_dense_input.csv"), ','; comments=true)
-        golden = readdlm(joinpath(@__DIR__, "data", "m3_fdapace_dense.csv"), ',', Any; comments=true)
+        input = golden_read("m3_dense_input.csv")
+        golden = golden_read("m3_fdapace_dense.csv", Any)
         grid = Float64.(input[input[:, 1] .== 1, 2])
         n = Int(maximum(input[:, 1]))
         values = reduce(vcat, [transpose(Float64.(input[input[:, 1] .== i, 3])) for i in 1:n])
         fd = GridFunctionalData(values, grid)
         model = StatsAPI.fit(FPCA, fd; ncomponents=3, max_k=5)
-        reference(quantity) = Float64.(golden[golden[:, 1] .== quantity, 4])
-        relative_error(actual, expected) = norm(actual - expected) / norm(expected)
-        @test relative_error(vec(model.mean.values), reference("mean")) < 1e-8
-        @test relative_error(model.covariance,
+        reference(quantity) = golden_values4(golden,quantity)
+        @test golden_relative_error(vec(model.mean.values), reference("mean")) < 1e-8
+        @test golden_relative_error(model.covariance,
             reshape(reference("covariance"), length(grid), length(grid))) < 1e-8
 
         # fdapace eigendecomposes G*h and then normalizes each eigenfunction
@@ -27,14 +25,14 @@ end
         compatible = FunctionalDataAnalysis._fpca_eigen(model.covariance,
             rectangle, vec(model.mean.values); max_k=5,
             normalization_weights=fd.weights)
-        @test relative_error(compatible.eigenvalues[1:3], reference("eigenvalue")) < 1e-8
-        @test relative_error(compatible.eigenvalues, reference("all_eigenvalue")) < 1e-8
-        @test relative_error(compatible.eigenfunctions[:, 1:3],
+        @test golden_relative_error(compatible.eigenvalues[1:3], reference("eigenvalue")) < 1e-8
+        @test golden_relative_error(compatible.eigenvalues, reference("all_eigenvalue")) < 1e-8
+        @test golden_relative_error(compatible.eigenfunctions[:, 1:3],
             reshape(reference("eigenfunction"), length(grid), 3)) < 1e-8
-        @test relative_error(compatible.fve, reference("fve")) < 1e-8
+        @test golden_relative_error(compatible.fve, reference("fve")) < 1e-8
         compatible_scores = (values .- model.mean.values) *
             (fd.weights .* compatible.eigenfunctions[:, 1:3])
-        @test relative_error(compatible_scores,
+        @test golden_relative_error(compatible_scores,
             reshape(reference("score"), n, 3)) < 1e-8
         @test ncomponents(model) == Int(reference("selected_k")[1])
         @test findfirst(>=(0.99), compatible.fve) == Int(reference("selected_k")[2])
@@ -43,7 +41,7 @@ end
         # gives the exact finite-sample spectrum with denominator n-1.
         expected_lambda = n / (n - 1) .* [4.0, 1.0, 0.3, 0.08, 0.02]
         @test model.all_eigenvalues ≈ expected_lambda rtol=1e-12
-        @test relative_error(model.all_eigenvalues, reference("all_eigenvalue")) > 1e-3
+        @test golden_relative_error(model.all_eigenvalues, reference("all_eigenvalue")) > 1e-3
     end
 
     @testset "Exact nonuniform-grid covariance and scores" begin

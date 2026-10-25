@@ -1,9 +1,7 @@
 import StatsAPI
 import KernelSmoothing
-using DelimitedFiles
 
-_m6_read(name) = readdlm(joinpath(@__DIR__, "data", "m6_$(name).csv"), ','; comments=true)
-_m6_relative(a, b) = norm(a-b)/norm(b)
+_m6_read(name) = golden_read("m6_$(name).csv")
 
 @testset "FSVD dense reference and quadrature" begin
     l, r = _m6_read("dense_left"), _m6_read("dense_right")
@@ -22,12 +20,12 @@ _m6_relative(a, b) = norm(a-b)/norm(b)
     independent_scores[1,1] += 1
     @test independent_scores[1,1] != left_scores(f)[1,1]
     expected = _m6_read("dense_values")
-    @test _m6_relative(f.singular_values, expected[:,1]) < 1e-8
-    @test _m6_relative(f.left_functions, l[:,2:end]) < 1e-8
-    @test _m6_relative(f.right_functions, r[:,2:end]) < 1e-8
-    @test _m6_relative(f.left_scores, _m6_read("dense_scores1")) < 1e-8
-    @test _m6_relative(f.right_scores, _m6_read("dense_scores2")) < 1e-8
-    @test _m6_relative(f.fve, expected[:,2]) < 1e-8
+    @test golden_relative_error(f.singular_values, expected[:,1]) < 1e-8
+    @test golden_relative_error(f.left_functions, l[:,2:end]) < 1e-8
+    @test golden_relative_error(f.right_functions, r[:,2:end]) < 1e-8
+    @test golden_relative_error(f.left_scores, _m6_read("dense_scores1")) < 1e-8
+    @test golden_relative_error(f.right_scores, _m6_read("dense_scores2")) < 1e-8
+    @test golden_relative_error(f.fve, expected[:,2]) < 1e-8
     @test f.cross_covariance.denominator == 16
     @test f.cross_covariance.surface ≈ (x.values .- sum(x.values;dims=1)/18)' *
         (y.values .- sum(y.values;dims=1)/18)/16
@@ -75,12 +73,8 @@ _m6_relative(a, b) = norm(a-b)/norm(b)
 end
 
 @testset "FSVD sparse weighted reference" begin
-    input = readdlm(joinpath(@__DIR__, "data", "m4_cross_input.csv"), ','; comments=true)
-    nodes = map(1:2) do j
-        rows = input[input[:,1] .== j,:]
-        IrregularFunctionalData([rows[rows[:,2] .== i,3] for i in 1:12],
-            [rows[rows[:,2] .== i,4] for i in 1:12]; ids=1:12)
-    end
+    input = golden_read("m4_cross_input.csv")
+    nodes = [golden_sparse4(input,j;subjects=1:12,ids=1:12) for j in 1:2]
     g = collect(range(0.,1.;length=51))
     phi = hcat(ones(51),g .- .5)
     cov1, cov2 = phi*Diagonal([.8,.3])*phi', phi*Diagonal([.7,.2])*phi'
@@ -90,13 +84,13 @@ end
         noise_variance=.2,ncomponents=2,max_k=2)
     f = @inferred StatsAPI.fit(FSVD,nodes...;ncomponents=2,max_k=2,bandwidth=(.55,.8),
         kernel=KernelSmoothing.EpanechnikovKernel(),fpca_options1=o1,fpca_options2=o2)
-    @test _m6_relative(f.cross_covariance.surface,_m6_read("sparse_cross")) < 1e-8
-    @test _m6_relative(f.singular_values,_m6_read("sparse_values")[:,1]) < 1e-8
-    @test _m6_relative(f.left_functions,_m6_read("sparse_left")[:,2:end]) < 1e-8
-    @test _m6_relative(f.right_functions,_m6_read("sparse_right")[:,2:end]) < 1e-8
-    @test _m6_relative(f.left_scores,_m6_read("sparse_scores1")) < 1e-8
-    @test _m6_relative(f.right_scores,_m6_read("sparse_scores2")) < 1e-8
-    @test _m6_relative(f.fve,_m6_read("sparse_values")[:,2]) < 1e-8
+    @test golden_relative_error(f.cross_covariance.surface,_m6_read("sparse_cross")) < 1e-8
+    @test golden_relative_error(f.singular_values,_m6_read("sparse_values")[:,1]) < 1e-8
+    @test golden_relative_error(f.left_functions,_m6_read("sparse_left")[:,2:end]) < 1e-8
+    @test golden_relative_error(f.right_functions,_m6_read("sparse_right")[:,2:end]) < 1e-8
+    @test golden_relative_error(f.left_scores,_m6_read("sparse_scores1")) < 1e-8
+    @test golden_relative_error(f.right_scores,_m6_read("sparse_scores2")) < 1e-8
+    @test golden_relative_error(f.fve,_m6_read("sparse_values")[:,2]) < 1e-8
     @test_throws ArgumentError StatsAPI.fit(FSVD,nodes...)
     @test occursin("joint_conditional_expectation",sprint(show,f))
     # Joint conditioning must use the second node, even for the left scores.
@@ -206,12 +200,13 @@ end
 
 @testset "Concurrent correlation reference and errors" begin
     input = _m6_read("concurrent_input")
-    times = [input[input[:,1] .== i,2] for i in 1:18]
-    x = IrregularFunctionalData(times,[input[input[:,1] .== i,3] for i in 1:18])
-    y = IrregularFunctionalData(times,[input[input[:,1] .== i,4] for i in 1:18])
+    observations = golden_observations3(input;subjects=1:18)
+    times = observations.times
+    x = IrregularFunctionalData(times,observations.values)
+    y = golden_sparse3(input[:,[1,2,4]];subjects=1:18)
     expected = _m6_read("concurrent")
     c = concurrent_correlation(x,y; bandwidth=[.5,.6,.55,.65,.7],grid=expected[:,1])
-    @test _m6_relative(c.correlation,expected[:,2]) < 1e-8
+    @test golden_relative_error(c.correlation,expected[:,2]) < 1e-8
     @test c.bandwidth == [.5,.6,.55,.65,.7]
     @test c.degree == 1
     @test !any(c.affected1) && !any(c.affected2)
@@ -240,7 +235,7 @@ end
     x = GridFunctionalData(_m6_read("dense_input1"),g)
     y = GridFunctionalData(_m6_read("dense_input2"),g)
     d = dynamic_correlation(x,y)
-    @test _m6_relative(d.individual,vec(_m6_read("dynamic"))) < 1e-8
+    @test golden_relative_error(d.individual,vec(_m6_read("dynamic"))) < 1e-8
     @test d.correlation ≈ sum(_m6_read("dynamic"))/18
     @test dynamic_correlation(x,x).individual ≈ ones(18)
     @test dynamic_correlation(x,GridFunctionalData(-x.values,g)).individual ≈ -ones(18)

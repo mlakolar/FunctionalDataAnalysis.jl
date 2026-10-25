@@ -1,6 +1,5 @@
 import KernelSmoothing
 import StatsAPI
-using DelimitedFiles
 
 @testset "Pooled mean" begin
     t = collect(0.0:0.1:1.0)
@@ -115,17 +114,16 @@ using DelimitedFiles
     masked = GridFunctionalData(Union{Missing,Float64}[1 missing 3; 1 2 3], [0.0, .5, 1.0])
     @test StatsAPI.fit(SmoothedMean, masked; grid=t, bandwidth=2).values ≈ 1 .+ 2t
 
-    input = readdlm(joinpath(@__DIR__, "data", "m2_input.csv"), ','; comments=true)
-    golden = readdlm(joinpath(@__DIR__, "data", "m2_fdapace_mean.csv"), ',', Any; comments=true)
-    ref_fd = IrregularFunctionalData([Float64.(input[input[:, 1] .== i, 2]) for i in 1:4],
-        [Float64.(input[input[:, 1] .== i, 3]) for i in 1:4])
+    input = golden_read("m2_input.csv")
+    golden = golden_read("m2_fdapace_mean.csv", Any)
+    ref_fd = golden_sparse3(input;subjects=1:4)
     for weighting in (:obs, :subj)
         rows = golden[:, 1] .== string(weighting)
         workgrid = Float64.(golden[rows, 3])
         expected = Float64.(golden[rows, 4])
         actual = StatsAPI.fit(SmoothedMean, ref_fd; grid=workgrid,
             bandwidth=Float64(golden[findfirst(rows), 2]), weighting)
-        @test norm(actual.values - expected) / norm(expected) < 1e-8
+        @test golden_relative_error(actual.values,expected) < 1e-8
     end
 end
 

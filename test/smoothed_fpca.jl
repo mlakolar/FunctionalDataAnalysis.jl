@@ -2,19 +2,6 @@ using DelimitedFiles
 import StatsAPI
 import RecipesBase
 
-function fda_m6_table(path)
-    raw = readdlm(path, ',', Any; comments=true, comment_char='#')
-    names = unique(String.(raw[:, 1]))
-    Dict(name => begin
-        entries = raw[raw[:, 1] .== name, :]
-        out = zeros(Float64, maximum(Int.(entries[:, 2])), maximum(Int.(entries[:, 3])))
-        for row in eachrow(entries)
-            out[Int(row[2]), Int(row[3])] = Float64(row[4])
-        end
-        out
-    end for name in names)
-end
-
 @testset "Smoothed basis FPCA and functional CCA" begin
     @testset "Harmonic acceleration" begin
         b = FourierBasis((0, 2), 7)
@@ -158,7 +145,7 @@ end
             left = BasisFunctionalData(readdlm(prefix*"_left.csv", ','; comments=true), b)
             right = BasisFunctionalData(readdlm(prefix*"_right.csv", ','; comments=true), b)
             for index in 1:3
-                ref = fda_m6_table(prefix*"_$(index).csv")
+                ref = golden_indexed4(prefix*"_$(index).csv")
                 lambda, points = only(ref["lambda"]), vec(ref["grid"])
                 # Orient using the default display grid, as in the R script.
                 f = @inferred StatsAPI.fit(FPCA, left; lambda, ncomponents=2)
