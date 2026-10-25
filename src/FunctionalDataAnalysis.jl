@@ -5,6 +5,8 @@ import StatsAPI: nobs, fit, predict
 import KernelSmoothing
 import BSplineKit
 import Tables
+using Artifacts: @artifact_str
+import LazyArtifacts
 using RecipesBase: @recipe, @series
 import RecipesBase
 using Random: AbstractRNG, rand, randn, randperm
@@ -29,6 +31,7 @@ export curve_data, mean_data, modes_of_variation, scree_data, covariance_data,
     design_data, fitted_curve_data
 export modesplot, screeplot, covplot, designplot, fitplot
 export FittedBands, MeanBands, fitted_bands, mean_bands, band_data, bandplot
+export datasets, load_dataset
 
 include("interface.jl")
 include("quadrature.jl")
@@ -39,6 +42,7 @@ include("evaluation.jl")
 include("conversions.jl")
 include("multivariate.jl")
 include("tables.jl")
+include("datasets.jl")
 include("simulation.jl")
 include("smoothing.jl")
 include("mean.jl")

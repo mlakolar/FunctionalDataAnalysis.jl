@@ -1,0 +1,5 @@
+# Audited CRAN sources: fda 6.3.0, fda.usc 2.2.0, refund 0.1-40. MD5 matches CRAN PACKAGES.
+package,version,md5,sha256,url
+fda,6.3.0,6c72e262b4f5717f7586d08ecb7fb810,73ff60918267986b630cccda31beeb212fc5c7d6164e4cb3f7629d2583a76637,https://cran.r-project.org/src/contrib/fda_6.3.0.tar.gz
+fda.usc,2.2.0,fdad0b1581c893c89144b9eabe288385,491325e8f0edc515f099c560ca063157a82f25c9eeb11101b15f916bfb00bc12,https://cran.r-project.org/src/contrib/fda.usc_2.2.0.tar.gz
+refund,0.1-40,2d0cb58db215594bb93300da5bd29ee9,7dc5b489d6cecbf25fd6b511658ca6563507472731a7b687c780a369c6f660c0,https://cran.r-project.org/src/contrib/refund_0.1-40.tar.gz

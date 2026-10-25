@@ -11,6 +11,7 @@ using Test
     include("bases.jl")
     include("data.jl")
     include("tables.jl")
+    include("datasets.jl")
     include("simulation.jl")
     include("smoothing.jl")
     include("mean.jl")

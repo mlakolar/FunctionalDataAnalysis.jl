@@ -75,7 +75,10 @@
   Task 3 adds conditional PACE fitted-curve intervals and simultaneous bands,
   curve-bootstrap mean intervals and sup-t bands, curve-cluster sandwich mean
   intervals, and ribbon recipes. See [Uncertainty](uncertainty.md).
-  Remaining tasks: datasets, and the
+  Task 4 adds six classic datasets through a lazy artifact, with offline
+  samples and source/licence provenance. DTI retains both cca and rcst on
+  separate grids, with masks and scan/subject covariates. See [Datasets](datasets.md).
+  Remaining task: the
   noise-variance estimator benchmark (issue #17). Makie recipes are deferred.
   This scope follows the Tier 1 Gap Map and Mladen's 24 October decision,
   replacing the original milestone 5 scope.
