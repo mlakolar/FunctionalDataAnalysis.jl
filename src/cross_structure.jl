@@ -1,5 +1,5 @@
 """
-    fit(FSVD, fd1, fd2; ncomponents=FVE(0.9999), maxK=nothing,
+    fit(FSVD, fd1, fd2; ncomponents=FVE(0.9999), max_k=nothing, maxK=nothing,
         bandwidth=nothing, kernel=KernelSmoothing.GaussianKernel(),
         fpca_options1=(;), fpca_options2=(;))
 
@@ -10,7 +10,7 @@ functions, scores, cumulative squared cross-covariance fractions, and settings
 are stored. Inputs are copied.
 
 Defaults follow fdapace 0.6.0 `FSVD` / `SetSVDOptions`: FVE 0.9999,
-`maxK=min(20,n-2)`, Gaussian smoothing, scores enabled, and independent
+`max_k=min(20,n-2)`, Gaussian smoothing, scores enabled, and independent
 cross-node measurement errors (equal-time products retained). Fixed component
 counts disable FVE selection. At least three subjects are required. Marginal
 FPCA options are named tuples passed to [`FPCA`](@ref); empty tuples use its
@@ -106,8 +106,9 @@ end
 
 Base.@constprop :aggressive function fit(::Type{FSVD}, fd1::Union{GridFunctionalData,IrregularFunctionalData},
         fd2::Union{GridFunctionalData,IrregularFunctionalData};
-        ncomponents=FVE(0.9999), maxK=nothing, bandwidth=nothing,
+        ncomponents=FVE(0.9999), max_k=nothing, maxK=nothing, bandwidth=nothing,
         kernel=KernelSmoothing.GaussianKernel(), fpca_options1=(;), fpca_options2=(;))
+    max_k = _max_k_keyword(max_k, maxK)
     _cross_subjects(fd1, fd2)
     n = nobs(fd1)
     n >= 3 || throw(ArgumentError("FSVD requires at least three subjects for its n-2 divisor and component cap"))
@@ -153,19 +154,19 @@ Base.@constprop :aggressive function fit(::Type{FSVD}, fd1::Union{GridFunctional
         c = fit(SmoothedCrossCovariance, fd1, fd2, f1.mean, f2.mean;
             grid1=f1.grid, grid2=f2.grid, bandwidth, kernel)
     end
-    maxK === nothing && (maxK = min(20, n-2))
-    maxK isa Integer && !(maxK isa Bool) && 1 <= maxK <= typemax(Int) ||
-        throw(ArgumentError("FSVD maxK must be a positive integer representable as Int"))
+    max_k === nothing && (max_k = min(20, n-2))
+    max_k isa Integer && !(max_k isa Bool) && 1 <= max_k <= typemax(Int) ||
+        throw(ArgumentError("FSVD max_k must be a positive integer representable as Int"))
     root1, root2 = sqrt.(c.weights1), sqrt.(c.weights2)
     weighted = c.surface .* (root1 * transpose(root2))
     all(isfinite, weighted) || throw(ArgumentError("FSVD weighted cross-covariance must be finite"))
     d = svd(weighted)
-    retained = min(Int(maxK), count(>(first(d.S)*_FPCA_EIGEN_TOL), d.S))
+    retained = min(Int(max_k), count(>(first(d.S)*_FPCA_EIGEN_TOL), d.S))
     retained > 0 || throw(ArgumentError("FSVD cross-covariance has no positive singular values above tolerance"))
     values = d.S[1:retained]
     fractions = cumsum((values ./ first(values)).^2) ./ sum((values ./ first(values)).^2)
     fractions[end] = one(eltype(fractions))
-    selection = _fpca_selection(ncomponents, fractions, Int(maxK))
+    selection = _fpca_selection(ncomponents, fractions, Int(max_k))
     k = selection.chosen
     values = values[1:k]
     left, right = d.U[:,1:k] ./ root1, d.V[:,1:k] ./ root2

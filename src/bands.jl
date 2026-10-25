@@ -130,7 +130,7 @@ function fitted_bands(f::FPCA; alpha=0.05, coverage=:interval, grid=f.grid, curv
     grid isa AbstractVector{<:Real} || throw(ArgumentError("fitted bands grid must be a real vector"))
     index = _plot_curves(f, curves)
     recovered = reconstruct(f, f.scores[index, :]; grid)
-    functions = basismatrix(f.basis, recovered.grid)
+    functions = basis_matrix(f.basis, recovered.grid)
     variance = similar(recovered.values)
     for (row, i) in enumerate(index)
         omega = Symmetric(f.score_covariances[:, :, i])

@@ -36,7 +36,7 @@ functions = fourier_eigenfunctions((0.0, 1.0), 3)
 dense = simulate_kl(Xoshiro(54), 60; mean=t -> 1 + t,
     eigenfunctions=functions, eigenvalues=[2.0, 0.7, 0.2],
     sampling=RegularSampling(grid)).data
-model = StatsAPI.fit(FPCA, dense; ncomponents=2, maxK=3)
+model = StatsAPI.fit(FPCA, dense; ncomponents=2, max_k=3)
 plot(dense; curves=1:8, legend=false)
 savefig("plotting-curves.svg"); nothing # hide
 ```
@@ -50,7 +50,7 @@ lines are a display convention, with no interpolated points in `curve_data`.
 sparse = simulate_kl(Xoshiro(55), 60; mean=t -> 1 + t,
     eigenfunctions=functions, eigenvalues=[2.0, 0.7, 0.2], noise_sd=0.2,
     sampling=SparseSampling((0.0, 1.0), 5:9)).data
-pace = StatsAPI.fit(FPCA, sparse; grid, ncomponents=2, maxK=3,
+pace = StatsAPI.fit(FPCA, sparse; grid, ncomponents=2, max_k=3,
     mean_bandwidth=0.3, covariance_bandwidth=0.4, noise_variance=0.04)
 plot(sparse; curves=1:5, legend=false)
 savefig("plotting-sparse.svg"); nothing # hide
@@ -89,26 +89,26 @@ savefig("plotting-mean.svg"); nothing # hide
 
 ![](plotting-mean.svg)
 
-`modesplot` shows the mean and the four default mode curves. The title gives
+`modes_plot` shows the mean and the four default mode curves. The title gives
 the eigenvalue and the component's individual FVE. Joint `MFPCA` and marginal
 multivariate FPCA use one panel per node. Pooled multivariate modes use the
 shared pooled eigenvalue, rather than each node's score variance.
 
 ```@example plotting
-modesplot(model, 1)
+modes_plot(model, 1)
 savefig("plotting-modes.svg"); nothing # hide
 ```
 
 ![](plotting-modes.svg)
 
-`screeplot` shows every positive eigenvalue retained up to the fit's cap,
+`scree_plot` shows every positive eigenvalue retained up to the fit's cap,
 including unselected components. FVE uses this full retained spectrum.
 The vertical line shows selected K. The horizontal line appears only when
 the fit used an FVE threshold. A marginal multivariate fit has per-node scree
 panels; pooled and joint fits have a shared spectrum.
 
 ```@example plotting
-screeplot(model)
+scree_plot(model)
 savefig("plotting-scree.svg"); nothing # hide
 ```
 
@@ -122,18 +122,18 @@ retained components, including those beyond selected K. Both surfaces are
 stored by FPCA; plotting does not rerun the eigendecomposition.
 
 ```@example plotting
-covplot(model; surface=:fitted)
+cov_plot(model; surface=:fitted)
 savefig("plotting-covariance.svg"); nothing # hide
 ```
 
 ![](plotting-covariance.svg)
 
-For a three-dimensional view, use `covplot(model; seriestype=:surface)`.
+For a three-dimensional view, use `cov_plot(model; seriestype=:surface)`.
 The same recipe accepts `SmoothedCovariance`, `CrossCovariance`, and
 `SmoothedCrossCovariance`.
 
 ```@example plotting
-designplot(sparse)
+design_plot(sparse)
 savefig("plotting-design.svg"); nothing # hide
 ```
 
@@ -147,7 +147,7 @@ under the default and one pair with the diagonal enabled. Empty pair arrays
 are valid. No dense-grid approximation or time binning is used.
 
 ```@example plotting
-fitplot(pace, 1)
+fit_plot(pace, 1)
 savefig("plotting-fit.svg"); nothing # hide
 ```
 
@@ -155,7 +155,7 @@ savefig("plotting-fit.svg"); nothing # hide
 
 Fitted paths reuse training scores and `reconstruct`. The points are copied
 original observations, including when a dense fit used presmoothing.
-`fitplot(model, i; grid=newgrid)` chooses a finite increasing reconstruction
+`fit_plot(model, i; grid=newgrid)` chooses a finite increasing reconstruction
 grid inside the fitted domain. Joint MFPCA uses node panels, with either a
 shared grid or a vector of node grids. Plotting does not run a new score solve.
 
@@ -196,7 +196,7 @@ displays their settings; no new fitted estimator is introduced.
 ## API
 
 Precomputed fitted-curve and mean uncertainty results also support
-[`band_data`](@ref) and [`bandplot`](@ref). See [Uncertainty](uncertainty.md)
+[`band_data`](@ref) and [`band_plot`](@ref). See [Uncertainty](uncertainty.md)
 for the covered targets and assumptions. Plotting bands never runs a new fit
 or bootstrap. Multivariate fitted bands use node panels, and `coverage` on
 mean-band plots selects among the types already computed.
@@ -209,11 +209,11 @@ scree_data
 covariance_data
 design_data
 fitted_curve_data
-modesplot
-screeplot
-covplot
-designplot
-fitplot
+modes_plot
+scree_plot
+cov_plot
+design_plot
+fit_plot
 ```
 
 Derivative fits support `curve_data(d; curves=:all, grid=nothing)` and

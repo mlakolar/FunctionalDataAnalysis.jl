@@ -46,13 +46,16 @@ Pointwise confidence bands for the pooled mean are outside this API. They
 require cluster-robust variances, which KernelSmoothing.jl does not yet provide.
 Covariance and noise variance are estimated as described below.
 
-KernelSmoothing.jl is currently unregistered. On Julia 1.10, install it before
-instantiating this project (newer Julia versions use the root `[sources]`):
+KernelSmoothing.jl is currently unregistered. From this package's development
+checkout, prepare the sibling master dependencies on Julia 1.10 and newer with:
 
-```julia
-using Pkg
-Pkg.add(url="https://github.com/mlakolar/KernelSmoothing.jl")
+```sh
+julia scripts/instantiate.jl
 ```
+
+The bootstrap develops the sibling KernelSmoothing master checkout and clones it
+from master if missing. Run `julia scripts/test_master.jl` for the complete suite
+in its dedicated environment with test extras.
 
 KernelSmoothing must be registered before FunctionalDataAnalysis can be registered.
 

@@ -6,12 +6,12 @@ Number of functions in the basis `b`.
 function nbasis end
 
 """
-    basismatrix(b, t; derivative=0)
+    basis_matrix(b, t; derivative=0)
 
 Evaluate a basis, or its nonnegative integer derivative, at `t`. Return a
 `length(t) × nbasis(b)` matrix. All points must be finite and in `domain(b)`.
 """
-function basismatrix end
+function basis_matrix end
 
 """
     gram(b)
@@ -180,7 +180,7 @@ end
 Base.show(io::IO, ::MIME"text/plain", b::Union{BSplineBasis,FourierBasis,MonomialBasis}) =
     show(io, b)
 
-function basismatrix(b::BSplineBasis, t::AbstractVector{<:Real}; derivative=0)
+function basis_matrix(b::BSplineBasis, t::AbstractVector{<:Real}; derivative=0)
     m = _derivative_order(derivative)
     x = _basispoints(b, t)
     out = zeros(eltype(x), length(x), nbasis(b))
@@ -191,7 +191,7 @@ function basismatrix(b::BSplineBasis, t::AbstractVector{<:Real}; derivative=0)
     out
 end
 
-function basismatrix(b::FourierBasis, t::AbstractVector{<:Real}; derivative=0)
+function basis_matrix(b::FourierBasis, t::AbstractVector{<:Real}; derivative=0)
     m = _derivative_order(derivative)
     x = _basispoints(b, t)
     T = eltype(x)
@@ -219,7 +219,7 @@ function _falling(p, m, ::Type{T}) where {T}
     value
 end
 
-function basismatrix(b::MonomialBasis, t::AbstractVector{<:Real}; derivative=0)
+function basis_matrix(b::MonomialBasis, t::AbstractVector{<:Real}; derivative=0)
     m = _derivative_order(derivative)
     x = _basispoints(b, t)
     T = eltype(x)

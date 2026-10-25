@@ -24,7 +24,7 @@ import RecipesBase
     @test setting.P == quantity(ps, "penalty")
     @test setting.knots ≈ vec(quantity(ps, "knots")) rtol=1e-14
     @test nbasis(setting.basis) == 38
-    @test basismatrix(setting.basis, grid) ≈ setting.B
+    @test basis_matrix(setting.basis, grid) ≈ setting.B
     @test domain(setting.basis) == (0.0, 2.0)
     @test FDA._difference_penalty(5, 0) == Matrix{Float64}(I, 5, 5)
     @test FDA._difference_penalty(5, 1) ≈ diff(Matrix{Float64}(I, 5, 5); dims=1)' * diff(Matrix{Float64}(I, 5, 5); dims=1)
@@ -147,7 +147,7 @@ import RecipesBase
         pace = StatsAPI.fit(FPCA, newdata; method=:pace, grid,
             mean=(; grid, values=vec(model.mean.values)),
             covariance=(; grid, surface=selected_covariance),
-            noise_variance=noise_variance(model), ncomponents=3, maxK=3)
+            noise_variance=noise_variance(model), ncomponents=3, max_k=3)
         @test scores(pace) ≈ prediction.scores rtol=1e-10
         @test score_covariances(pace) ≈ prediction.covariances rtol=1e-10
         @test StatsAPI.predict(pace, newdata).scores ≈ scores(pace)
@@ -225,7 +225,7 @@ import RecipesBase
         for selector in (AIC(), BIC())
             @test_throws ArgumentError StatsAPI.fit(FPCA, fd; method=:face, ncomponents=selector)
         end
-        @test_throws ArgumentError StatsAPI.fit(FPCA, fd; method=:face, maxK=39)
+        @test_throws ArgumentError StatsAPI.fit(FPCA, fd; method=:face, max_k=39)
         @test_throws ArgumentError StatsAPI.fit(FPCA, fd; method=:face, ncomponents=100)
         for bad in (0, -1, 1.5, :invalid, true)
             @test_throws ArgumentError StatsAPI.fit(FPCA, fd; method=:face, ncomponents=bad)
@@ -275,13 +275,13 @@ end
             data[2, 20:24] .= missing
         end
         fd = GridFunctionalData(data, grid)
-        f = StatsAPI.fit(FPCA, fd; method=:face, ncomponents=1, maxK=4,
+        f = StatsAPI.fit(FPCA, fd; method=:face, ncomponents=1, max_k=4,
             mean=(; grid, values=mu), face=(; knots=8, lambda=0.5))
         @test length(f.all_eigenvalues) == 4 > ncomponents(f)
         @test noise_variance(f) > 0
         d = derivative(f; method=:DPC, bandwidth=0.4, ncomponents=2)
         # Observation-space matrices provide an independent check of both the
-        # cross-covariance numerator and the full maxK covariance denominator.
+        # cross-covariance numerator and the full max_k covariance denominator.
         G = Matrix(f.settings.full_projected_covariance)
         L = FunctionalDataAnalysis.KernelSmoothing.smoothermatrix(grid, grid;
             bandwidth=0.4, derivative=1, degree=2,

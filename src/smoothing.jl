@@ -112,7 +112,7 @@ function smooth_curves(fd::Union{GridFunctionalData,IrregularFunctionalData},
         indices, L = get!(smoothers, t) do
             indices = findall(z -> first(t) <= z <= last(t), x)
             isempty(indices) && return indices, zeros(0, length(t))
-            indices, KernelSmoothing.smoothermatrix(t, x[indices]; bandwidth=method.bandwidth,
+            indices, KernelSmoothing.smoother_matrix(t, x[indices]; bandwidth=method.bandwidth,
                 degree=method.degree, derivative=method.derivative, kernel=method.kernel)
         end
         isempty(indices) && continue
@@ -138,7 +138,7 @@ function _gcv_selection(fd, basis, order, candidates)
     for i in 1:nobs(fd)
         t, y = fd[i]
         isempty(t) && throw(ArgumentError("curve $i has no observed values for GCV"))
-        X = Matrix{T}(basismatrix(basis, t))
+        X = Matrix{T}(basis_matrix(basis, t))
         yy = Vector{T}(y)
         n = length(y)
         XtX = transpose(X) * X

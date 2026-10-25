@@ -3,7 +3,7 @@
 
 The functions obtained by differentiating `basis` `order` times. The basis
 is copied; its domain and number of functions are retained. Evaluation delegates
-to `basismatrix(basis, t; derivative=order+derivative)`. Gram and penalty matrices
+to `basis_matrix(basis, t; derivative=order+derivative)`. Gram and penalty matrices
 are exact whenever the underlying basis supplies exact derivative penalties
 (B-splines through BSplineKit Galerkin, Fourier and monomial by closed forms).
 Zero functions and a singular Gram matrix are valid. Orders are nonnegative
@@ -25,8 +25,8 @@ DerivativeBasis(basis::DerivativeBasis, order=1) =
 Base.eltype(::Type{DerivativeBasis{B}}) where {B} = eltype(B)
 nbasis(b::DerivativeBasis) = nbasis(b.basis)
 domain(b::DerivativeBasis) = domain(b.basis)
-basismatrix(b::DerivativeBasis, t::AbstractVector{<:Real}; derivative=0) =
-    basismatrix(b.basis, t; derivative=_derivative_sum(b.order, derivative))
+basis_matrix(b::DerivativeBasis, t::AbstractVector{<:Real}; derivative=0) =
+    basis_matrix(b.basis, t; derivative=_derivative_sum(b.order, derivative))
 penalty(b::DerivativeBasis, order) = penalty(b.basis, _derivative_sum(b.order, order))
 Base.:(==)(a::DerivativeBasis, b::DerivativeBasis) = a.order == b.order && a.basis == b.basis
 Base.isequal(a::DerivativeBasis, b::DerivativeBasis) =
@@ -150,7 +150,7 @@ end
 function _differentiate_columns(grid, values, method)
     out = similar(values, promote_type(eltype(values), eltype(grid), typeof(method.bandwidth)))
     # Every column is observed on the same grid, so one smoother matrix serves all.
-    L = KernelSmoothing.smoothermatrix(grid, grid; bandwidth=method.bandwidth,
+    L = KernelSmoothing.smoother_matrix(grid, grid; bandwidth=method.bandwidth,
         degree=method.degree, derivative=method.derivative, kernel=method.kernel)
     for (point, row) in zip(grid, eachrow(L))
         all(isfinite, row) || throw(ArgumentError(
@@ -260,7 +260,7 @@ function reconstruct(d::FPCADerivative, projected::AbstractMatrix{<:Real}=scores
     size(projected, 2) == ncomponents(d) || throw(DimensionMismatch("derivative score columns must equal ncomponents"))
     all(isfinite, projected) || throw(ArgumentError("derivative reconstruction scores must be finite"))
     quadrature_weights(grid)
-    functions = basismatrix(d.basis, grid)
+    functions = basis_matrix(d.basis, grid)
     mu = evaluate(d.mean, grid, PiecewiseLinear())
     GridFunctionalData(projected * transpose(functions) .+ mu, grid;
         ids=projected === d.scores ? d.ids : nothing,

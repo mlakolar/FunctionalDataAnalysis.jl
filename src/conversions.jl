@@ -93,7 +93,7 @@ function to_basis(fd::Union{GridFunctionalData,IrregularFunctionalData},
         length(times) >= k || lambda > 0 ||
             throw(ArgumentError("curve $i has fewer observations than basis functions; lambda must be positive"))
         isempty(times) && throw(ArgumentError("curve $i has no observed values to fit"))
-        X = Matrix{T}(basismatrix(basis, times))
+        X = Matrix{T}(basis_matrix(basis, times))
         y = Vector{T}(values)
         if lambda == 0
             factor = qr(X, ColumnNorm())

@@ -14,7 +14,7 @@ import Random
 
 export AbstractFunctionalData, AbstractBasis, nobs, domain, evaluate,
     sampling_design, quadrature_weights
-export nbasis, basismatrix, gram, penalty, BSplineBasis, FourierBasis,
+export nbasis, basis_matrix, gram, penalty, BSplineBasis, FourierBasis,
     MonomialBasis, DerivativeBasis, derivative, FPCADerivative, MultivariateFPCADerivative
 export GridFunctionalData, IrregularFunctionalData, BasisFunctionalData,
     MultivariateFunctionalData, PiecewiseLinear, NoInterpolation, nobs_per_curve,
@@ -31,8 +31,8 @@ export ids, RegularSampling, SparseSampling, simulate_kl,
     fourier_eigenfunctions, legendre_eigenfunctions
 export curve_data, mean_data, modes_of_variation, scree_data, covariance_data,
     design_data, fitted_curve_data
-export modesplot, screeplot, covplot, designplot, fitplot
-export FittedBands, MeanBands, fitted_bands, mean_bands, band_data, bandplot
+export modes_plot, scree_plot, cov_plot, design_plot, fit_plot
+export FittedBands, MeanBands, fitted_bands, mean_bands, band_data, band_plot
 export datasets, load_dataset
 
 include("interface.jl")
@@ -66,5 +66,6 @@ include("derivatives.jl")
 include("bands.jl")
 include("plot_data.jl")
 include("recipes.jl")
+include("compat_naming.jl")
 
 end

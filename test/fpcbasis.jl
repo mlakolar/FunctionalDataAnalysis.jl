@@ -8,9 +8,9 @@
         @test eltype(b) == Float64
         @test b.weights == [0.125, 0.5, 0.375]
         points = [1.0, 0.125, 0.0, 0.625, 0.25]
-        @test (@inferred basismatrix(b, points)) == hcat(ones(5), points)
-        @test basismatrix(b, grid; derivative=0) == values
-        @test size(@inferred basismatrix(b, Float64[])) == (0, 2)
+        @test (@inferred basis_matrix(b, points)) == hcat(ones(5), points)
+        @test basis_matrix(b, grid; derivative=0) == values
+        @test size(@inferred basis_matrix(b, Float64[])) == (0, 2)
         @test (@inferred gram(b)) ≈ [1.0 0.5; 0.5 1 / 3]
         @test (@inferred penalty(b, 0)) == gram(b)
 
@@ -31,11 +31,11 @@
         single = @inferred FPCBasis(Float32[0, 0.25, 1],
             Float32[1 0; 1 0.25; 1 1])
         @test eltype(single) == Float32
-        @test (@inferred basismatrix(single, Float32[0, 0.5, 1])) isa Matrix{Float32}
+        @test (@inferred basis_matrix(single, Float32[0, 0.5, 1])) isa Matrix{Float32}
         @test (@inferred gram(single)) isa Matrix{Float32}
         @test (@inferred penalty(single, 0)) isa Matrix{Float32}
         @test eltype(@inferred FPCBasis([0, 1], [1 0; 1 1])) == Float64
-        @test basismatrix(single, [0.5]) isa Matrix{Float64}
+        @test basis_matrix(single, [0.5]) isa Matrix{Float64}
 
         fd = BasisFunctionalData([2.0 3.0], b)
         @test evaluate(fd, [0.0, 0.4, 1.0]) ≈ [2.0 3.2 5.0]
@@ -99,10 +99,10 @@
             @test_throws ArgumentError FPCBasis(grid, invalid)
         end
         for points in ([-0.1], [1.1], [NaN], [Inf])
-            @test_throws ArgumentError basismatrix(b, points)
+            @test_throws ArgumentError basis_matrix(b, points)
         end
         for order in (-1, 0.5, 1, 2)
-            @test_throws ArgumentError basismatrix(b, [0.5]; derivative=order)
+            @test_throws ArgumentError basis_matrix(b, [0.5]; derivative=order)
             @test_throws ArgumentError penalty(b, order)
         end
     end

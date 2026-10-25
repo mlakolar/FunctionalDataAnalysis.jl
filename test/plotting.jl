@@ -11,12 +11,12 @@ function plotting_fixture()
     latent = [sqrt(5.0) 0; -sqrt(5.0) 0; 0 sqrt(1.25); 0 -sqrt(1.25); 0 0; 0 0]
     fd = GridFunctionalData(1 .+ grid' .+ latent * phi', grid)
     model = @inferred (data -> StatsAPI.fit(FPCA, data;
-        method=:dense, ncomponents=FVE(0.7), maxK=2))(fd)
+        method=:dense, ncomponents=FVE(0.7), max_k=2))(fd)
     times = [[0.0, 0.1, 0.7], [0.1, 0.4, 1.0], [0.0, 0.4, 0.7, 1.0], [0.4]]
     values = [1 .+ t .+ i/4 for (i, t) in enumerate(times)]
     irregular = IrregularFunctionalData(times, values; domain=(0.0, 1.0))
     surface = phi * Diagonal([2.0, 0.5]) * phi'
-    pace = @inferred StatsAPI.fit(FPCA, irregular; grid, ncomponents=1, maxK=2,
+    pace = @inferred StatsAPI.fit(FPCA, irregular; grid, ncomponents=1, max_k=2,
         mean=(; grid, values=1 .+ grid), covariance=(; grid, surface), noise_variance=0.1)
     (; grid, phi, latent, fd, model, times, values, irregular, pace, surface)
 end
@@ -121,7 +121,7 @@ end
             @test_throws ArgumentError modes_of_variation(f.model, 1; multipliers=bad)
         end
         multi = MultivariateFunctionalData([f.fd, GridFunctionalData(2 .* f.fd.values, f.grid .+ 2)])
-        joint = @inferred StatsAPI.fit(MFPCA, multi; ncomponents=2, univariate=(; ncomponents=2, maxK=2))
+        joint = @inferred StatsAPI.fit(MFPCA, multi; ncomponents=2, univariate=(; ncomponents=2, max_k=2))
         jm = @inferred modes_of_variation(joint, 1)
         @test length(jm.nodes) == 2
         @test (@inferred mean_data(joint)).nodes[2].grid == f.grid .+ 2
@@ -137,7 +137,7 @@ end
             component(joint, 1).all_eigenvalues
         @test modes_of_variation(joint.univariate, 1).nodes[2].eigenvalue ≈ 8
         samegrid = MultivariateFunctionalData([f.fd, GridFunctionalData(2 .* f.fd.values, f.grid)])
-        pooled = StatsAPI.fit(FPCA, samegrid; basis=:pooled, ncomponents=1, maxK=2)
+        pooled = StatsAPI.fit(FPCA, samegrid; basis=:pooled, ncomponents=1, max_k=2)
         @test scree_data(pooled).eigenvalues ≈ [5.0, 1.25]
         @test modes_of_variation(pooled, 1).nodes[2].eigenvalue ≈ 5
         @test length(mean_data(pooled).nodes) == 2
@@ -239,19 +239,19 @@ end
         f.fd.values[1, 1] = 800
         @test fitted_curve_data(f.model, 1).observed.values[1] != 800
         original = plotting_fixture().fd
-        smooth = StatsAPI.fit(FPCA, original; ncomponents=1, maxK=2,
+        smooth = StatsAPI.fit(FPCA, original; ncomponents=1, max_k=2,
             presmooth=LocalPolynomial(; bandwidth=2.0, degree=0))
         @test fitted_curve_data(smooth, 1).observed.values == original.values[1, :]
         @test norm(fitted_curve_data(smooth, 1).values - original.values[1, :]) > 0.01
         masked_values = Matrix{Union{Missing,Float64}}(original.values)
         masked_values[1, 2] = missing
         masked = GridFunctionalData(masked_values, f.grid)
-        mf = StatsAPI.fit(FPCA, masked; grid=f.grid, ncomponents=1, maxK=2,
+        mf = StatsAPI.fit(FPCA, masked; grid=f.grid, ncomponents=1, max_k=2,
             mean=(; grid=f.grid, values=1 .+ f.grid),
             covariance=(; grid=f.grid, surface=f.surface), noise_variance=0.1)
         @test fitted_curve_data(mf, 1).observed.times == f.grid[[1, 3, 4, 5]]
         multi = MultivariateFunctionalData([original, GridFunctionalData(2 .* original.values, f.grid .+ 2)])
-        joint = StatsAPI.fit(MFPCA, multi; ncomponents=2, univariate=(; ncomponents=2, maxK=2))
+        joint = StatsAPI.fit(MFPCA, multi; ncomponents=2, univariate=(; ncomponents=2, max_k=2))
         jd = @inferred fitted_curve_data(joint, 2; grid=[grid, grid .+ 2])
         @test length(jd.nodes) == 2 && jd.curve == 2
         @test jd.nodes[2].observed.times == f.grid .+ 2
@@ -308,7 +308,7 @@ end
         @test [s.plotattributes[:subplot] for s in panels] == [1, 2]
         @test all(s -> s.plotattributes[:layout] == (2, 1), panels)
         @test occursin("Node 2", panels[2].plotattributes[:title])
-        joint = StatsAPI.fit(MFPCA, multi; ncomponents=2, univariate=(; ncomponents=2, maxK=2))
+        joint = StatsAPI.fit(MFPCA, multi; ncomponents=2, univariate=(; ncomponents=2, max_k=2))
         modes = plotting_series(FunctionalDataAnalysis._plot_payload(Val(:modes), modes_of_variation(joint, 1)))
         @test length(modes) == 10
         @test occursin("Node 2: Mode", modes[6].plotattributes[:title])

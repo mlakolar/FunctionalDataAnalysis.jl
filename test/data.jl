@@ -1,7 +1,7 @@
 struct TestLinearBasis <: AbstractBasis end
 FunctionalDataAnalysis.domain(::TestLinearBasis) = (0.0, 1.0)
 FunctionalDataAnalysis.nbasis(::TestLinearBasis) = 2
-function FunctionalDataAnalysis.basismatrix(::TestLinearBasis, t; derivative=0)
+function FunctionalDataAnalysis.basis_matrix(::TestLinearBasis, t; derivative=0)
     derivative == 0 && return hcat(ones(length(t)), t)
     derivative == 1 && return hcat(zeros(length(t)), ones(length(t)))
     zeros(length(t), 2)
@@ -99,9 +99,9 @@ FunctionalDataAnalysis.penalty(b::TestLinearBasis, order) =
         @test domain(fd) == (0.0, 1.0)
         @test nobs_per_curve(fd) == [3, 3]
         t = [0.0, 0.25, 1.0]
-        @test (@inferred evaluate(fd, t)) == fd.coefs * transpose(basismatrix(b, t))
+        @test (@inferred evaluate(fd, t)) == fd.coefs * transpose(basis_matrix(b, t))
         @test (@inferred fd(t)) == evaluate(fd, t)
-        @test (@inferred evaluate(fd, t; derivative=1)) == fd.coefs * transpose(basismatrix(b, t; derivative=1))
+        @test (@inferred evaluate(fd, t; derivative=1)) == fd.coefs * transpose(basis_matrix(b, t; derivative=1))
         @test (@inferred BasisFunctionalData(Float32[1 2], MonomialBasis((0.0f0, 1.0f0), 1))) isa BasisFunctionalData{Float32}
         spline = BSplineBasis(3, [0.0, 0.5, 1.0])
         sf = BasisFunctionalData(ones(1, nbasis(spline)), spline)
@@ -170,7 +170,7 @@ FunctionalDataAnalysis.penalty(b::TestLinearBasis, order) =
         t = collect(range(0.0, 1.0; length=31))
         for basis in (MonomialBasis((0, 1), 2), FourierBasis((0, 1), 5), BSplineBasis(4, (0, 1), 6))
             c = reshape(collect(1.0:2nbasis(basis)), 2, :)
-            values = c * transpose(basismatrix(basis, t))
+            values = c * transpose(basis_matrix(basis, t))
             fd = GridFunctionalData(values, t)
             fit = @inferred to_basis(fd, basis)
             @test fit.coefs ≈ c rtol=1e-10
@@ -181,7 +181,7 @@ FunctionalDataAnalysis.penalty(b::TestLinearBasis, order) =
         b = MonomialBasis((0, 1), 2)
         values = reshape(sin.(3t), 1, :)
         raw = GridFunctionalData(values, t)
-        X = basismatrix(b, t)
+        X = basis_matrix(b, t)
         lambda = 0.3
         expected = (transpose(X) * X + lambda * penalty(b, 2)) \ (transpose(X) * vec(values))
         @test to_basis(raw, b; lambda).coefs ≈ transpose(expected)

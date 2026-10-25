@@ -224,10 +224,10 @@ function _pace_curve_ce(times, residuals, phi, values, grid, projected::Abstract
     projected_scores, (omega + transpose(omega))/2
 end
 
-function _pace_likelihood_selection(rule::Union{AIC,BIC}, fd, grid, mu, system, maxK, sigma2)
+function _pace_likelihood_selection(rule::Union{AIC,BIC}, fd, grid, mu, system, max_k, sigma2)
     values, functions = system.eigenvalues, system.eigenfunctions
     T = eltype(values)
-    candidates = collect(1:maxK)
+    candidates = collect(1:max_k)
     criterion = zeros(T, length(candidates))
     for i in 1:nobs(fd)
         times, observations = fd[i]
@@ -256,17 +256,17 @@ function _pace_likelihood_selection(rule::Union{AIC,BIC}, fd, grid, mu, system, 
         "PACE component-selection criteria must be finite; rescale the observations"))
     increase = findfirst(>(zero(T)), diff(criterion))
     chosen = increase === nothing ? length(candidates) : increase
-    (; rule=rule isa AIC ? :AIC : :BIC, threshold=nothing, maxK,
+    (; rule=rule isa AIC ? :AIC : :BIC, threshold=nothing, max_k, maxK=max_k,
         chosen, scores=criterion, candidates, global_minimizer=argmin(criterion),
         stopping=:first_increase)
 end
 
-function _pace_selection(rule, fd, grid, mu, system, maxK, sigma2)
-    _fpca_selection(rule, system.fve, maxK)
+function _pace_selection(rule, fd, grid, mu, system, max_k, sigma2)
+    _fpca_selection(rule, system.fve, max_k)
 end
 
-function _pace_selection(rule::Union{AIC,BIC}, fd, grid, mu, system, maxK, sigma2)
-    _pace_likelihood_selection(rule, fd, grid, mu, system, maxK, sigma2)
+function _pace_selection(rule::Union{AIC,BIC}, fd, grid, mu, system, max_k, sigma2)
+    _pace_likelihood_selection(rule, fd, grid, mu, system, max_k, sigma2)
 end
 
 _pace_mean_settings(mean::SmoothedMean) = (; bandwidth=mean.bandwidth,
@@ -285,7 +285,7 @@ _pace_covariance_settings(covariance::SmoothedCovariance) =
 _pace_covariance_settings(covariance::NamedTuple) =
     (; interpolation=:bilinear, grid=copy(covariance.grid))
 
-function _fit_pace(fd; method=:auto, grid=nothing, ncomponents=FVE(0.99), maxK=nothing,
+function _fit_pace(fd; method=:auto, grid=nothing, ncomponents=FVE(0.99), max_k=nothing,
         mean=nothing, covariance=nothing, noise_variance=nothing, mean_bandwidth=nothing,
         covariance_bandwidth=nothing, diagonal_bandwidth=nothing, kernel=nothing,
         weighting=:obs, binning=:auto, eigen_tol=_FPCA_EIGEN_TOL, sign_tol=_FPCA_SIGN_TOL)
@@ -326,10 +326,10 @@ function _fit_pace(fd; method=:auto, grid=nothing, ncomponents=FVE(0.99), maxK=n
     covariance === nothing && covariance_bandwidth === nothing && (covariance_bandwidth = _pace_default_covariance_bandwidth(a, b))
     _fpca_tolerance(eigen_tol, "eigen_tol")
     _fpca_tolerance(sign_tol, "sign_tol")
-    requested_maxK = maxK
-    maxK === nothing && (maxK = max(1, min(20, length(workgrid)-2, nobs(fd)-2)))
-    maxK isa Integer && 1 <= maxK <= length(workgrid) ||
-        throw(ArgumentError("PACE maxK must be between 1 and the work-grid length"))
+    requested_max_k = max_k
+    max_k === nothing && (max_k = max(1, min(20, length(workgrid)-2, nobs(fd)-2)))
+    max_k isa Integer && 1 <= max_k <= length(workgrid) ||
+        throw(ArgumentError("PACE max_k must be between 1 and the work-grid length"))
     resolved_mean, mean_source = _pace_mean(fd, mean, workgrid, mean_bandwidth, kernel, weighting)
     resolved_covariance, covariance_source = _pace_covariance(fd, resolved_mean,
         covariance, workgrid, covariance_bandwidth, diagonal_bandwidth, kernel, weighting, binning)
@@ -341,15 +341,15 @@ function _fit_pace(fd; method=:auto, grid=nothing, ncomponents=FVE(0.99), maxK=n
     mu, surface, sigma2 = Vector{T}(mean_values), Matrix{T}(surface), T(sigma2)
     all(isfinite, mu) && all(isfinite, surface) && isfinite(sigma2) ||
         throw(ArgumentError("PACE mean, covariance, and noise variance must remain finite after conversion"))
-    system = _fpca_eigen(surface, weights, mu; maxK, eigen_tol, sign_tol)
-    selection = _pace_selection(ncomponents, fd, workgrid, mu, system, Int(maxK), sigma2)
+    system = _fpca_eigen(surface, weights, mu; max_k, eigen_tol, sign_tol)
+    selection = _pace_selection(ncomponents, fd, workgrid, mu, system, Int(max_k), sigma2)
     k = selection.chosen
     projected = (system.eigenfunctions .* transpose(system.eigenvalues)) *
         transpose(system.eigenfunctions)
     projected = (projected + transpose(projected))/2
     basis = FPCBasis(workgrid, system.eigenfunctions[:, 1:k]; weights)
     predicted = _pace_ce(fd, workgrid, mu, basis.values, system.eigenvalues[1:k], projected, sigma2)
-    settings = merge((; requested_method=method, grid_source, requested_maxK, maxK=Int(maxK),
+    settings = merge((; requested_method=method, grid_source, requested_max_k, requested_maxK=requested_max_k, max_k=Int(max_k), maxK=Int(max_k),
         ncomponents=deepcopy(ncomponents), observed_range=(a, b), observations=:copied_original,
         eigen_tol, sign_tol, quadrature=:work_grid_trapezoidal,
         mean_source, covariance_source, noise_variance_source=noise_source,

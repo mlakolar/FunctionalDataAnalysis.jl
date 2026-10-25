@@ -7,7 +7,7 @@ import StatsAPI
 makedocs(;
     sitename = "FunctionalDataAnalysis.jl",
     modules = [FunctionalDataAnalysis],
-    format = Documenter.HTML(; edit_link = "main"),
+    format = Documenter.HTML(; edit_link = "master"),
     pages = [
         "Home" => "index.md",
         "Interface" => "interface.md",
@@ -32,5 +32,5 @@ makedocs(;
 
 deploydocs(;
     repo = "github.com/mlakolar/FunctionalDataAnalysis.jl.git",
-    devbranch = "main",
+    devbranch = "master",
 )

@@ -91,7 +91,7 @@ function _face_curve_ce(times, residuals, phi, values, grid, projected,
     projected_scores, (omega+transpose(omega))/2
 end
 
-Base.@constprop :aggressive function _fit_face(fd::GridFunctionalData{T}; ncomponents=FVE(0.99), maxK=nothing,
+Base.@constprop :aggressive function _fit_face(fd::GridFunctionalData{T}; ncomponents=FVE(0.99), max_k=nothing,
         mean=nothing, eigen_tol=_FPCA_EIGEN_TOL, sign_tol=_FPCA_SIGN_TOL,
         knots=35, p=3, m=2, lambda=nothing, alpha=1, center=true,
         loglambda=collect(range(-20.0, 20.0; length=100)), mean_smoother=nothing,
@@ -118,8 +118,8 @@ Base.@constprop :aggressive function _fit_face(fd::GridFunctionalData{T}; ncompo
     setting = _pspline_setting(fd.grid, knots, p, m)
     c = size(setting.A, 2)
     cap = min(n, c)
-    maxK = maxK === nothing ? cap : maxK
-    maxK isa Integer && !(maxK isa Bool) && 1 <= maxK <= cap || throw(ArgumentError("FACE maxK must be between 1 and min(nobs, knots+p)"))
+    max_k = max_k === nothing ? cap : max_k
+    max_k isa Integer && !(max_k isa Bool) && 1 <= max_k <= cap || throw(ArgumentError("FACE max_k must be between 1 and min(nobs, knots+p)"))
     mu, mean_settings = _face_mean(fd, mean, center, mean_smoother)
     Y, initialization = _face_initialize(fd, mu)
     all(isfinite, Y) || throw(ArgumentError("FACE centered observations must be finite; rescale the observations"))
@@ -148,8 +148,8 @@ Base.@constprop :aggressive function _fit_face(fd::GridFunctionalData{T}; ncompo
         isfinite(sigma2) || throw(ArgumentError("FACE noise estimate must be finite; rescale the observations"))
         if observed !== nothing
             system = _fpca_eigen(smoothed*transpose(smoothed)/n, ones(T, c), zeros(T, c);
-                maxK, eigen_tol, sign_tol)
-            selection = _fpca_selection(ncomponents, system.fve, Int(maxK))
+                max_k, eigen_tol, sign_tol)
+            selection = _fpca_selection(ncomponents, system.fve, Int(max_k))
             U = system.eigenfunctions[:, 1:selection.chosen]
             d = system.eigenvalues[1:selection.chosen]
             completed = transpose(setting.A * (U * ((d ./ (d .+ sigma2)) .* (transpose(U)*transformed))))
@@ -169,15 +169,15 @@ Base.@constprop :aggressive function _fit_face(fd::GridFunctionalData{T}; ncompo
     R = Matrix(qr(sqrt.(fd.weights) .* setting.A).R)
     small = R * (smoothed*transpose(smoothed)/n) * transpose(R)
     small = (small+transpose(small))/2
-    system = _fpca_eigen(small, ones(T, c), zeros(T, c); maxK, eigen_tol, sign_tol)
+    system = _fpca_eigen(small, ones(T, c), zeros(T, c); max_k, eigen_tol, sign_tol)
     functions = setting.A * (R \ system.eigenfunctions)
     _fpca_orient!(functions, mu, sign_tol)
-    selection = _fpca_selection(ncomponents, system.fve, Int(maxK))
+    selection = _fpca_selection(ncomponents, system.fve, Int(max_k))
     k = selection.chosen
     basis = FPCBasis(fd.grid, functions[:, 1:k]; weights=fd.weights)
     values = system.eigenvalues[1:k]
     # H' = Q*R implies H*H' = R'*R. Keep at most c columns, including all
-    # smoothed covariance directions regardless of maxK or eigen_tol.
+    # smoothed covariance directions regardless of max_k or eigen_tol.
     covariance_root = Matrix(qr(transpose(smoothed)).R)
     covariance = _LowRankCovariance(setting.A * transpose(covariance_root) / sqrt(T(n)))
     projected = _LowRankCovariance(functions .* transpose(sqrt.(system.eigenvalues)))
@@ -187,7 +187,7 @@ Base.@constprop :aggressive function _fit_face(fd::GridFunctionalData{T}; ncompo
     scored = _pace_ce(completed_fd, fd.grid, mu, basis.values, values, projected, sigma2;
         curve_ce=_face_curve_ce)
     settings = (; requested_method=:face, grid_source=:data, ncomponents=deepcopy(ncomponents),
-        maxK=Int(maxK), eigen_tol, sign_tol, knots=Int(knots), p=Int(p), m=Int(m),
+        max_k=Int(max_k), maxK=Int(max_k), eigen_tol, sign_tol, knots=Int(knots), p=Int(p), m=Int(m),
         knot_sequence=copy(setting.knots), lambda=selected, lambda_source=lambda === nothing ? :GCV : :supplied,
         loglambda=T.(loglambda), gcv_lambdas=candidates, gcv_scores,
         alpha=T(alpha), center, mean=mean_settings, covariance_denominator=n,

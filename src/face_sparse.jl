@@ -11,7 +11,7 @@ Base.getindex(c::_SplineCovariance, i::Int, j::Int) = dot(view(c.factor, i, :), 
 Base.copy(c::_SplineCovariance) = _SplineCovariance(copy(c.factor), deepcopy(c.basis), copy(c.coefficient_root))
 Base.Matrix(c::_SplineCovariance) = c.factor * transpose(c.factor)
 function _pace_observation_covariance(grid, c::_SplineCovariance, times)
-    root = basismatrix(c.basis, times)*c.coefficient_root
+    root = basis_matrix(c.basis, times)*c.coefficient_root
     root*transpose(root)
 end
 
@@ -84,7 +84,7 @@ end
 
 _face_sparse_mean_values(mean, times) = mean.source === :zero ? zeros(eltype(times), length(times)) :
     mean.source === :supplied ? _pace_mean_values(mean.input, times) :
-    basismatrix(mean.basis, times)*mean.coefficients
+    basis_matrix(mean.basis, times)*mean.coefficients
 
 function _face_sparse_mean(fd, mean, center, knots, lambda_mean, mean_loglambda, grid)
     T = eltype(fd)
@@ -127,7 +127,7 @@ function _face_sparse_mean(fd, mean, center, knots, lambda_mean, mean_loglambda,
 end
 
 Base.@constprop :aggressive function _fit_face_sparse(fd::IrregularFunctionalData{T}; grid=nothing,
-        ncomponents=FVE(.99), maxK=nothing, mean=nothing,
+        ncomponents=FVE(.99), max_k=nothing, mean=nothing,
         eigen_tol=_FPCA_EIGEN_TOL, sign_tol=_FPCA_SIGN_TOL,
         knots=7, p=3, m=2, lambda=nothing, center=true,
         loglambda=collect(range(-3.0, 10.0; length=14)), lambda_mean=nothing,
@@ -154,8 +154,8 @@ Base.@constprop :aggressive function _fit_face_sparse(fd::IrregularFunctionalDat
     design = _pspline_design(fd.times, knots, p, m; interval=(a-T(.001)*width, b+T(.001)*width))
     c = size(design.B, 2)
     cap = min(c, length(workgrid))
-    maxK = maxK === nothing ? cap : maxK
-    maxK isa Integer && !(maxK isa Bool) && 1 <= maxK <= cap || throw(ArgumentError("sparse FACE maxK must be between 1 and min(knots+p, grid length)"))
+    max_k = max_k === nothing ? cap : max_k
+    max_k isa Integer && !(max_k isa Bool) && 1 <= max_k <= cap || throw(ArgumentError("sparse FACE max_k must be between 1 and min(knots+p, grid length)"))
     mean_settings = _face_sparse_mean(fd, mean, center, knots, lambda_mean, mean_loglambda, workgrid)
     mu = Vector{T}(_face_sparse_mean_values(mean_settings, workgrid))
     residuals = fd.values - _face_sparse_mean_values(mean_settings, fd.times)
@@ -202,7 +202,7 @@ Base.@constprop :aggressive function _fit_face_sparse(fd::IrregularFunctionalDat
     positive = findall(>(zero(T)), ce.values)
     isempty(positive) && throw(ArgumentError("sparse FACE covariance has no positive eigenvalues"))
     coefficient_root = ce.vectors[:,positive] .* transpose(sqrt.(ce.values[positive]))
-    Bnew = basismatrix(design.basis, workgrid)
+    Bnew = basis_matrix(design.basis, workgrid)
     # Transfer the stored quadrature into a small covariance eigensystem.
     gram = transpose(Bnew)*(weights .* Bnew)
     ge = eigen(Symmetric(gram))
@@ -211,7 +211,7 @@ Base.@constprop :aggressive function _fit_face_sparse(fd::IrregularFunctionalDat
     inverse_root = ge.vectors*Diagonal(inv.(sqrt.(ge.values)))*transpose(ge.vectors)
     smallroot = root*coefficient_root
     small = smallroot*transpose(smallroot)
-    system = _fpca_eigen((small+transpose(small))/2, ones(T,c), zeros(T,c); maxK, eigen_tol, sign_tol)
+    system = _fpca_eigen((small+transpose(small))/2, ones(T,c), zeros(T,c); max_k, eigen_tol, sign_tol)
     coefficients = inverse_root*system.eigenfunctions
     functions = Bnew*coefficients
     _fpca_orient!(functions, mu, sign_tol)
@@ -219,12 +219,12 @@ Base.@constprop :aggressive function _fit_face_sparse(fd::IrregularFunctionalDat
     for j in axes(functions,2)
         dot(functions[:,j], Bnew*coefficients[:,j]) < 0 && (coefficients[:,j] .*= -1)
     end
-    selection = _fpca_selection(ncomponents, system.fve, Int(maxK))
+    selection = _fpca_selection(ncomponents, system.fve, Int(max_k))
     k = selection.chosen
     basis = FPCBasis(workgrid, functions[:,1:k]; weights)
     covariance = _SplineCovariance(Bnew*coefficient_root, design.basis, coefficient_root)
     settings = (; requested_method=:face, route=:sparse, grid_source,
-        ncomponents=deepcopy(ncomponents), maxK=Int(maxK), eigen_tol, sign_tol,
+        ncomponents=deepcopy(ncomponents), max_k=Int(max_k), maxK=Int(max_k), eigen_tol, sign_tol,
         knots=Int(knots), p=Int(p), m=Int(m), knot_sequence=design.knots,
         knot_range_expansion=T(.001), lambda=selected,
         lambda_source=lambda === nothing ? :subject_CV : :supplied,
@@ -255,7 +255,7 @@ end
 function _face_sparse_scores(fd, grid, mu, functions, values, covariance, sigma2, settings)
     _pace_ce(fd, grid, mu, functions, values, covariance, sigma2;
         curve_ce=_face_sparse_curve_ce,
-        basis_evaluator=(g,f,t)->basismatrix(covariance.basis,t)*settings.eigenfunction_coefficients,
+        basis_evaluator=(g,f,t)->basis_matrix(covariance.basis,t)*settings.eigenfunction_coefficients,
         mean_evaluator=(g,m,t)->_face_sparse_mean_values(settings.mean,t))
 end
 

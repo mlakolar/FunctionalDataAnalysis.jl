@@ -198,7 +198,7 @@ strict given-expansion comparisons.
 | Eager fitting and bootstrap | Disabled, consistent with R defaults; reconstruction is an explicit operation. No bootstrap API. |
 
 The inherited first-step defaults include routing, work grid, quadrature,
-`FVE(0.99)`, `maxK`, no dense presmoothing, sample dense mean/covariance,
+`FVE(0.99)`, `max_k`, no dense presmoothing, sample dense mean/covariance,
 estimated PACE mean/covariance/noise, Gaussian kernel, observation weighting,
 5%/10% range bandwidths, diagonal bandwidth inheritance, automatic binning,
 `eigen_tol=1e-10`, and `sign_tol=1e-12`. The linked univariate docstring/audit
@@ -210,7 +210,7 @@ Recreation commands (R is only needed for regeneration):
 ```sh
 julia --project=. test/reference/mfpca_m4.jl
 Rscript test/reference/mfpca_m4.R
-julia --project=. -e 'include("test/mfpca.jl")'
+julia scripts/test_master.jl
 ```
 
 Reference generation uses R **4.5.1**, MFPCA **1.3-11**, funData **1.3-9**,

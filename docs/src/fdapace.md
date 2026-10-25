@@ -73,7 +73,7 @@ identifies the matching conventions and the differences retained by design.
 | Choice | fdapace 0.6.0: executable source | FunctionalDataAnalysis.jl and reason |
 |:--|:--|:--|
 | Work grid / `nRegGrid` | `R/SetOptions.R`, `SetOptions`: Dense and DenseWithMV use the number of unique pooled times after `signif(t,6)`; Sparse and `p>>n` use 51. `R/FPCA.R`, `FPCA` then creates an equally spaced grid over the observed range. | Dense uses the supplied data grid and its stored weights, without rounding or resampling. It preserves the data representation. PACE uses 51 equally spaced points over the observed range unless a work grid is supplied, including when PACE is explicitly requested for common-grid data. |
-| `maxK` | `SetOptions`: `min(nRegGrid-2,n-2)`, additionally capped at 20 **only for `methodMuCovEst="smooth"`**; values below 1 are reset to 1. An explicit `maxK` above `nRegGrid-2` is reduced with a message. | The dense default is `max(1,min(m-2,n-2))`; PACE uses `max(1,min(20,m-2,n-2))`, matching the respective audited routes. An explicit dense cap may use up to `min(m,n-1)` and an explicit PACE cap up to `m`; requested components above the cap or retained positive rank throw. |
+| `max_k` | `SetOptions`: `min(nRegGrid-2,n-2)`, additionally capped at 20 **only for `methodMuCovEst="smooth"`**; values below 1 are reset to 1. An explicit `max_k` above `nRegGrid-2` is reduced with a message. | The dense default is `max(1,min(m-2,n-2))`; PACE uses `max(1,min(20,m-2,n-2))`, matching the respective audited routes. An explicit dense cap may use up to `min(m,n-1)` and an explicit PACE cap up to `m`; requested components above the cap or retained positive rank throw. |
 | `methodSelectK` | `SetOptions`: `"FVE"`. `R/SelectK.R`, `SelectK` also accepts `"AIC"`, `"BIC"`, or a positive integer. | `ncomponents=FVE(0.99)` or a positive integer. PACE also accepts `AIC()` and `BIC()`. |
 | `FVEthreshold` | `SetOptions`: 0.99 for `FPCA`. The standalone `SelectK` function separately defaults to 0.95. | `FVE(0.99)` follows the `FPCA` entry point. |
 | Kernel | `SetOptions` initially chooses `"epan"` for Dense and `"gauss"` for every other data type, including DenseWithMV. A later invalid-kernel recovery branch chooses Epanechnikov for DenseWithMV. | The dense sample mean and covariance require no kernel. Optional presmoothing records the supplied smoother and kernel. PACE defaults to Gaussian, following the audited non-dense default. Direct pooled-smoother calls retain their Epanechnikov default; every kernel remains overridable. |
@@ -86,7 +86,7 @@ identifies the matching conventions and the differences retained by design.
 | Smoothed noise estimator | `PC_CovE` uses the rotated diagonal; `SetOptions` supplies the middle-half `rotationCut=c(.25,.75)`, while the internal formal default is `c(0,1)`. | `SmoothedCovariance` and PACE default to the rotated diagonal over the full observed domain, selected by the issue #17 Discovery benchmark. Explicit `noise_method=:surface_diagonal` and `noise_interval=:middle_half` retain the milestone 2 rule. |
 | `rho` | `SetOptions`: `methodRho="vanilla"`, `userRho=NULL`. This means no extra regularization; details are below. | `rho` regularization is not implemented. No ridge is silently added. |
 
-The remembered claim that fdapace always uses `maxK=min(20,m-2)` is therefore
+The remembered claim that fdapace always uses `max_k=min(20,m-2)` is therefore
 incorrect for 0.6.0. So is a description of GCV as its default bandwidth
 selector. The dense component cap follows the audited fdapace default, replacing
 the milestone plan's cap of 20.
@@ -215,7 +215,7 @@ conditioned system is therefore not automatically regularized. An unused
 solver.
 
 The covariance used in that `Sigma_Y` is the **full positive-semidefinite
-fitted covariance up to `maxK`**, not only the selected `K` components:
+fitted covariance up to `max_k`**, not only the selected `K` components:
 `GetEigenAnalysisResults` constructs `eigObj$fittedCov` before selecting K,
 and `FPCA` passes that object to `GetCEScores`. `FVEfittedCov` controls the
 separate user-returned `fittedCovUser`; it does not change this score
@@ -330,7 +330,7 @@ The Discovery benchmark led to `:rotated` with `:full` as the package defaults.
 `R/GetEigenAnalysisResults.R`, `GetEigenAnalysisResults` computes ordinary
 matrix eigenvectors of the covariance surface `G`. It keeps eigenvalues
 `d>=0`, including exact zeros, drops strictly negative ones, and truncates
-the remaining descending list to `maxK`. It does not record a dropped
+the remaining descending list to `max_k`. It does not record a dropped
 negative mass or apply a relative positive-eigenvalue cutoff.
 
 It reports eigenvalues `lambda=h*d`, with the first regular-grid spacing
@@ -348,7 +348,7 @@ eigenvalues above `eigen_tol*maximum(abs,spectrum)` with default
 `eigen_tol=1e-10`, and records the number, absolute mass, and share of the
 strictly negative spectrum. The relative cutoff is an explicit numerical
 choice, rather than a statistical tuning rule from fdapace. Negative mass
-is measured before the `maxK` cap.
+is measured before the `max_k` cap.
 
 The sign agrees with fdapace when the mean overlap is nonzero. If its
 absolute value is at most
@@ -358,7 +358,7 @@ This fallback follows the convention used by FunctionalGraphicalModels.jl.
 Both numerical tolerances are stored on the fit. They are explicit package
 choices that the milestone leaves to the implementation.
 
-Both implementations compute FVE **after** the `maxK` truncation:
+Both implementations compute FVE **after** the `max_k` truncation:
 `cumsum(lambda)/sum(lambda)` over that retained positive spectrum. Thus the
 last retained value is one even if the cap discarded positive components.
 `GetEigenAnalysisResults` first uses `>=` to find its threshold crossing;
@@ -375,7 +375,7 @@ which is distinct from the full fitted covariance used by CE scoring.
 When `methodSelectK` is numeric, `SetOptions` first sets `FVEthreshold=1`,
 and `SelectK` then checks the fixed requested K against available components.
 
-PACE stores the criterion for every candidate from 1 through `maxK`, then
+PACE stores the criterion for every candidate from 1 through `max_k`, then
 applies the first-increase rule. Beyond the retained positive rank, extra
 zero-variance components leave the likelihood unchanged and increase only
 the penalty. It additionally records the
@@ -433,7 +433,7 @@ estimation. These fixtures predate the rotated default; fdapace's enclosing
 The fixed-bandwidth run estimates its mean and covariance from the sparse
 fixture. It uses `userBwMu=0.30`, `userBwCov=0.40`, `kernel="epan"`,
 `useBinnedData="OFF"`, `useBinnedCov=FALSE`, observation weighting,
-`methodXi="CE"`, `methodRho="vanilla"`, fixed `K=3`, and `maxK=5`.
+`methodXi="CE"`, `methodRho="vanilla"`, fixed `K=3`, and `max_k=5`.
 Its 41-point work grid equals the observed-time union. Thus mean evaluation
 before forming residual products agrees in both implementations. Public
 Julia fits reproduce those mean and covariance values at relative error
@@ -488,7 +488,7 @@ recreate `test/data/m3_dense_input.csv` and
 `test/data/m3_fdapace_dense.csv`. Each CSV begins with R and fdapace
 versions. The script has no random draws. It uses 18 rank-five curves on
 21 grid points, `dataType="Dense"`, cross-sectional estimation,
-`error=FALSE`, integration scores, `maxK=5`, no binning, and a fixed K of 3.
+`error=FALSE`, integration scores, `max_k=5`, no binning, and a fixed K of 3.
 A second `FVE(0.99)` run selects K=4; a full-K run records the full FVE curve.
 The first three reference eigenvalues are approximately
 `4.448802620311068`, `1.165542244194415`, and `0.3479570319234146`.
@@ -699,7 +699,7 @@ Two source issues require explicit corrections to exercise native
 `fitted.FPCA` on the milestone 3 supplied-input sparse fixture:
 
 1. `SubsetFPCA` truncates `phi`, `xiEst`, and `lambda`, but leaves `xiVar`
-   at the full retained rank. With selected K smaller than `maxK`, native
+   at the full retained rank. With selected K smaller than `max_k`, native
    fitted bands fail with nonconformable matrices. The reference script
    verifies that failure and subsets only `xiVar` to its selected upper-left
    block. The CE denominator still contains all five retained components.

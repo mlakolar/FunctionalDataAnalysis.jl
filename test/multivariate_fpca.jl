@@ -22,7 +22,7 @@ end
         fixture = m4_dense_fixture()
         data, grid = fixture.data, fixture.grid
         model = @inferred (fd -> StatsAPI.fit(FPCA, fd;
-            basis=:marginal, ncomponents=2, maxK=2))(data)
+            basis=:marginal, ncomponents=2, max_k=2))(data)
         @test model isa MultivariateFPCA
         @test model.basis == :marginal
         @test (@inferred ncomponents(model)) == [2, 2]
@@ -33,7 +33,7 @@ end
         @test (@inferred eigenfunctions(model)) isa Vector{FPCBasis{Float64}}
         @test (@inferred score_covariances(model)) == [nothing, nothing]
         for j in 1:2
-            univariate = StatsAPI.fit(FPCA, component(data, j); ncomponents=2, maxK=2)
+            univariate = StatsAPI.fit(FPCA, component(data, j); ncomponents=2, max_k=2)
             node = component(model, j)
             @test node isa FPCA
             @test node.method == univariate.method == :dense
@@ -85,11 +85,11 @@ end
             for j in 1:2]
         presmoothers = [LocalPolynomial(; bandwidth=0.4),
             LocalPolynomial(; bandwidth=0.6)]
-        presmoothed = StatsAPI.fit(FPCA, data; ncomponents=2, maxK=2,
+        presmoothed = StatsAPI.fit(FPCA, data; ncomponents=2, max_k=2,
             presmooth=presmoothers)
         for j in 1:2
             reference = StatsAPI.fit(FPCA, component(data, j);
-                ncomponents=2, maxK=2, presmooth=presmoothers[j])
+                ncomponents=2, max_k=2, presmooth=presmoothers[j])
             @test scores(presmoothed, j) == scores(reference)
             @test eigvals(presmoothed)[j] == eigvals(reference)
         end
@@ -102,7 +102,7 @@ end
             @test newprediction[j] ≈ StatsAPI.predict(component(model, j), component(shifted, j))
         end
 
-        unequal = StatsAPI.fit(FPCA, data; ncomponents=[1, 2], maxK=2)
+        unequal = StatsAPI.fit(FPCA, data; ncomponents=[1, 2], max_k=2)
         @test ncomponents(unequal) == [1, 2]
         error = try
             score_array(unequal)
@@ -158,7 +158,7 @@ end
         supplied_covariance = (; grid=copy(grid),
             surface=Matrix(Symmetric(functions * Diagonal(lambda) * functions')))
         options = (; method=[:auto, :pace], grid=[nothing, grid],
-            ncomponents=[1, 2], maxK=[2, 2], mean=[nothing, supplied_mean],
+            ncomponents=[1, 2], max_k=[2, 2], mean=[nothing, supplied_mean],
             covariance=[nothing, supplied_covariance], noise_variance=[nothing, 0.13],
             eigen_tol=[1e-10, 1e-9], sign_tol=[1e-12, 2e-12])
         model = StatsAPI.fit(FPCA, data; options...)
@@ -169,9 +169,9 @@ end
         @test component(model, 2).grid == grid
         @test ids(model) == fixture.labels
         references = [StatsAPI.fit(FPCA, component(data, 1); ncomponents=1,
-                maxK=2, eigen_tol=1e-10, sign_tol=1e-12),
+                max_k=2, eigen_tol=1e-10, sign_tol=1e-12),
             StatsAPI.fit(FPCA, component(data, 2); method=:pace, grid,
-                ncomponents=2, maxK=2, mean=supplied_mean,
+                ncomponents=2, max_k=2, mean=supplied_mean,
                 covariance=supplied_covariance, noise_variance=0.13,
                 eigen_tol=1e-9, sign_tol=2e-12)]
         for j in 1:2
@@ -197,10 +197,10 @@ end
 
         # Shared values and explicit per-node values resolve identically.
         sparsepair = MultivariateFunctionalData([sparse, sparse])
-        shared = StatsAPI.fit(FPCA, sparsepair; grid, ncomponents=2, maxK=2,
+        shared = StatsAPI.fit(FPCA, sparsepair; grid, ncomponents=2, max_k=2,
             mean=supplied_mean, covariance=supplied_covariance, noise_variance=0.13)
         separate = StatsAPI.fit(FPCA, sparsepair; grid=[grid, grid],
-            ncomponents=[2, 2], maxK=[2, 2], mean=[supplied_mean, supplied_mean],
+            ncomponents=[2, 2], max_k=[2, 2], mean=[supplied_mean, supplied_mean],
             covariance=[supplied_covariance, supplied_covariance], noise_variance=[0.13, 0.13])
         @test scores(shared) == scores(separate)
         @test eigvals(shared) == eigvals(separate)
@@ -211,13 +211,13 @@ end
         kernels = [KernelSmoothing.GaussianKernel(), KernelSmoothing.GaussianKernel()]
         weightings = [:obs, :subj]
         binnings = [nothing, 5]
-        smoothed = StatsAPI.fit(FPCA, sparsepair; grid, ncomponents=1, maxK=2,
+        smoothed = StatsAPI.fit(FPCA, sparsepair; grid, ncomponents=1, max_k=2,
             mean_bandwidth=mean_bandwidths, covariance_bandwidth=covariance_bandwidths,
             diagonal_bandwidth=diagonal_bandwidths, kernel=kernels,
             weighting=weightings, binning=binnings, noise_variance=0.13)
         for j in 1:2
             reference = StatsAPI.fit(FPCA, sparse;
-                grid, ncomponents=1, maxK=2, mean_bandwidth=mean_bandwidths[j],
+                grid, ncomponents=1, max_k=2, mean_bandwidth=mean_bandwidths[j],
                 covariance_bandwidth=covariance_bandwidths[j],
                 diagonal_bandwidth=diagonal_bandwidths[j], kernel=kernels[j],
                 weighting=weightings[j], binning=binnings[j], noise_variance=0.13)
@@ -235,7 +235,7 @@ end
         fixture = m4_dense_fixture()
         data, grid = fixture.data, fixture.grid
         model = @inferred (fd -> StatsAPI.fit(FPCA, fd;
-            basis=:pooled, ncomponents=2, maxK=2))(data)
+            basis=:pooled, ncomponents=2, max_k=2))(data)
         @test model isa MultivariateFPCA
         @test model.basis == :pooled
         @test (@inferred ncomponents(model)) == [2, 2]
@@ -244,7 +244,7 @@ end
         @test (@inferred score_covariances(model)) == [nothing, nothing]
         functions = @inferred eigenfunctions(model)
         @test functions[1] == functions[2]
-        @test basismatrix(functions[1], grid) ≈ fixture.functions atol=2e-14
+        @test basis_matrix(functions[1], grid) ≈ fixture.functions atol=2e-14
         @test functions[1].weights == fixture.weights
         @test functions[1].values' * (fixture.weights .* functions[1].values) ≈ I atol=2e-14
         @test eigvals(model)[1] ≈ [2.0, 1.2]
@@ -281,17 +281,17 @@ end
         end
         default = StatsAPI.fit(FPCA, data; basis=:pooled)
         @test ncomponents(default) == [2, 2]
-        selected = StatsAPI.fit(FPCA, data; basis=:pooled, ncomponents=FVE(0.85), maxK=2)
+        selected = StatsAPI.fit(FPCA, data; basis=:pooled, ncomponents=FVE(0.85), max_k=2)
         @test ncomponents(selected) == [1, 1]
-        capped = StatsAPI.fit(FPCA, data; basis=:pooled, maxK=1)
-        # Pooled rank is nodes*(n-1), so maxK may exceed n-1 when the grid allows.
+        capped = StatsAPI.fit(FPCA, data; basis=:pooled, max_k=1)
+        # Pooled rank is nodes*(n-1), so max_k may exceed n-1 when the grid allows.
         tgrid = collect(range(0, 1; length=12))
         few = MultivariateFunctionalData([GridFunctionalData(
             permutedims(reduce(hcat, [sin.(k * (j + 1) .* tgrid) for k in 1:3])), tgrid) for j in 1:3])
         wide = StatsAPI.fit(FPCA, few; basis=:pooled)
-        @test wide.settings.maxK == min(12 - 2, 3 * 2 - 1)
-        @test StatsAPI.fit(FPCA, few; basis=:pooled, maxK=6).settings.maxK == 6
-        @test_throws ArgumentError StatsAPI.fit(FPCA, few; basis=:pooled, maxK=7)
+        @test wide.settings.max_k == min(12 - 2, 3 * 2 - 1)
+        @test StatsAPI.fit(FPCA, few; basis=:pooled, max_k=6).settings.max_k == 6
+        @test_throws ArgumentError StatsAPI.fit(FPCA, few; basis=:pooled, max_k=7)
         @test ncomponents(capped) == [1, 1]
         error = try
             component(model, 1)
@@ -307,7 +307,7 @@ end
         # Large differences in means must not create another pooled component.
         mean_shifted = MultivariateFunctionalData([component(data, 1),
             GridFunctionalData(fixture.values[2] .+ 1000, grid; ids=fixture.labels)])
-        shifted_model = StatsAPI.fit(FPCA, mean_shifted; basis=:pooled, ncomponents=2, maxK=2)
+        shifted_model = StatsAPI.fit(FPCA, mean_shifted; basis=:pooled, ncomponents=2, max_k=2)
         @test eigvals(shifted_model) ≈ eigvals(model) rtol=1e-12
         @test abs.(scores(shifted_model, 2)) ≈ abs.(scores(model, 2)) atol=3e-12
 
@@ -318,8 +318,8 @@ end
             GridFunctionalData(reversed_scores * fixture.functions' .+
                 fixture.means[2]', grid; ids=fixture.labels)])
         reversed_model = StatsAPI.fit(FPCA, reversed_data;
-            basis=:pooled, ncomponents=2, maxK=2)
-        @test basismatrix(eigenfunctions(reversed_model)[1], grid) ≈
+            basis=:pooled, ncomponents=2, max_k=2)
+        @test basis_matrix(eigenfunctions(reversed_model)[1], grid) ≈
             fixture.functions[:, [2, 1]] atol=3e-14
         @test eigvals(reversed_model)[1] ≈ [1.2, 2.0]
         @test eigvals(reversed_model)[2] ≈ [4.8, 0.125]
@@ -346,8 +346,8 @@ end
             (randn(rng, n, 2) .* sqrt.(variances[j])') * functions' .+
             (j .+ grid)', grid) for j in 1:2]
         model = StatsAPI.fit(FPCA, MultivariateFunctionalData(nodes);
-            basis=:pooled, ncomponents=2, maxK=2)
-        recovered = basismatrix(eigenfunctions(model)[1], grid)
+            basis=:pooled, ncomponents=2, max_k=2)
+        recovered = basis_matrix(eigenfunctions(model)[1], grid)
         # Six score-variance standard errors and a one-percent alignment
         # tolerance; neither check depends on exact Julia RNG output.
         expected = (variances[1] + variances[2]) / 2
@@ -361,7 +361,7 @@ end
         data = MultivariateFunctionalData([GridFunctionalData(Float32.(values),
             Float32.(fixture.grid)) for values in fixture.values])
         for basis in (:marginal, :pooled)
-            model = StatsAPI.fit(FPCA, data; basis, ncomponents=2, maxK=2)
+            model = StatsAPI.fit(FPCA, data; basis, ncomponents=2, max_k=2)
             @test scores(model) isa Vector{Matrix{Float32}}
             @test eigvals(model) isa Vector{Vector{Float32}}
             @test eigenfunctions(model) isa Vector{FPCBasis{Float32}}
@@ -408,12 +408,12 @@ end
         mean64 = (; grid=Float64.(pace_grid), values=1 .+ Float64.(pace_grid))
         covariance64 = (; grid=Float64.(pace_grid), surface=ones(5, 5))
         sigma2 = 0.123456789012345
-        model = StatsAPI.fit(FPCA, mixed; ncomponents=1, maxK=[2, 1],
+        model = StatsAPI.fit(FPCA, mixed; ncomponents=1, max_k=[2, 1],
             grid=[nothing, pace_grid], mean=[nothing, mean64],
             covariance=[nothing, covariance64], noise_variance=[nothing, sigma2])
-        references = [StatsAPI.fit(FPCA, component(mixed, 1); ncomponents=1, maxK=2),
+        references = [StatsAPI.fit(FPCA, component(mixed, 1); ncomponents=1, max_k=2),
             StatsAPI.fit(FPCA, component(mixed, 2); grid=pace_grid,
-                ncomponents=1, maxK=1, mean=mean64,
+                ncomponents=1, max_k=1, mean=mean64,
                 covariance=covariance64, noise_variance=sigma2)]
         @test model isa MultivariateFPCA{Float64}
         @test scores(component(model, 1)) isa Matrix{Float32}
@@ -440,7 +440,7 @@ end
         fixture = m4_dense_fixture()
         data, grid = fixture.data, fixture.grid
         @test_throws ArgumentError StatsAPI.fit(FPCA, data; basis=:invalid)
-        for keyword in (:method, :ncomponents, :maxK, :presmooth, :mean,
+        for keyword in (:method, :ncomponents, :max_k, :presmooth, :mean,
                 :covariance, :noise_variance, :mean_bandwidth,
                 :covariance_bandwidth, :diagonal_bandwidth, :kernel,
                 :weighting, :binning, :eigen_tol, :sign_tol)
@@ -464,7 +464,7 @@ end
         end
         @test_throws ArgumentError StatsAPI.fit(FPCA, data[1:1]; basis=:pooled)
         @test_throws ArgumentError StatsAPI.fit(FPCA, data; basis=:pooled, ncomponents=0)
-        @test_throws ArgumentError StatsAPI.fit(FPCA, data; basis=:pooled, maxK=0)
+        @test_throws ArgumentError StatsAPI.fit(FPCA, data; basis=:pooled, max_k=0)
         @test_throws ArgumentError StatsAPI.fit(FPCA, data; basis=:pooled, eigen_tol=NaN)
         @test_throws ArgumentError StatsAPI.fit(FPCA, data; basis=:pooled, sign_tol=-1)
         @test_throws ArgumentError StatsAPI.fit(FPCA, data; basis=:pooled,
@@ -477,7 +477,7 @@ end
         end
         @test pace_error isa ArgumentError
         @test occursin("pooled PACE", sprint(showerror, pace_error))
-        for (name, value) in pairs((; ncomponents=[1, 1], maxK=[2, 2],
+        for (name, value) in pairs((; ncomponents=[1, 1], max_k=[2, 2],
                 eigen_tol=[1e-10, 1e-10], sign_tol=[1e-12, 1e-12]))
             @test_throws ArgumentError StatsAPI.fit(FPCA, data; basis=:pooled,
                 NamedTuple{(name,)}((value,))...)
@@ -486,14 +486,14 @@ end
             ids=fixture.labels)
         basis_data = MultivariateFunctionalData([component(data, 1), basis_node])
         basis_error = try
-            StatsAPI.fit(FPCA, basis_data; ncomponents=1, maxK=2)
+            StatsAPI.fit(FPCA, basis_data; ncomponents=1, max_k=2)
         catch exception
             exception
         end
         @test basis_error isa ArgumentError
         @test occursin("basis data", sprint(showerror, basis_error))
         @test occursin("convert", sprint(showerror, basis_error))
-        model = StatsAPI.fit(FPCA, data; basis=:pooled, ncomponents=2, maxK=2)
+        model = StatsAPI.fit(FPCA, data; basis=:pooled, ncomponents=2, max_k=2)
         @test_throws DimensionMismatch StatsAPI.predict(model,
             MultivariateFunctionalData([component(data, 1)]))
         @test_throws ArgumentError StatsAPI.predict(model, different_grid)

@@ -27,7 +27,7 @@ function _evaluation_points(fd, t::AbstractVector{S}) where {S<:Real}
 end
 
 function evaluate(fd::BasisFunctionalData, t::AbstractVector{<:Real}; derivative=0)
-    fd.coefs * transpose(basismatrix(fd.basis, t; derivative))
+    fd.coefs * transpose(basis_matrix(fd.basis, t; derivative))
 end
 (fd::BasisFunctionalData)(t::AbstractVector{<:Real}; derivative=0) = evaluate(fd, t; derivative)
 

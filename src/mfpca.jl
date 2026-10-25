@@ -102,7 +102,7 @@ function _mfpca(marginal::MultivariateFPCA{U}, weights::AbstractVector{W},
     centered = scaled .- sum(scaled; dims=1) ./ nobs(marginal)
     covariance = transpose(centered) * centered
     system = _fpca_eigen(covariance, ones(T, total), zeros(T, total);
-        maxK=total, eigen_tol, sign_tol=0)
+        max_k=total, eigen_tol, sign_tol=0)
     selection = _fpca_selection(count, system.fve, total)
     c = system.eigenfunctions[:, 1:Int(count)]
     values = system.eigenvalues[1:Int(count)]
@@ -226,7 +226,7 @@ function reconstruct(f::MFPCA{T}, projected::AbstractMatrix{S}=scores(f);
     for j in eachindex(f.eigenfunctions)
         points = grids[j]
         quadrature_weights(points)
-        functions = basismatrix(f.eigenfunctions[j], points)
+        functions = basis_matrix(f.eigenfunctions[j], points)
         mu = evaluate(f.univariate.means[j], points, PiecewiseLinear())
         values = projected * transpose(functions) .+ mu
         push!(nodes, GridFunctionalData(Matrix{R}(values), Vector{R}(points);
