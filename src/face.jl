@@ -76,14 +76,8 @@ end
 # with the full projected observation covariance.
 function _face_curve_ce(times, residuals, phi, values, grid, projected,
         sigma2, curve, ::Type{T}) where {T}
+    # sigma2 is the fitted, floored noise variance, so it is always positive.
     k = length(values)
-    if sigma2 == 0
-        factor = qr(phi, ColumnNorm())
-        diagonal = abs.(diag(factor.R))
-        length(diagonal) == k && minimum(diagonal) > max(size(phi)...)*eps(T)*maximum(diagonal) ||
-            throw(ArgumentError("FACE noiseless score design for curve $curve is rank deficient"))
-        return factor \ residuals, zeros(T, k, k)
-    end
     precision = transpose(phi)*phi + Diagonal(sigma2 ./ values)
     factor = _pace_cholesky(precision, curve)
     projected_scores = factor \ (transpose(phi)*residuals)
