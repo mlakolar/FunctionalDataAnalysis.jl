@@ -365,3 +365,33 @@ end
         @test_throws ArgumentError StatsAPI.predict(model, irregular)
     end
 end
+
+@testset "FPCA eigen workspace ownership and complete diagnostics" begin
+    for T in (Float32, Float64)
+        weights = T[.25, .5, 1]
+        root = sqrt.(weights)
+        surface = T[3 1 0; 1 3 0; 0 0 -1] ./ (root * root')
+        storage = zeros(T, 5, 5)
+        storage[1:3,1:3] = surface
+        snapshot = copy(storage)
+        normalization_weights = Float64[.2, .3, .5]
+        full = FunctionalDataAnalysis._fpca_eigen(view(storage,1:3,1:3), weights,
+            zeros(T,3); max_k=3, normalization_weights)
+        capped = FunctionalDataAnalysis._fpca_eigen(view(storage,1:3,1:3), weights,
+            zeros(T,3); max_k=1, normalization_weights)
+        tolerance = T === Float32 ? 2e-6 : 1e-12
+        @test full.eigenvalues ≈ [4,2] rtol=tolerance
+        @test full.fve ≈ [2/3,1] rtol=tolerance
+        @test full.dropped.number == 1
+        @test full.dropped.total ≈ 1 rtol=tolerance
+        @test full.dropped.share ≈ 1/7 rtol=tolerance
+        @test capped.dropped == full.dropped
+        @test capped.eigenvalues == full.eigenvalues[1:1]
+        @test capped.fve == [1]
+        @test all(column -> isapprox(norm(sqrt.(normalization_weights) .* column), 1;
+            rtol=tolerance), eachcol(full.eigenfunctions))
+        @test storage == snapshot
+        full.eigenfunctions[1,1] += 1
+        @test storage == snapshot
+    end
+end

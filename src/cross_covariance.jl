@@ -42,7 +42,7 @@ function fit(::Type{CrossCovariance}, fd1::GridFunctionalData, fd2::GridFunction
         (fd2.values .- transpose(mu2)) / (n-1)
     all(isfinite, surface) && all(isfinite, mu1) && all(isfinite, mu2) ||
         throw(ArgumentError("sample cross-covariance must be finite; rescale observations"))
-    CrossCovariance(Vector{T}(fd1.grid), Vector{T}(fd2.grid), Matrix{T}(surface),
+    CrossCovariance(Vector{T}(fd1.grid), Vector{T}(fd2.grid), convert(Matrix{T}, surface),
         Vector{T}(fd1.weights), Vector{T}(fd2.weights), Vector{T}(mu1), Vector{T}(mu2),
         n-1, ids(fd1) === nothing ? ids(fd2) : ids(fd1))
 end
