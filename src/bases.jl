@@ -74,16 +74,17 @@ and must be finite and strictly increasing. The second form uses equally
 spaced breakpoints and requires `nbasis >= order`. Endpoint multiplicity is
 `order`; derivatives at knots follow BSplineKit's one-sided convention.
 """
-struct BSplineBasis{T<:AbstractFloat} <: AbstractBasis
-    backend::BSplineKit.BSplineBasis
+struct BSplineBasis{T<:AbstractFloat,B<:BSplineKit.BSplineBasis} <: AbstractBasis
+    backend::B
     breakpoints::Vector{T}
     order::Int
-    function BSplineBasis{T}(backend, breakpoints, order) where {T<:AbstractFloat}
-        new{T}(backend, breakpoints, order)
+    function BSplineBasis{T}(backend::B, breakpoints, order) where
+            {T<:AbstractFloat,B<:BSplineKit.BSplineBasis}
+        new{T,B}(backend, breakpoints, order)
     end
 end
 
-function BSplineBasis(order::Integer, breakpoints::AbstractVector{<:Real})
+Base.@constprop :aggressive function BSplineBasis(order::Integer, breakpoints::AbstractVector{<:Real})
     _integer_in(order, 1) || throw(ArgumentError("B-spline order must be positive"))
     Base.require_one_based_indexing(breakpoints)
     T = _floattype(eltype(breakpoints))
@@ -94,7 +95,7 @@ function BSplineBasis(order::Integer, breakpoints::AbstractVector{<:Real})
     BSplineBasis{T}(backend, x, Int(order))
 end
 
-function BSplineBasis(order::Integer, interval::Tuple{<:Real,<:Real}, n::Integer)
+Base.@constprop :aggressive function BSplineBasis(order::Integer, interval::Tuple{<:Real,<:Real}, n::Integer)
     _integer_in(order, 1) || throw(ArgumentError("B-spline order must be positive"))
     _integer_in(n, order) || throw(ArgumentError("number of B-splines must be at least the order"))
     a, b = _interval(interval)
