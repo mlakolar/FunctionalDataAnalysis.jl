@@ -76,8 +76,21 @@ fitted-observation method.
 fitted(f::Union{FPCA,MultivariateFPCA,MFPCA}) = reconstruct(f)
 
 function _observation_residuals(fd::GridFunctionalData, mu, b, projected)
-    latent = projected * transpose(basis_matrix(b, fd.grid)) .+ _fpca_mean_values(mu, fd.grid)
-    GridFunctionalData(_grid_matrix(fd) .- latent, fd.grid; ids=fd.ids, metadata=fd.metadata)
+    if fd.observed === nothing
+        latent = projected * transpose(basis_matrix(b, fd.grid)) .+ _fpca_mean_values(mu, fd.grid)
+        return GridFunctionalData(fd.values .- latent, fd.grid; ids=fd.ids, metadata=fd.metadata)
+    end
+    # Unobserved grid columns may lie outside the fitted work grid. Evaluate
+    # only actual observations, including single-point curves.
+    T = promote_type(eltype(fd), eltype(mu), eltype(projected))
+    values = Matrix{Union{Missing,T}}(missing, size(fd.values))
+    for i in 1:nobs(fd)
+        selected = findall(@view fd.observed[i,:])
+        times = fd.grid[selected]
+        latent = basis_matrix(b, times) * projected[i,:] .+ vec(_fpca_mean_values(mu, times))
+        values[i,selected] = fd.values[i,selected] .- latent
+    end
+    GridFunctionalData(values, fd.grid; ids=fd.ids, metadata=fd.metadata)
 end
 
 function _observation_residuals(fd::IrregularFunctionalData, mu, b, projected)

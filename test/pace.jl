@@ -25,6 +25,14 @@ import StatsAPI
             mean=supplied_mean, covariance=supplied_covariance, noise_variance=sigma2)
         @test model.method == :pace
         _test_prediction_contract(model, fd)
+        # Entirely unobserved grid columns need not lie in the PACE work grid.
+        masked_values = Matrix{Union{Missing,Float64}}(missing, 4, 5)
+        masked_values[:,2:4] = [mu(t) + i/3 for i in 1:4, t in source_grid]
+        masked = GridFunctionalData(masked_values, [-0.1, 0.0, 0.5, 1.0, 1.1]; ids=ids(fd))
+        masked_model = StatsAPI.fit(FPCA, masked; method=:pace, grid,
+            ncomponents=1, max_k=2, mean=supplied_mean,
+            covariance=supplied_covariance, noise_variance=sigma2)
+        _test_prediction_contract(masked_model, masked)
         @test model.design == :sparse
         @test nobs(model) == 4
         @test ncomponents(model) == 1
