@@ -3,14 +3,15 @@
 function _buffer_mightalias(out, source, seen)::Bool
     if source isa AbstractArray
         Base.mightalias(out, source) && return true
-        eltype(source) <: Number && return false
-        isbitstype(eltype(source)) && return false
+        numeric = eltype(source) <: Number || isbitstype(eltype(source))
+        numeric && source isa Union{Array,BitArray} && return false
     elseif isbits(source) || source isa Union{Number,AbstractString,Symbol,Type,Function,Module}
         return false
     end
     haskey(seen, source) && return false
     seen[source] = nothing
-    if source isa Union{AbstractArray,Tuple,NamedTuple}
+    if source isa Union{Tuple,NamedTuple} ||
+            (source isa AbstractArray && !(eltype(source) <: Number || isbitstype(eltype(source))))
         return any(x -> _buffer_mightalias(out, x, seen), source)
     elseif source isa AbstractDict
         return any(pair -> _buffer_mightalias(out, first(pair), seen) ||

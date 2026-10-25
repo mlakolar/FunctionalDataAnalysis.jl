@@ -19,7 +19,8 @@
             snapshot = deepcopy(data)
             @test (@inferred evaluate!(out,data,points,e)) === out
             @test isequal(out,expected)
-            @test data == snapshot
+            @test all(isequal(getfield(data,name),getfield(snapshot,name))
+                for name in fieldnames(typeof(data)))
             @test evaluate!(out,data,points,e) === out
             @test isequal(out,expected)
         end
@@ -27,7 +28,7 @@
         @test_throws DimensionMismatch evaluate!(zeros(T,7,5),fd,points,PiecewiseLinear())
         @test_throws r"element type" evaluate!(zeros(Int,8,5),fd,points,PiecewiseLinear())
         @test_throws r"must not alias" evaluate!(fd.values,fd,grid,PiecewiseLinear())
-        @test_throws r"must not alias" evaluate!(reshape(points,1,:),fd[1],points,PiecewiseLinear())
+        @test_throws r"must not alias" evaluate!(reshape(points,1,:),fd[1:1],points,PiecewiseLinear())
         @test_throws r"finite" evaluate!(zeros(T,8,1),fd,T[NaN],PiecewiseLinear())
         @test evaluate!(zeros(T,8,0),fd,T[],PiecewiseLinear()) == evaluate(fd,T[],PiecewiseLinear())
 
@@ -107,8 +108,9 @@
         @test_throws r"must not alias" reconstruct!(reshape(fitted.grid,1,:),fitted,
             zeros(T,1,2))
 
-        marginal = StatsAPI.fit(FPCA,multi;ncomponents=2,max_k=3)
-        joint = StatsAPI.fit(MFPCA,multi;ncomponents=2)
+        fit_multi = MultivariateFunctionalData([fd,to_grid(basis_data,grid)])
+        marginal = StatsAPI.fit(FPCA,fit_multi;ncomponents=2,max_k=3)
+        joint = StatsAPI.fit(MFPCA,fit_multi;ncomponents=2)
         for model in (marginal,joint)
             expected = reconstruct(model)
             buffers = [similar(component(expected,j).values) for j in 1:2]
@@ -158,4 +160,12 @@
     huge_scores = fill(floatmax(Float64),3,1)
     @test_throws ArgumentError reconstruct(constant,huge_scores)
     @test_throws r"reconstructed values must be finite" reconstruct!(zeros(3,2),constant,huge_scores)
+    sparse = golden_sparse3(golden_read("m3_sparse_input.csv"))
+    face = StatsAPI.fit(FPCA,sparse;method=:face,face=(;lambda=2.5,lambda_mean=.75))
+    factor = face.covariance.factor
+    factor_grid = collect(range(first(face.grid),last(face.grid);length=size(factor,2)))
+    snapshot = copy(factor)
+    @test_throws r"must not alias" reconstruct!(factor,face,
+        zeros(size(factor,1),ncomponents(face));grid=factor_grid)
+    @test factor == snapshot
 end
