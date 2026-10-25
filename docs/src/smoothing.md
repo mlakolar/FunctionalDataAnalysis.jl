@@ -32,6 +32,15 @@ Local fits record bandwidth, degree, kernel, work grid, and `minobs=0`.
 Spline fits record basis, selected or fixed lambda, and derivative order.
 Both use equal observation weights, no binning, and no folds.
 
+Complete curves evaluated on their original common grid share one smoother
+matrix and are multiplied as a block. Missing or irregular observations and
+different work grids use the per-curve path, caching at most eight distinct
+observed grids per call (oldest insertion evicted on a miss). Smoother matrices
+use KernelSmoothing's Float64 arithmetic for every input type, including
+Float32. Responses are promoted for multiplication, and the result is converted
+to the promoted data/work-grid type afterward; cache storage does not lower
+the smoother's precision.
+
 GCV chooses one common lambda by summing the per-curve criteria
 `n_i * RSS_i / (n_i - tr(H_i))^2`. Scores use actual observed times, including
 for curves with different observation counts. Every candidate and its score

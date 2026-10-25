@@ -99,38 +99,97 @@ store their method and all settings in `metadata`, shown by `show`. Spline GCV
 also stores `metadata.selection`; fixed lambda uses `selection=nothing`.
 All fits use equal observation weights, no binning, and no folds. GCV is a
 within-curve prediction criterion, not a cluster-robust inference procedure.
+Complete data on their original grid use one matrix multiplication for all
+curves. Other designs cache at most eight distinct observed grids per call,
+evicting the oldest on a cache miss. Smoother matrices retain KernelSmoothing's
+Float64 arithmetic, including for Float32 data; output is converted to the
+promoted data/work-grid type after smoothing.
 """
-function smooth_curves(fd::Union{GridFunctionalData,IrregularFunctionalData},
-        method::LocalPolynomial; grid::AbstractVector{<:Real})
-    x = _evaluation_points(fd, grid)
-    quadrature_weights(x)
-    T = eltype(x)
-    out = Matrix{Union{Missing,T}}(missing, nobs(fd), length(x))
-    # Curves observed at the same times (complete grid data) share one smoother matrix.
-    # KernelSmoothing computes smoother matrices in Float64, even for Float32
-    # data. Preserve that arithmetic before casting output to the grid type.
-    smoothers = Dict{Vector{eltype(fd)},Tuple{Vector{Int},Matrix{Float64}}}()
-    for i in 1:nobs(fd)
-        t, y = fd[i]
-        isempty(t) && throw(ArgumentError("curve $i has no observed values to smooth"))
-        indices, L = get!(smoothers, t) do
-            indices = findall(z -> first(t) <= z <= last(t), x)
-            isempty(indices) && return indices, zeros(0, length(t))
-            indices, KernelSmoothing.smoother_matrix(t, x[indices]; bandwidth=method.bandwidth,
-                degree=method.degree, derivative=method.derivative, kernel=method.kernel)
-        end
-        isempty(indices) && continue
-        estimates = L * y
-        for (j, value) in zip(indices, estimates)
-            isfinite(value) && isfinite(T(value)) || throw(ArgumentError(
-                "curve $i has an undefined local polynomial estimate at point $(x[j]); use a larger bandwidth"))
-            out[i, j] = value
-        end
-    end
-    metadata = (; method=:local_polynomial, bandwidth=method.bandwidth,
+function smooth_curves end
+
+function _curve_smoothing_metadata(method, x)
+    (; method=:local_polynomial, bandwidth=method.bandwidth,
         degree=method.degree, derivative=method.derivative,
         kernel=method.kernel, weighting=:equal_observations,
         grid=copy(x), minobs=0, binning=:none, folds=0)
+end
+
+const _CURVE_SMOOTHER_CACHE_LIMIT = 8
+
+function _curve_smoother_matrix(t, points, method)
+    # Keep the backend's Float64 precision policy explicit. convert does not
+    # copy a Matrix{Float64}, and preserves the previous cache conversion.
+    convert(Matrix{Float64}, KernelSmoothing.smoother_matrix(t, points;
+        bandwidth=method.bandwidth, degree=method.degree,
+        derivative=method.derivative, kernel=method.kernel))
+end
+
+function _curve_smoother_entry(t, x, method)
+    query_indices = findall(z -> first(t) <= z <= last(t), x)
+    isempty(query_indices) && return query_indices, zeros(Float64, 0, length(t))
+    query_indices, _curve_smoother_matrix(t, x[query_indices], method)
+end
+
+function _cached_curve_smoother!(cache, insertion_order, t, x, method)
+    if !haskey(cache, t) && length(cache) == _CURVE_SMOOTHER_CACHE_LIMIT
+        delete!(cache, popfirst!(insertion_order))
+    end
+    # Arguments are read-only captures; no binding is shared with an outer
+    # assignment to the returned indices (the former Core.Box path).
+    get!(cache, t) do
+        entry = _curve_smoother_entry(t, x, method)
+        push!(insertion_order, t)
+        entry
+    end
+end
+
+function _check_curve_estimate(value, ::Type{T}, curve, point) where {T}
+    isfinite(value) && isfinite(T(value)) || throw(ArgumentError(
+        "curve $curve has an undefined local polynomial estimate at point $point; use a larger bandwidth"))
+    nothing
+end
+
+function _smooth_complete_grid(fd::GridFunctionalData, method, x::Vector{T}, weights, metadata) where {T}
+    matrix = _curve_smoother_matrix(fd.grid, x, method)
+    # Promote responses as the old Float64-matrix/vector products did. This
+    # enables BLAS for Float32/Float64 without narrowing higher precision data.
+    R = promote_type(eltype(fd), Float64)
+    values = convert(Matrix{R}, fd.values) * transpose(matrix)
+    if !all(value -> isfinite(value) && isfinite(T(value)), values)
+        # Locate failures in the same curve/point order as the fallback path.
+        for i in axes(values, 1), j in axes(values, 2)
+            _check_curve_estimate(values[i, j], T, i, x[j])
+        end
+    end
+    # All arrays are newly owned and already validated; avoid a missing-value
+    # staging matrix and a second constructor pass over the numerical output.
+    GridFunctionalData{T}(Val(:validated), convert(Matrix{T}, values), x, weights,
+        nothing, _validate_ids(fd.ids, nobs(fd)), deepcopy(metadata))
+end
+
+function smooth_curves(fd::Union{GridFunctionalData,IrregularFunctionalData},
+        method::LocalPolynomial; grid::AbstractVector{<:Real})
+    x = _evaluation_points(fd, grid)
+    weights = quadrature_weights(x)
+    metadata = _curve_smoothing_metadata(method, x)
+    if fd isa GridFunctionalData && fd.observed === nothing && x == fd.grid
+        return _smooth_complete_grid(fd, method, x, weights, metadata)
+    end
+    T = eltype(x)
+    out = Matrix{Union{Missing,T}}(missing, nobs(fd), length(x))
+    smoothers = Dict{Vector{eltype(fd)},Tuple{Vector{Int},Matrix{Float64}}}()
+    insertion_order = Vector{eltype(fd)}[]
+    for i in 1:nobs(fd)
+        t, y = fd[i]
+        isempty(t) && throw(ArgumentError("curve $i has no observed values to smooth"))
+        indices, matrix = _cached_curve_smoother!(smoothers, insertion_order, t, x, method)
+        isempty(indices) && continue
+        estimates = matrix * y
+        for (j, value) in zip(indices, estimates)
+            _check_curve_estimate(value, T, i, x[j])
+            out[i, j] = value
+        end
+    end
     GridFunctionalData(out, x; ids=fd.ids, metadata)
 end
 
