@@ -108,14 +108,17 @@ Roundoff-negative conditional eigenvalues are clipped within
 `100eps(T)*max(1, maximum(abs, eigenvalues))`, a package numerical tolerance
 recorded in `settings`; materially indefinite covariances throw.
 
-FACE supports `coverage=:interval` with the posterior covariance consistent
+Common-grid FACE supports `coverage=:interval` with the posterior covariance consistent
 with its shrinkage scores. For grid eigenfunctions `Phi`, eigenvalues `Lambda`
 and positive noise `sigma2`, its curve variance is the diagonal of
 `sigma2 * Phi * (Phi'Phi + sigma2 * inv(Lambda))^(-1) * Phi'`.
 This corrects refund 0.1-40's use of its internal scaled eigenvalues in
 place of the inverse score covariance; see the FPCA page for its scale.
 For masked training data, filled observations are treated as complete, as in
-refund; imputation uncertainty is excluded. Simultaneous FACE bands throw.
+refund; imputation uncertainty is excluded. Sparse FACE uses the same
+`Phi * score_covariance * Phi'` projection with its BLUP covariance, which
+conditions on the full positive spline covariance as in face 0.1-8.
+Simultaneous FACE bands throw.
 """
 function fitted_bands(f::FPCA; alpha=0.05, coverage=:interval, grid=f.grid, curves=:all)
     a = _band_alpha(alpha)

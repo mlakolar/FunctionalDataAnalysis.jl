@@ -12,16 +12,18 @@ function _difference_penalty(k::Integer, m::Integer, ::Type{T}=Float64) where {T
     P
 end
 
-function _pspline_setting(x::AbstractVector{T}, knots, p, m) where {T<:AbstractFloat}
+function _pspline_design(x::AbstractVector{T}, knots, p, m;
+        interval=(minimum(x), maximum(x))) where {T<:AbstractFloat}
     knots isa Integer && !(knots isa Bool) && knots >= 1 || throw(ArgumentError("FACE knots must be a positive integer (number of equal intervals)"))
     p isa Integer && !(p isa Bool) && p >= 0 || throw(ArgumentError("FACE degree p must be a nonnegative integer"))
-    knots < length(x) && p < length(x)-knots || throw(ArgumentError("FACE knots + p must be smaller than the grid length"))
+    knots < length(x) && p < length(x)-knots || throw(ArgumentError("FACE knots + p must be smaller than the number of design points"))
     k = Int(knots+p)
     m isa Integer && !(m isa Bool) && 0 <= m < k || throw(ArgumentError("FACE difference penalty order m must be in 0:knots+p-1"))
     p, m, knots = Int(p), Int(m), Int(knots)
     # R uses simple knots extending p intervals beyond each endpoint, rather
     # than clamped endpoints. BSplineKit's augment=false preserves these knots.
-    a, b = first(x), last(x)
+    a, b = interval
+    isfinite(a) && isfinite(b) && a < b || throw(ArgumentError("FACE spline interval must be finite with positive width"))
     sequence = T[a + (b-a)*j/knots for j in -p:(knots+p)]
     backend = BSplineKit.BSplineBasis(BSplineKit.BSplineOrder(p+1), sequence; augment=Val(false))
     basis = BSplineBasis{T}(backend, sequence[(p+1):(end-p)], p+1)
@@ -29,6 +31,12 @@ function _pspline_setting(x::AbstractVector{T}, knots, p, m) where {T<:AbstractF
     B = zeros(T, length(x), k)
     BSplineKit.collocation_matrix!(B, basis.backend, x; clip_threshold=0)
     P = _difference_penalty(k, m, T)
+    (; basis, knots=sequence, B, P)
+end
+
+function _pspline_setting(x::AbstractVector{T}, knots, p, m) where {T<:AbstractFloat}
+    design = _pspline_design(x, knots, p, m)
+    B, P = design.B, design.P
     gram_eigen = eigen(Symmetric(transpose(B)*B))
     minimum(gram_eigen.values) > T(1e-7) || throw(ArgumentError(
         "FACE B-spline design is rank deficient or ill-conditioned; reduce knots or degree p"))
@@ -39,7 +47,7 @@ function _pspline_setting(x::AbstractVector{T}, knots, p, m) where {T<:AbstractF
     s = max.(eig.values, zero(T))
     m > 0 && (s[1:m] .= 0)
     A0 = inverse_root * eig.vectors
-    (; basis, knots=sequence, B, P, s, A0, A=B*A0)
+    (; design..., s, A0, A=B*A0)
 end
 
 # Brent's bounded search, with the stopping constants used by R 4.5 stats

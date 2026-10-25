@@ -173,17 +173,23 @@ function _pace_interpolated_basis(grid, functions, points)
     values
 end
 
-function _pace_cholesky(covariance, curve; criterion=false)
+function _pace_cholesky(covariance, curve; criterion=false, label="PACE",
+        advice="supply a positive noise_variance")
     all(isfinite, covariance) || throw(ArgumentError(
-        "PACE covariance for curve $curve must be finite; rescale the observations"))
+        "$label covariance for curve $curve must be finite; rescale the observations"))
     factor = cholesky(Symmetric(covariance); check=false)
     isposdef(factor) || throw(ArgumentError(
-        "PACE covariance for curve $curve is not positive definite$(criterion ? " during component selection" : ""); supply a positive noise_variance"))
+        "$label covariance for curve $curve is not positive definite$(criterion ? " during component selection" : ""); $advice"))
     factor
 end
 
+_pace_interpolated_mean(grid, mu, times) = _evaluate_curve!(
+    Vector{promote_type(eltype(grid), eltype(mu), eltype(times))}(undef, length(times)),
+    grid, mu, times, PiecewiseLinear())
+
 function _pace_ce(fd, grid, mu, functions, values, projected, sigma2;
-        curve_ce=_pace_curve_ce)
+        curve_ce=_pace_curve_ce, basis_evaluator=_pace_interpolated_basis,
+        mean_evaluator=_pace_interpolated_mean)
     T = promote_type(eltype(grid), eltype(mu), eltype(functions), eltype(values),
         eltype(projected), typeof(sigma2), eltype(fd))
     k, n = length(values), nobs(fd)
@@ -192,9 +198,8 @@ function _pace_ce(fd, grid, mu, functions, values, projected, sigma2;
     for i in 1:n
         times, observations = fd[i]
         isempty(times) && throw(ArgumentError("curve $i has no observed values for conditional scores"))
-        phi = _pace_interpolated_basis(grid, functions, times)
-        local_mean = _evaluate_curve!(Vector{T}(undef, length(times)), grid, mu,
-            times, PiecewiseLinear())
+        phi = basis_evaluator(grid, functions, times)
+        local_mean = convert(Vector{T}, mean_evaluator(grid, mu, times))
         output[i, :], covariances[:, :, i] = curve_ce(times,
             observations-local_mean, phi, values, grid, projected, sigma2, i, T)
     end
@@ -203,13 +208,16 @@ function _pace_ce(fd, grid, mu, functions, values, projected, sigma2;
     (; scores=output, covariances)
 end
 
+_pace_observation_covariance(grid, projected, times) =
+    [_pace_bilinear(grid, projected, s, t) for s in times, t in times]
+
 function _pace_curve_ce(times, residuals, phi, values, grid, projected::AbstractMatrix,
-        sigma2, curve, ::Type{T}) where {T}
-    covariance = T[_pace_bilinear(grid, projected, s, t) for s in times, t in times]
+        sigma2, curve, ::Type{T}; covariance_solver=_pace_cholesky) where {T}
+    covariance = Matrix{T}(_pace_observation_covariance(grid, projected, times))
     for j in axes(covariance, 1)
         covariance[j, j] += sigma2
     end
-    factor = _pace_cholesky(covariance, curve)
+    factor = covariance_solver(covariance, curve)
     numerator = phi .* transpose(values)
     projected_scores = transpose(numerator) * (factor \ residuals)
     omega = Diagonal(values) - transpose(numerator) * (factor \ numerator)

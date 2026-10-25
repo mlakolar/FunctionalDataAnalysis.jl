@@ -19,6 +19,7 @@ using Test
     include("fpcbasis.jl")
     include("fpca.jl")
     include("face.jl")
+    include("face_sparse.jl")
     include("pace.jl")
     include("pace_golden.jl")
     include("pace_defaults.jl")
