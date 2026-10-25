@@ -141,23 +141,25 @@ function _fsvd_joint_scores(fd1, fd2, f1, f2, c, left, right, values)
     q = b * (right .* f2.weights)
     left_scores = Matrix{T}(undef, nobs(fd1), length(values))
     right_scores = similar(left_scores)
+    identity1, identity2 = Matrix{T}(I, m1, m1), Matrix{T}(I, m2, m2)
+    regularized = copy(projected)
+    for j in 1:m1
+        regularized[j,j] += something(f1.noise_variance, zero(T))
+    end
+    for j in 1:m2
+        regularized[m1+j,m1+j] += something(f2.noise_variance, zero(T))
+    end
     for i in 1:nobs(fd1)
         t1, y1 = fd1[i]
         t2, y2 = fd2[i]
         # Interpolation matrices retain the full stacked covariance and noise
         # grid before interpolation, as in FSVD's ConvertSupport route.
-        h1 = _pace_interpolated_basis(g1, Matrix{T}(I, m1, m1), t1)
-        h2 = _pace_interpolated_basis(g2, Matrix{T}(I, m2, m2), t2)
+        h1 = _pace_interpolated_basis(g1, identity1, t1)
+        h2 = _pace_interpolated_basis(g2, identity2, t2)
         h = [h1 zeros(T, length(t1), m2); zeros(T, length(t2), m1) h2]
-        regularized = copy(projected)
-        for j in 1:m1
-            regularized[j,j] += something(f1.noise_variance, zero(T))
-        end
-        for j in 1:m2
-            regularized[m1+j,m1+j] += something(f2.noise_variance, zero(T))
-        end
         local_covariance = h * regularized * transpose(h)
-        factor = _pace_cholesky(local_covariance, i)
+        factor = _pace_cholesky(local_covariance, i; label="FSVD", interpolation=h,
+            advice="supply positive marginal noise variances")
         residual = vcat(y1 - vec(h1 * transpose(f1.mean.values)),
             y2 - vec(h2 * transpose(f2.mean.values)))
         solution = factor \ residual
