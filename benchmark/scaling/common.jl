@@ -113,7 +113,9 @@ function tuning(fitted)
     keys = (:maxK, :ncomponents, :eigen_tol, :sign_tol, :quadrature, :score_method,
         :knots, :p, :m, :lambda, :lambda_source, :alpha, :center,
         :mean_bandwidth, :covariance_bandwidth, :diagonal_bandwidth,
-        :weighting, :binning, :binning_rule, :covariance_ridge)
+        :weighting, :binning, :binning_rule, :covariance_ridge,
+        :raw_noise_variance, :noise_floor, :noise_floor_applied,
+        :noise_floor_relative, :noise_floor_scale, :noise_floor_scale_source)
     settings = String["method=$(fitted.method)", "design=$(fitted.design)"]
     for key in keys
         hasproperty(s, key) && push!(settings, "$key=$(repr(getproperty(s, key)))")
