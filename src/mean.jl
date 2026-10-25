@@ -33,7 +33,7 @@ struct CurveCV{T<:AbstractFloat,R,P}
         hs = Vector{T}(bandwidths)
         all(isfinite, hs) && length(unique(hs)) == length(hs) ||
             throw(ArgumentError("CurveCV bandwidths must remain finite and distinct after conversion"))
-        folds isa Integer && 2 <= folds <= typemax(Int) ||
+        _integer_in(folds, 2) ||
             throw(ArgumentError("CurveCV folds must be an integer of at least two"))
         rng === nothing || rng isa AbstractRNG ||
             throw(ArgumentError("CurveCV rng must be an AbstractRNG or nothing"))

@@ -149,7 +149,7 @@ function fit(::Type{SmoothedCrossCovariance},
     _cross_subjects(fd1, fd2)
     weighting in (:obs, :subj) || throw(ArgumentError("weighting must be :obs or :subj"))
     exclude_same_time isa Bool || throw(ArgumentError("exclude_same_time must be a Bool"))
-    binning === nothing || (binning isa Integer && 2 <= binning <= typemax(Int)) ||
+    binning === nothing || (_integer_in(binning, 2)) ||
         throw(ArgumentError("binning must be nothing or an integer of at least two"))
     binning = binning === nothing ? nothing : Int(binning)
     T = promote_type(eltype(fd1), eltype(fd2), _floattype(eltype(grid1)),

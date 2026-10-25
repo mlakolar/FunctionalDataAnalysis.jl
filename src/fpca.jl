@@ -298,7 +298,7 @@ function _fpca_eigen(surface::AbstractMatrix{<:Real}, weights::AbstractVector{<:
     size(surface) == (m, m) || throw(DimensionMismatch("covariance surface must be square with one row per weight"))
     length(mean) == m || throw(DimensionMismatch("mean length must match covariance grid"))
     length(normalization_weights) == m || throw(DimensionMismatch("normalization weights must match covariance grid"))
-    max_k isa Integer && 1 <= max_k <= m || throw(ArgumentError("max_k must be between 1 and the covariance grid length"))
+    _integer_in(max_k, 1, m) || throw(ArgumentError("max_k must be between 1 and the covariance grid length"))
     all(isfinite, surface) && all(isfinite, mean) || throw(ArgumentError("covariance surface and mean must be finite"))
     issymmetric(surface) || throw(ArgumentError("covariance surface must be symmetric"))
     all(w -> isfinite(w) && w > 0, weights) &&
@@ -358,7 +358,7 @@ function _fpca_orient!(functions, mean, sign_tol)
 end
 
 function _fpca_selection(rule::Integer, curve, max_k)
-    1 <= rule <= max_k || throw(ArgumentError("ncomponents must be between 1 and max_k ($max_k)"))
+    _integer_in(rule, 1, max_k) || throw(ArgumentError("ncomponents must be between 1 and max_k ($max_k)"))
     rule <= length(curve) || throw(ArgumentError("ncomponents exceeds the retained positive covariance rank ($(length(curve)))"))
     (; rule=:fixed, threshold=nothing, max_k, maxK=max_k, chosen=Int(rule), scores=eltype(curve)[])
 end
@@ -420,7 +420,7 @@ Base.@constprop :aggressive function fit(::Type{FPCA}, fd::GridFunctionalData; m
     n, m = size(fd.values)
     n >= 2 || throw(ArgumentError("dense FPCA requires at least two curves"))
     max_k = max_k === nothing ? max(1, min(m-2, n-2)) : max_k
-    max_k isa Integer && 1 <= max_k <= min(m, n-1) || throw(ArgumentError(
+    _integer_in(max_k, 1, min(m, n-1)) || throw(ArgumentError(
         "dense FPCA max_k must be between 1 and min(grid length, nobs-1)"))
     _fpca_tolerance(eigen_tol, "eigen_tol")
     _fpca_tolerance(sign_tol, "sign_tol")

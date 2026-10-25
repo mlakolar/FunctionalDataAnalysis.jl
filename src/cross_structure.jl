@@ -222,7 +222,7 @@ Base.@constprop :aggressive function fit(::Type{FSVD}, fd1::Union{GridFunctional
             grid1=f1.grid, grid2=f2.grid, bandwidth, kernel)
     end
     max_k === nothing && (max_k = min(20, n-2))
-    max_k isa Integer && !(max_k isa Bool) && 1 <= max_k <= typemax(Int) ||
+    _integer_in(max_k, 1) ||
         throw(ArgumentError("FSVD max_k must be a positive integer representable as Int"))
     root1, root2 = sqrt.(c.weights1), sqrt.(c.weights2)
     weighted = c.surface .* (root1 * transpose(root2))

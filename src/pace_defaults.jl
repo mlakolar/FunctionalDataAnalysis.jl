@@ -57,7 +57,7 @@ function _pace_binning(fd, requested)
         end
         return bins, rule
     end
-    requested === nothing || (requested isa Integer && 2 <= requested <= typemax(Int)) ||
+    requested === nothing || (_integer_in(requested, 2)) ||
         throw(ArgumentError("binning must be :auto, nothing, or an integer of at least two"))
     requested === nothing ? (nothing, rule) : (Int(requested), rule)
 end

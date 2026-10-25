@@ -141,7 +141,7 @@ Base.@constprop :aggressive function _fit_face_sparse(fd::IrregularFunctionalDat
     _face_sparse_lambda(lambda_mean, T, "lambda_mean")
     _fpca_tolerance(eigen_tol, "eigen_tol")
     _fpca_tolerance(sign_tol, "sign_tol")
-    ncomponents isa FVE || (ncomponents isa Integer && !(ncomponents isa Bool) && 1 <= ncomponents <= typemax(Int)) ||
+    ncomponents isa FVE || (_integer_in(ncomponents, 1)) ||
         throw(ArgumentError("sparse FACE ncomponents must be FVE or a positive integer representable as Int"))
     a, b = extrema(fd.times)
     a < b || throw(ArgumentError("sparse FACE needs at least two distinct observation times"))
@@ -155,7 +155,7 @@ Base.@constprop :aggressive function _fit_face_sparse(fd::IrregularFunctionalDat
     c = size(design.B, 2)
     cap = min(c, length(workgrid))
     max_k = max_k === nothing ? cap : max_k
-    max_k isa Integer && !(max_k isa Bool) && 1 <= max_k <= cap || throw(ArgumentError("sparse FACE max_k must be between 1 and min(knots+p, grid length)"))
+    _integer_in(max_k, 1, cap) || throw(ArgumentError("sparse FACE max_k must be between 1 and min(knots+p, grid length)"))
     mean_settings = _face_sparse_mean(fd, mean, center, knots, lambda_mean, mean_loglambda, workgrid)
     mu = Vector{T}(_face_sparse_mean_values(mean_settings, workgrid))
     residuals = fd.values - _face_sparse_mean_values(mean_settings, fd.times)

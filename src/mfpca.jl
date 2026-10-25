@@ -66,7 +66,7 @@ function fit(::Type{MFPCA}, mfd::MultivariateFunctionalData;
         ncomponents, univariate=(;),
         weights=ones(eltype(mfd), FunctionalDataAnalysis.ncomponents(mfd)),
         eigen_tol=1e-10)
-    ncomponents isa Integer && !(ncomponents isa Bool) && ncomponents >= 1 ||
+    _integer_in(ncomponents, 1) ||
         throw(ArgumentError("MFPCA ncomponents must be a positive integer"))
     univariate isa NamedTuple || throw(ArgumentError("MFPCA univariate must be a named tuple of marginal FPCA keywords"))
     haskey(univariate, :basis) && throw(ArgumentError("MFPCA univariate cannot set basis; the first step is marginal FPCA"))

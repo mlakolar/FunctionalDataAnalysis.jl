@@ -44,7 +44,7 @@ function _interval(interval::Tuple{<:Real,<:Real})
 end
 
 function _derivative_order(order)
-    order isa Integer && 0 <= order <= typemax(Int) ||
+    _integer_in(order, 0) ||
         throw(ArgumentError("derivative order must be a nonnegative integer representable as Int"))
     Int(order)
 end
@@ -84,7 +84,7 @@ struct BSplineBasis{T<:AbstractFloat} <: AbstractBasis
 end
 
 function BSplineBasis(order::Integer, breakpoints::AbstractVector{<:Real})
-    order >= 1 || throw(ArgumentError("B-spline order must be positive"))
+    _integer_in(order, 1) || throw(ArgumentError("B-spline order must be positive"))
     Base.require_one_based_indexing(breakpoints)
     T = _floattype(eltype(breakpoints))
     x = Vector{T}(breakpoints)
@@ -95,8 +95,8 @@ function BSplineBasis(order::Integer, breakpoints::AbstractVector{<:Real})
 end
 
 function BSplineBasis(order::Integer, interval::Tuple{<:Real,<:Real}, n::Integer)
-    order >= 1 || throw(ArgumentError("B-spline order must be positive"))
-    n >= order || throw(ArgumentError("number of B-splines must be at least the order"))
+    _integer_in(order, 1) || throw(ArgumentError("B-spline order must be positive"))
+    _integer_in(n, order) || throw(ArgumentError("number of B-splines must be at least the order"))
     a, b = _interval(interval)
     BSplineBasis(order, collect(range(a, b; length=n - order + 2)))
 end
@@ -113,7 +113,7 @@ struct FourierBasis{T<:AbstractFloat} <: AbstractBasis
     interval::Tuple{T,T}
     n::Int
     function FourierBasis(interval::Tuple{<:Real,<:Real}, n::Integer)
-        n >= 1 && isodd(n) || throw(ArgumentError("Fourier nbasis must be positive and odd"))
+        _integer_in(n, 1) && isodd(n) || throw(ArgumentError("Fourier nbasis must be positive and odd"))
         bounds = _interval(interval)
         new{typeof(bounds[1])}(bounds, Int(n))
     end
@@ -131,7 +131,7 @@ struct MonomialBasis{T<:AbstractFloat} <: AbstractBasis
     interval::Tuple{T,T}
     degree::Int
     function MonomialBasis(interval::Tuple{<:Real,<:Real}, degree::Integer)
-        degree >= 0 || throw(ArgumentError("monomial degree must be nonnegative"))
+        _integer_in(degree, 0, typemax(Int)-1) || throw(ArgumentError("monomial degree must be nonnegative"))
         bounds = _interval(interval)
         new{typeof(bounds[1])}(bounds, Int(degree))
     end
