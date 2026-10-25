@@ -44,4 +44,5 @@ using .GoldenTestHelpers
     include("kernelsmoothing_agreement.jl")
     include("validation.jl")
     include("shared_helpers.jl")
+    include("buffers.jl")
 end

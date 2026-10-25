@@ -143,7 +143,7 @@ Alias names change neither numerical defaults nor stored settings keys. See
 
 ## Generic ownership and storage
 
-`nobs`, `fit`, `predict`, `reconstruct`, `fitted`, `residuals` and `coef` are
+`nobs`, `fit`, `predict`, `reconstruct`, `reconstruct!`, `fitted`, `residuals` and `coef` are
 StatsAPI generics. StatsAPI
 **1.8 or newer** is required for the shared `reconstruct` binding. Existing
 FDA reconstruction calls and return values are unchanged; qualified imports
@@ -155,7 +155,7 @@ import StatsAPI: fit, predict, reconstruct
 # reconstruct(model) == FunctionalDataAnalysis.reconstruct(model)
 ```
 
-`evaluate` remains owned by FunctionalDataAnalysis. When also loading
+`evaluate` and `evaluate!` remain owned by FunctionalDataAnalysis. When also loading
 MultivariateStats or another package exporting that name, use
 `FunctionalDataAnalysis.evaluate(data, times)` or import it explicitly.
 `eigvals` and `svdvals` extend LinearAlgebra's generics.
@@ -170,6 +170,41 @@ CCA paired accessors return named tuples with `left` and `right` entries
 referencing the stored objects. Accessor docstrings give dimensions and
 ownership; CCA's penalized correlations generally differ from empirical
 correlations of its variates.
+
+## Reusing output buffers
+
+`evaluate!` writes the numeric values of `evaluate` into a caller-owned matrix.
+`reconstruct!` similarly writes the values of the allocating functional-data
+result. The allocating APIs retain their existing ownership, IDs and metadata;
+numeric output buffers carry no IDs or metadata.
+
+```julia
+points = copy(data.grid)
+values = similar(evaluate(data, points, PiecewiseLinear()))
+evaluate!(values, data, points, PiecewiseLinear())
+
+curves = similar(reconstruct(model).values)
+reconstruct!(curves, model)
+```
+
+Use the exact element type of the allocating result, including promotion from
+points and supplied scores. A wrong shape throws `DimensionMismatch`; a wrong
+element type or possible overlap with input/model storage throws `ArgumentError`.
+Views with one-based indexing are supported. Aliasing checks are conservative:
+even disjoint views of one parent can be rejected by `Base.mightalias`. Node
+buffers must also be independent. Computation errors can leave partial output.
+Point/basis preparation and products into other layouts can still allocate;
+these functions guarantee reuse of output storage, not zero allocations.
+
+Multivariate evaluation uses an `nobs × ncomponents × npoints` array for shared
+points, or a vector of matrices for node-specific point vectors. Multivariate
+reconstruction uses one matrix per node, including joint MFPCA and derivative
+summaries, with the same grid and score conventions as `reconstruct`.
+
+```@docs
+FunctionalDataAnalysis.evaluate!
+StatsAPI.reconstruct!
+```
 
 ## Data interface
 
