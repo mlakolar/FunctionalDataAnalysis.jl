@@ -177,13 +177,12 @@ Use `copy` for independent storage.
 """
 scores(f::MFPCA) = f.scores
 
-_mfpca_prediction_scores(s::AbstractMatrix) = s
-_mfpca_prediction_scores(s::NamedTuple) = s.scores
-
 """
     predict(f::MFPCA, newmfd::MultivariateFunctionalData)
 
-Predict univariate scores per node using the stored marginal fit, then apply
+Deprecated compatibility API; prefer [`project_scores`](@ref) or
+[`predict_scores`](@ref). Predict univariate scores per node using the stored
+marginal fit, then apply
 the fitted node weights, multivariate coefficients and R score scales to the
 uncentered scores (no new-data mean subtraction). Return a subject ×
 component matrix. PACE uses its existing conditional-expectation solver;
@@ -191,13 +190,18 @@ conditional uncertainties are not propagated across nodes. Node counts must
 match, and each node must satisfy its univariate prediction requirements.
 """
 function predict(f::MFPCA{T}, mfd::MultivariateFunctionalData{S}) where {T,S}
-    predicted = predict(f.univariate, mfd)
+    _deprecated_score_prediction()
+    _predict_result(f, mfd)
+end
+
+function _predict_result(f::MFPCA{T}, mfd::MultivariateFunctionalData{S}) where {T,S}
+    predicted = project_scores(f.univariate, mfd)
     R = promote_type(T, S)
     weighted_scores = Matrix{R}(undef, nobs(mfd), size(f.coefficients, 1))
     offsets = f.settings.offsets
     for j in eachindex(predicted)
         weighted_scores[:, offsets[j]+1:offsets[j+1]] =
-            _mfpca_prediction_scores(predicted[j]) .* sqrt(f.weights[j])
+            predicted[j] .* sqrt(f.weights[j])
     end
     projected = (weighted_scores * f.coefficients) .* transpose(f.settings.score_scales)
     all(isfinite, projected) || throw(ArgumentError("MFPCA prediction scores must be finite; rescale observations or weights"))

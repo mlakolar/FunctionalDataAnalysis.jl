@@ -539,6 +539,10 @@ end
 """
     predict(f::FPCA, newdata::Union{GridFunctionalData,IrregularFunctionalData,BasisFunctionalData})
 
+Deprecated compatibility API: use [`project_scores`](@ref) for scores only or
+[`predict_scores`](@ref) for scores and available conditional covariance.
+The legacy result shapes below are preserved exactly.
+
 Project new dense curves using the training mean, basis, weights, and fitted
 preprocessing. Return an `n × K` score matrix. Data must be complete and use
 exactly the training grid. This extends `StatsAPI.predict`, as in
@@ -562,8 +566,12 @@ Basis FPCA requires `BasisFunctionalData` in the same basis as training. It
 returns exact L² inner-product scores against the stored normalized harmonics.
 """
 function predict(f::FPCA, fd::GridFunctionalData)
-    _fpca_predict(f, fd, f.noise_variance)
+    _deprecated_score_prediction()
+    _predict_result(f, fd)
 end
+
+_predict_result(f::FPCA, fd::GridFunctionalData) =
+    _fpca_predict(f, fd, f.noise_variance)
 
 _fpca_predict(f, fd::GridFunctionalData, ::Real) =
     f.method === :face ? (f.training_data isa IrregularFunctionalData ?
@@ -581,6 +589,11 @@ function _fpca_predict(f, fd::GridFunctionalData, ::Nothing)
 end
 
 function predict(f::FPCA, fd::IrregularFunctionalData)
+    _deprecated_score_prediction()
+    _predict_result(f, fd)
+end
+
+function _predict_result(f::FPCA, fd::IrregularFunctionalData)
     if f.method === :face
         f.training_data isa IrregularFunctionalData || throw(ArgumentError("common-grid FACE prediction requires GridFunctionalData on the training grid"))
         return _face_sparse_predict(f, fd)

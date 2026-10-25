@@ -51,6 +51,7 @@ import RecipesBase
             (@inferred ((d)->StatsAPI.fit(FPCA, d; method=:face))(data)) :
             StatsAPI.fit(FPCA, data; method=:face, mean=supplied, face=options)
         @test model.method == :face
+        _test_prediction_contract(model, data)
         @test nobs(model) == n
         @test relerr(vec(model.mean.values), vec(q("mean"))) < 1e-8
         if case != "package_mean"
@@ -170,6 +171,8 @@ import RecipesBase
         joint = StatsAPI.fit(MFPCA, mfd; ncomponents=2,
             univariate=(; method=:face, ncomponents=3, face=(; lambda=2.5)))
         @test component(joint, 1).method == :face
+        _test_prediction_contract(marginal, mfd)
+        _test_prediction_contract(joint, mfd)
         @test size(scores(joint)) == (n, 2)
         @test StatsAPI.predict(joint, mfd) ≈ scores(joint)
 

@@ -25,6 +25,7 @@ end
             basis=:marginal, ncomponents=2, max_k=2))(data)
         @test model isa MultivariateFPCA
         @test model.basis == :marginal
+        _test_prediction_contract(model, data)
         @test (@inferred ncomponents(model)) == [2, 2]
         @test (@inferred nobs(model)) == 6
         @test ids(model) == fixture.labels
@@ -362,6 +363,7 @@ end
             Float32.(fixture.grid)) for values in fixture.values])
         for basis in (:marginal, :pooled)
             model = StatsAPI.fit(FPCA, data; basis, ncomponents=2, max_k=2)
+            _test_prediction_contract(model, data)
             @test scores(model) isa Vector{Matrix{Float32}}
             @test eigvals(model) isa Vector{Vector{Float32}}
             @test eigenfunctions(model) isa Vector{FPCBasis{Float32}}
@@ -429,6 +431,7 @@ end
         end
         @test score_covariances(model)[1] === nothing
         @test score_covariances(model)[2] == score_covariances(references[2])
+        _test_prediction_contract(model, mixed)
         prediction = StatsAPI.predict(model, mixed)
         @test prediction[1] == Float64.(scores(references[1]))
         @test prediction[2].scores == scores(references[2])

@@ -111,6 +111,7 @@ end
 
         fitted = @inferred StatsAPI.fit(MFPCA, data; ncomponents=4,
             univariate=(; ncomponents=2, max_k=2))
+        _test_prediction_contract(fitted, data)
         @test (@inferred ncomponents(fitted)) == 4
         @test (@inferred nobs(fitted)) == n
         @test (@inferred scores(fitted)) isa Matrix{Float64}
@@ -186,6 +187,7 @@ end
             covariance=[nothing, (; grid=g, surface=ones(5, 5))],
             noise_variance=[nothing, 0.2])
         fitted = StatsAPI.fit(MFPCA, data; ncomponents=2, univariate=options, weights=[0.8, 1.4])
+        _test_prediction_contract(fitted, data)
         marginal = StatsAPI.fit(FPCA, data; basis=:marginal, options...)
         @test component(fitted, 2).method == :pace
         @test fitted.settings.univariate_counts == [2, 1]

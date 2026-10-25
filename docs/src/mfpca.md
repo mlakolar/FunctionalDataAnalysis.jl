@@ -1,5 +1,11 @@
 # Multivariate FPCA (MFPCA)
 
+Use `project_scores(model, data)` for joint score matrices or
+`predict_scores(model, data)` for `ScorePrediction(scores, nothing)`.
+Joint conditional score covariance is unavailable; `nothing` does not mean zero
+uncertainty. Legacy `StatsAPI.predict` retains its matrix result and warns.
+See the [prediction contract](interface.md#Explicit-score-prediction).
+
 `StatsAPI.fit(MFPCA, data; ncomponents=M)` estimates joint principal components
 by the two-step construction of [Happ and Greven (2018), Proposition 5](https://doi.org/10.1080/01621459.2016.1273115).
 Nodes may have different domains, grids, observation designs, and univariate

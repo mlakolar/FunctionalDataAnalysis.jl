@@ -1,5 +1,10 @@
 # Functional principal component analysis
 
+Prefer `project_scores(model, data)` for score matrices and
+`predict_scores(model, data)` for a named-field `ScorePrediction` result.
+Legacy `StatsAPI.predict` retains the route-dependent shapes described below
+with deprecation warnings; see the [prediction contract](interface.md#Explicit-score-prediction).
+
 `StatsAPI.fit(FPCA, data)` estimates univariate functional principal components.
 With `method=:auto`, fully observed common-grid data use the dense route.
 Irregular and masked grid data use PACE, including designs classified as
