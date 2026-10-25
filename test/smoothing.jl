@@ -202,3 +202,73 @@ import StatsAPI
     @test_throws ArgumentError smooth_curves(singleton,
         PenalizedSpline(MonomialBasis((0.0, 1.0), 2); lambda=0))
 end
+
+@testset "Complete-grid block smoothing and bounded cache" begin
+    FDA = FunctionalDataAnalysis
+    for T in (Float32,Float64), kernel in (KernelSmoothing.EpanechnikovKernel(),KernelSmoothing.GaussianKernel()), nu in 0:2
+        grid = collect(range(T(0),T(1);length=41))
+        values = T[sin(i*t)+i*t^2 for i in 1:4,t in grid]
+        fd = GridFunctionalData(@view(values[:,:]),grid;ids=[:a,:b,:c,:d],metadata=(;source=:input))
+        method = LocalPolynomial(;bandwidth=T(.4),derivative=nu,kernel)
+        block = @inferred smooth_curves(fd,method;grid=@view(grid[:]))
+        rowwise = @inferred smooth_curves(to_irregular(fd),method;grid)
+        @test eltype(block) === T
+        @test block.observed === nothing
+        @test block.grid == fd.grid
+        @test block.weights == fd.weights
+        @test block.values ≈ rowwise.values rtol=0 atol=(T===Float32 ? 1e-5 : 1e-10)
+        @test block.metadata == rowwise.metadata
+        @test block.metadata.grid !== grid
+        @test block.grid !== fd.grid && block.values !== fd.values
+        @test ids(block) == ids(fd) && ids(block) !== ids(fd)
+        @test fd.metadata == (;source=:input)
+        saved = copy(fd.values)
+        block.values[1,1] += one(T)
+        @test fd.values == saved
+    end
+
+    grid = collect(range(0.,1.;length=41))
+    fd = GridFunctionalData([sin(i*t)+i*t^2 for i in 1:4,t in grid],grid;ids=1:4)
+    method = LocalPolynomial(;bandwidth=.4,derivative=1)
+    block = smooth_curves(fd,method;grid)
+    extended_grid = vcat(-.1,grid,1.1)
+    extended = smooth_curves(fd,method;grid=extended_grid)
+    @test extended.values[:,2:end-1] ≈ block.values rtol=0 atol=1e-10
+    @test all(.!extended.observed[:,[1,end]])
+    @test all(extended.observed[:,2:end-1])
+    @test all(iszero,extended.values[:,[1,end]])
+    @test extended.metadata.grid == extended_grid
+    @test ids(extended) == ids(fd)
+    masked_values = Matrix{Union{Missing,Float64}}(fd.values)
+    masked_values[2,21] = missing
+    masked = GridFunctionalData(masked_values,grid;ids=ids(fd))
+    frommask = smooth_curves(masked,method;grid)
+    fromirregular = smooth_curves(to_irregular(masked),method;grid)
+    @test frommask.values == fromirregular.values
+    @test frommask.observed === fromirregular.observed === nothing
+    @test frommask.metadata == fromirregular.metadata
+    @test ids(frommask) == ids(fd)
+
+    # More distinct grids than the bound, followed by a value-equal cache hit.
+    cache = Dict{Vector{Float32},Tuple{Vector{Int},Matrix{Float64}}}()
+    insertion_order = Vector{Float32}[]
+    points = collect(range(0f0,1f0;length=31))
+    method32 = LocalPolynomial(;bandwidth=.5f0,kernel=KernelSmoothing.GaussianKernel())
+    first_grid = collect(range(0f0,1f0;length=21))
+    last_grid = first_grid
+    for j in 1:(FDA._CURVE_SMOOTHER_CACHE_LIMIT+3)
+        last_grid = collect(range(0f0,1f0;length=20+j))
+        indices,matrix = @inferred FDA._cached_curve_smoother!(cache,insertion_order,last_grid,points,method32)
+        @test indices == eachindex(points)
+        @test matrix isa Matrix{Float64}
+        @test length(cache) <= FDA._CURVE_SMOOTHER_CACHE_LIMIT
+        @test length(insertion_order) == length(cache)
+    end
+    @test !haskey(cache,first_grid)
+    @test length(cache) == FDA._CURVE_SMOOTHER_CACHE_LIMIT
+    previous = cache[last_grid]
+    before_order = copy(insertion_order)
+    hit = FDA._cached_curve_smoother!(cache,insertion_order,copy(last_grid),points,method32)
+    @test hit[2] === previous[2]
+    @test insertion_order == before_order
+end

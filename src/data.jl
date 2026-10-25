@@ -38,10 +38,11 @@ function GridFunctionalData(values::AbstractMatrix{V}, grid::AbstractVector{G}; 
     y = zeros(T, size(values))
     observed = trues(size(values))
     for k in eachindex(values)
-        if ismissing(values[k])
+        entry = values[k]
+        if entry === missing
             observed[k] = false
         else
-            value = T(values[k])
+            value = T(entry)
             isfinite(value) || throw(ArgumentError("nonmissing curve values must be finite"))
             y[k] = value
         end
