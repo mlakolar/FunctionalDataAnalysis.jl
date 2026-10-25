@@ -61,6 +61,8 @@ import RecipesBase
         @test relerr(model.basis.values, q("eigenfunction")) < 1e-8
         @test relerr(scores(model), q("score")) < 1e-8
         @test noise_variance(model) ≈ only(q("sigma2")) rtol=1e-8
+        @test !model.settings.noise_floor_applied
+        @test model.settings.raw_noise_variance == noise_variance(model)
         @test model.settings.lambda ≈ only(q("lambda")) rtol=1e-8
         @test relerr(model.settings.gcv_scores, vec(q("gcv"))) < 1e-8
         fitted_curves = Int.(vec(q("fitted_curves")))
@@ -196,12 +198,52 @@ import RecipesBase
         analytic = StatsAPI.fit(FPCA, GridFunctionalData([a*(1+t) for a in [-2.,-1,1,2], t in grid], grid);
             method=:face, ncomponents=1, face=(; lambda=0.0))
         @test only(eigvals(analytic)) ≈ 2.5*sum(fd.weights .* (1 .+ grid).^2) rtol=1e-12
-        @test noise_variance(analytic) < 1e-12
-        @test reconstruct(analytic).values ≈ analytic.training_data.values rtol=1e-12
+        signal_variance = 2.5 * maximum(abs2, 1 .+ grid)
+        floor = 0.025 * signal_variance
+        @test noise_variance(analytic) == analytic.settings.noise_floor
+        @test noise_variance(analytic) ≈ floor rtol=1e-12
+        @test analytic.settings.noise_floor_relative == 0.025
+        @test analytic.settings.noise_floor_scale ≈ signal_variance rtol=1e-12
+        @test analytic.settings.noise_floor_scale_source == :maximum_fitted_pointwise_variance
+        @test analytic.settings.noise_floor_applied
+        @test abs(analytic.settings.raw_noise_variance) < 1e-12
+        # The positive floor adds exactly this analytic posterior shrinkage.
+        signal_square = sum(abs2, 1 .+ grid)
+        shrinkage = signal_square / (signal_square + floor/2.5)
+        @test reconstruct(analytic).values ≈ shrinkage .* analytic.training_data.values rtol=1e-12
+        phi = analytic.basis.values[:, 1]
+        posterior = floor / (sum(abs2, phi) + floor/only(eigvals(analytic)))
+        @test only(score_covariances(analytic)[:, :, 1]) ≈ posterior rtol=1e-12
+        for value_scale in (1e-6, 1e6)
+            scaled = StatsAPI.fit(FPCA,
+                GridFunctionalData(value_scale .* analytic.training_data.values, grid);
+                method=:face, ncomponents=1, face=(; lambda=0.0))
+            @test scaled.settings.noise_floor_applied
+            @test noise_variance(scaled) ≈ value_scale^2 * floor rtol=1e-12
+            @test reconstruct(scaled).values ≈ value_scale .* reconstruct(analytic).values rtol=1e-12
+            @test score_covariances(scaled) ≈ value_scale^2 .* score_covariances(analytic) rtol=1e-12
+        end
         dense = StatsAPI.fit(FPCA, analytic.training_data; method=:dense, ncomponents=1)
         @test eigvals(dense) ≈ eigvals(analytic)*4/3 rtol=1e-12
         @test dense.basis.values ≈ analytic.basis.values rtol=1e-12
         @test reconstruct(dense).values ≈ analytic.training_data.values rtol=1e-12
+        # Zero estimated noise formerly rejected partial predictions with
+        # fewer observations than retained components. Check the scalar
+        # observation-space posterior independently of the precision solver.
+        coefficients = [-2. -1.; -1. 2.; 1. -2.; 2. 1.]
+        functions = hcat(1 .+ grid, (1 .+ grid).^2)
+        two = StatsAPI.fit(FPCA, GridFunctionalData(coefficients*functions', grid);
+            method=:face, ncomponents=2, face=(; lambda=0.0))
+        @test two.settings.noise_floor_applied
+        partial = Matrix{Union{Missing,Float64}}(missing, 1, length(grid))
+        partial[1, 1] = 2.0
+        prediction = StatsAPI.predict(two, GridFunctionalData(partial, grid))
+        local_phi = two.basis.values[1, :]
+        numerator = eigvals(two) .* local_phi
+        denominator = dot(local_phi, numerator) + noise_variance(two)
+        @test vec(prediction.scores) ≈ numerator .* (2/denominator) rtol=1e-8
+        @test prediction.covariances[:, :, 1] ≈
+            Diagonal(eigvals(two)) - numerator*numerator'/denominator rtol=1e-8
         custom_smoother = PenalizedSpline(BSplineBasis(4, (0., 2.), 8); lambda=.1)
         custom = StatsAPI.fit(FPCA, fd; method=:face,
             face=(; mean_smoother=custom_smoother, lambda=2.5))
@@ -213,7 +255,8 @@ import RecipesBase
         fd.values[1,1] += 1
         @test model.training_data.values == snapshot.training_data.values
         @test model.basis.values == snapshot.basis.values
-        for text in ("lambda", "knots", "alpha", "center", "converged", "mean", "quadrature")
+        for text in ("lambda", "knots", "alpha", "center", "converged", "mean", "quadrature",
+                "raw_noise_variance", "noise_floor", "noise_floor_applied")
             @test occursin(text, sprint(show, model))
         end
         for options in ((; knots=0), (; knots=J-2), (; p=-1), (; m=-1),

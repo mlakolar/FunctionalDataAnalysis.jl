@@ -163,6 +163,34 @@ function _pace_noise(covariance, value)
     converted, :supplied
 end
 
+# Unlike the absolute 1e-6 safeguards in face 0.1-8 / fdapace 0.6.0,
+# scale by the largest fitted pointwise signal variance, in squared data units.
+# This preserves observation/time-unit invariance and, when V bounds diag(K),
+# gives cond(K + sigma2*I) <= 1 + 40m for m observations. It also bounds
+# pointwise CE residual gain by sqrt(10) wherever C(t,t) <= V.
+function _fpca_estimated_noise_settings(raw::T, signal_variance::T) where {T}
+    isfinite(raw) || throw(ArgumentError("FPCA raw noise estimate must be finite"))
+    isfinite(signal_variance) && signal_variance > 0 || throw(ArgumentError(
+        "FPCA fitted pointwise signal variance must be finite and positive; rescale the observations"))
+    relative = T(0.025)
+    floor = relative * signal_variance
+    isfinite(floor) && floor > 0 || throw(ArgumentError(
+        "FPCA noise floor must remain finite and positive; rescale the observations"))
+    (; raw_noise_variance=raw, noise_floor=floor,
+        noise_floor_applied=raw < floor, noise_truncation=:positive_floor,
+        noise_floor_relative=relative, noise_floor_scale=signal_variance,
+        noise_floor_scale_source=:maximum_fitted_pointwise_variance)
+end
+
+_pace_noise_settings(covariance::SmoothedCovariance, ::Nothing, value::T, signal_variance) where {T} =
+    _fpca_estimated_noise_settings(T(covariance.noise_details.raw_variance), T(signal_variance))
+
+_pace_noise_settings(covariance, supplied, value, signal_variance) =
+    (; raw_noise_variance=value, noise_floor=nothing,
+        noise_floor_applied=false, noise_truncation=:none,
+        noise_floor_relative=nothing, noise_floor_scale=nothing,
+        noise_floor_scale_source=nothing)
+
 function _pace_interpolated_basis(grid, functions, points)
     T = promote_type(eltype(grid), eltype(functions), eltype(points))
     values = Matrix{T}(undef, length(points), size(functions, 2))
@@ -342,11 +370,14 @@ function _fit_pace(fd; method=:auto, grid=nothing, ncomponents=FVE(0.99), maxK=n
     all(isfinite, mu) && all(isfinite, surface) && isfinite(sigma2) ||
         throw(ArgumentError("PACE mean, covariance, and noise variance must remain finite after conversion"))
     system = _fpca_eigen(surface, weights, mu; maxK, eigen_tol, sign_tol)
-    selection = _pace_selection(ncomponents, fd, workgrid, mu, system, Int(maxK), sigma2)
-    k = selection.chosen
     projected = (system.eigenfunctions .* transpose(system.eigenvalues)) *
         transpose(system.eigenfunctions)
     projected = (projected + transpose(projected))/2
+    noise_settings = _pace_noise_settings(resolved_covariance, noise_variance, sigma2,
+        maximum(diag(projected)))
+    sigma2 = noise_settings.noise_floor === nothing ? sigma2 : max(sigma2, noise_settings.noise_floor)
+    selection = _pace_selection(ncomponents, fd, workgrid, mu, system, Int(maxK), sigma2)
+    k = selection.chosen
     basis = FPCBasis(workgrid, system.eigenfunctions[:, 1:k]; weights)
     predicted = _pace_ce(fd, workgrid, mu, basis.values, system.eigenvalues[1:k], projected, sigma2)
     settings = merge((; requested_method=method, grid_source, requested_maxK, maxK=Int(maxK),
@@ -365,7 +396,7 @@ function _fit_pace(fd; method=:auto, grid=nothing, ncomponents=FVE(0.99), maxK=n
         covariance_interpolation=:bilinear, score_method=:conditional_expectation,
         covariance_components=length(system.eigenvalues), full_projected_covariance=projected,
         likelihood=:gaussian, likelihood_constant=:included,
-        noise_floor=nothing, regularization=nothing),
+        regularization=nothing), noise_settings,
         # The automatic decision is data-dependent. Declare the union field
         # explicitly so the result type does not depend on which count wins.
         NamedTuple{(:binning,),Tuple{Union{Nothing,Int}}}((binning,)))

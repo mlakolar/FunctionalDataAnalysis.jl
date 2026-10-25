@@ -1,0 +1,77 @@
+{
+  "purpose": "Targeted validation of the 36 reported reconstruction outliers; eight nonbinding controls, not a new 200-replicate campaign",
+  "run_id": "20261025-fda-relative-floor",
+  "cluster": "USC Discovery",
+  "julia_version": "1.13.2",
+  "source_base": "e6b41b88088bc93db028e9fe0d252e344331b0f5",
+  "source_snapshot": "/home1/mkolar/juliaPkg/runs/20261025-fda-relative-floor/source-attempt2.tar.gz",
+  "source_snapshot_sha256": "c91dceb741481a3dc2dad176f3aa65933f7bf420d204ecba735fcd0c5a23469e",
+  "manifest_sha256": "d54e8fff3a997236f54e8b30bd7d8edf18a56dddcca36b21d386049eba94aeeb",
+  "configuration": "benchmark/scaling/configurations.csv",
+  "configuration_sha256": "5ac69930dcc866a14b90b3307e26cd9d2c60641ca45a80b2e3e172a299f35750",
+  "before_run": "/home1/mkolar/juliaPkg/runs/20261025T2130Z-fda-sigma2-floor",
+  "after_run": "/home1/mkolar/juliaPkg/runs/20261025-fda-relative-floor",
+  "completed_job": "13431691",
+  "preparation_failure_job": "13431224 (Artifacts.toml omitted from staging; no replicate ran)",
+  "resources": {
+    "cpus": 8,
+    "memory_gb": 16,
+    "walltime_request": "00:20:00"
+  },
+  "recreation": "For each CSV row, run: julia --project=. benchmark/scaling/run.jl benchmark/scaling/configurations.csv CELL NEW_OUTPUT.csv REP REP ROUTE; use the recorded Julia version and dependency lock. Seeds are configuration seed + replicate - 1.",
+  "comparison": "Each before row is the matching retained replicate from before_run, not a rerun. Each after row is exactly one run.jl replicate range. Before cell medians are those supplied in the follow-up task, not medians of this selected subset.",
+  "checks": {
+    "exact_reported_cases": 36,
+    "nonbinding_controls": 8,
+    "successful_fits": 44,
+    "reported_cases_above_10x_reference_median_after": 0,
+    "nonbinding_control_accuracy_metrics": "identical CSV fields for eigenvalue error, eigenfunction error, sigma2 error, component count and reconstruction error"
+  },
+  "maxima": [
+    {
+      "cell": 17,
+      "route": "face_sparse",
+      "replicates": 9,
+      "before_max": 159.08659692797937,
+      "after_max": 0.37462206149897237,
+      "after_max_over_reference_median": 1.4925181733026787
+    },
+    {
+      "cell": 17,
+      "route": "pace",
+      "replicates": 21,
+      "before_max": 262.3432309914463,
+      "after_max": 0.3957633985530083,
+      "after_max_over_reference_median": 1.444391965521928
+    },
+    {
+      "cell": 18,
+      "route": "pace",
+      "replicates": 3,
+      "before_max": 120.45094381731488,
+      "after_max": 0.6407177710586506,
+      "after_max_over_reference_median": 1.5401869496602179
+    },
+    {
+      "cell": 19,
+      "route": "face_sparse",
+      "replicates": 1,
+      "before_max": 80.517405554262,
+      "after_max": 0.19443308110017876,
+      "after_max_over_reference_median": 1.0397490967924
+    },
+    {
+      "cell": 19,
+      "route": "pace",
+      "replicates": 2,
+      "before_max": 46.65623082849268,
+      "after_max": 0.19668219955442875,
+      "after_max_over_reference_median": 1.040646558489041
+    }
+  ],
+  "accounting": {
+    "completed_job_elapsed": "00:03:23",
+    "preparation_failure_elapsed": "00:00:10",
+    "total_allocation_running_seconds": 213
+  }
+}
