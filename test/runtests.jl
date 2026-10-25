@@ -30,4 +30,5 @@ using Test
     include("derivatives.jl")
     include("bands.jl")
     include("bands_coverage.jl")
+    include("kernelsmoothing_agreement.jl")
 end

@@ -32,8 +32,7 @@ import KernelSmoothing
         @test collapsed_mean.errors ≈ direct_mean.errors rtol=1e-12
         @test collapsed_mean.assignments == direct_mean.assignments
         h = .3
-        surface = [FunctionalDataAnalysis._local_linear2d(grouped.x, grouped.y, grouped.z,
-            grouped.weights, s, t, h, kernel) for s in grid, t in grid]
+        surface = FunctionalDataAnalysis._local_linear_surface(grouped, grid, grid, h, kernel)
         surface = (surface + surface')/2
         diagonal = FunctionalDataAnalysis._mean_predict(raw.times, raw.squares,
             raw.diagonal_weights, grid, LocalPolynomial(; bandwidth=h, kernel))
