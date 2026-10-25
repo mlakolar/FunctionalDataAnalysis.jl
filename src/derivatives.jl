@@ -256,13 +256,11 @@ copied ids; other score matrices have no inferred ids.
 function reconstruct(d::FPCADerivative, projected::AbstractMatrix{<:Real}=scores(d);
         grid::AbstractVector{<:Real}=d.grid)
     Base.require_one_based_indexing(projected, grid)
-    size(projected, 1) > 0 || throw(ArgumentError("derivative reconstruction needs at least one score row"))
-    size(projected, 2) == ncomponents(d) || throw(DimensionMismatch("derivative score columns must equal ncomponents"))
-    all(isfinite, projected) || throw(ArgumentError("derivative reconstruction scores must be finite"))
-    quadrature_weights(grid)
-    functions = basis_matrix(d.basis, grid)
-    mu = evaluate(d.mean, grid, PiecewiseLinear())
-    GridFunctionalData(projected * transpose(functions) .+ mu, grid;
+    _validate_reconstruction_scores(projected, ncomponents(d);
+        row_message="derivative reconstruction needs at least one score row",
+        column_message="derivative score columns must equal ncomponents",
+        finite_message="derivative reconstruction scores must be finite")
+    GridFunctionalData(_reconstruction_values(projected, d.basis, d.mean, grid), grid;
         ids=projected === d.scores ? d.ids : nothing,
         metadata=(; method=d.method, derivative=d.order, settings=deepcopy(d.settings),
             mean_bandwidth=d.mean_bandwidth, covariance_bandwidth=d.covariance_bandwidth,

@@ -9,7 +9,7 @@ struct RegularSampling{T<:AbstractFloat}
     function RegularSampling(grid::AbstractVector{S}) where {S<:Real}
         T = _floattype(S)
         points = Vector{T}(grid)
-        quadrature_weights(points)
+        _validate_strict_grid(points)
         new{T}(points)
     end
 end

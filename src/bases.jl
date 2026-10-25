@@ -89,7 +89,7 @@ Base.@constprop :aggressive function BSplineBasis(order::Integer, breakpoints::A
     Base.require_one_based_indexing(breakpoints)
     T = _floattype(eltype(breakpoints))
     x = Vector{T}(breakpoints)
-    quadrature_weights(x)
+    _validate_strict_grid(x)
     _interval((first(x), last(x)))
     backend = BSplineKit.BSplineBasis(BSplineKit.BSplineOrder(Int(order)), copy(x))
     BSplineBasis{T}(backend, x, Int(order))

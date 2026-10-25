@@ -40,4 +40,5 @@ include("support/prediction.jl")
     include("bands_coverage_smoke.jl")
     include("kernelsmoothing_agreement.jl")
     include("validation.jl")
+    include("shared_helpers.jl")
 end

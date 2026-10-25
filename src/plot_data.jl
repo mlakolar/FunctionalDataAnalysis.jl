@@ -51,7 +51,7 @@ function curve_data(fd::BasisFunctionalData; grid=nothing, curves=:all)
     grid === nothing || grid isa AbstractVector{<:Real} ||
         throw(ArgumentError("curve_data grid must be a real vector or nothing"))
     points = grid === nothing ? collect(range(domain(fd)...; length=201)) : _basispoints(fd.basis, grid)
-    quadrature_weights(points)
+    _validate_strict_grid(points)
     values = evaluate(fd[index], points)
     (; grid=copy(points), curves=index, times=[copy(points) for _ in index],
         values=[copy(row) for row in eachrow(values)], design=sampling_design(fd),

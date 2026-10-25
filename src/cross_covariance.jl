@@ -198,11 +198,7 @@ function evaluate(c::Union{CrossCovariance,SmoothedCrossCovariance}, s::Real, t:
     isfinite(s) && first(g1) <= s <= last(g1) &&
         isfinite(t) && first(g2) <= t <= last(g2) || throw(ArgumentError(
             "cross-covariance evaluation times must be finite and inside their stored grid ranges"))
-    i = min(searchsortedlast(g1, s), length(g1)-1)
-    j = min(searchsortedlast(g2, t), length(g2)-1)
-    u, v = (s-g1[i])/(g1[i+1]-g1[i]), (t-g2[j])/(g2[j+1]-g2[j])
-    (1-u)*(1-v)*c.surface[i,j] + u*(1-v)*c.surface[i+1,j] +
-        (1-u)*v*c.surface[i,j+1] + u*v*c.surface[i+1,j+1]
+    _bilinear_surface(g1, g2, c.surface, s, t)
 end
 
 _cross_reverse_bandwidth(h::Real) = h

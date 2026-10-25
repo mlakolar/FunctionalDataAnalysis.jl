@@ -181,8 +181,7 @@ function _mean_predict(t, y, w, points, method; label="pooled mean")
     values
 end
 
-function _mean_selection(selector::CurveCV, fd, t, y, w, subjects, kernel, degree;
-        prediction_times=t, label="pooled mean")
+function _curve_folds(selector::CurveCV, fd)
     n = nobs(fd)
     selector.folds <= n || throw(ArgumentError("CurveCV folds must not exceed the number of curves ($n)"))
     assignments = collect(1:n)
@@ -193,6 +192,12 @@ function _mean_selection(selector::CurveCV, fd, t, y, w, subjects, kernel, degre
             assignments[i] = mod1(j, selector.folds)
         end
     end
+    assignments
+end
+
+function _mean_selection(selector::CurveCV, fd, t, y, w, subjects, kernel, degree;
+        prediction_times=t, label="pooled mean")
+    assignments = _curve_folds(selector, fd)
     errors = map(selector.bandwidths) do h
         method = LocalPolynomial(; bandwidth=h, kernel, degree)
         score = zero(promote_type(eltype(t), typeof(h)))
@@ -214,7 +219,7 @@ function fit(::Type{SmoothedMean}, fd::Union{GridFunctionalData,IrregularFunctio
         degree=nothing, weighting=:obs)
     weighting in (:obs, :subj) || throw(ArgumentError("weighting must be :obs or :subj"))
     x = _evaluation_points(fd, grid)
-    quadrature_weights(x)
+    _validate_strict_grid(x)
     # Validate settings before either fitting or selecting a bandwidth.
     method = LocalPolynomial(; bandwidth=_initial_bandwidth(bandwidth),
         kernel, degree, derivative)
