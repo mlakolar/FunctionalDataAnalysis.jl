@@ -347,3 +347,23 @@ end
         @test left.coefs == original_left && right.coefs == original_right
     end
 end
+
+@testset "Prepared LambdaCV failures retain candidate and fold context" begin
+    FDA = FunctionalDataAnalysis
+    b = MonomialBasis((0.,1.),1)
+    zero_data = BasisFunctionalData(zeros(4,2),b)
+    identity = Matrix{Float64}(I,2,2)
+    # A finite candidate can overflow its penalty during candidate preparation.
+    @test_throws r"LambdaCV candidate 1.0e308 failed in held-out curve 1" StatsAPI.fit(
+        FPCA,zero_data;lambda=LambdaCV([1e308]),penalty=2identity,ncomponents=1)
+    # With valid candidate geometry, a zero-variance training fold must still
+    # identify the candidate and curve that cannot supply a principal component.
+    @test_throws r"LambdaCV candidate 0.5 failed in held-out curve 1" StatsAPI.fit(
+        FPCA,zero_data;lambda=LambdaCV([.5]),ncomponents=1)
+    # Coordinate dimension errors can arise in fold preparation before the
+    # candidate loop. Exercise that boundary and its error context directly.
+    @test_throws r"LambdaCV candidate 0.5 failed in held-out curve 1" FDA._cca_lambda(
+        LambdaCV([.5]),zeros(4,2),zeros(4,2),identity,ones(3,3),identity,identity,true)
+    @test_throws r"LambdaCV candidate 0.5 failed in held-out curve 1" StatsAPI.fit(
+        FunctionalCCA,zero_data;lambda=LambdaCV([.5]))
+end
