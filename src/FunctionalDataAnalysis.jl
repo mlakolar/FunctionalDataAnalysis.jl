@@ -40,7 +40,8 @@ export curve_data, mean_data, modes_of_variation, scree_data, covariance_data,
 export modes_plot, scree_plot, cov_plot, design_plot, fit_plot
 export FittedBands, MeanBands, fitted_bands, mean_bands, band_data, band_plot
 export datasets, load_dataset
-export FPCRegression, coefficient_functions, coefficient_bands
+export FPCRegression, coefficient_functions, coefficient_bands, pointwise_r2
+export ConcurrentRegression, FunctionOnScalarRegression
 
 include("interface.jl")
 include("quadrature.jl")
@@ -75,6 +76,8 @@ include("prediction.jl")
 include("buffers.jl")
 include("bands.jl")
 include("regression.jl")
+include("concurrent_regression.jl")
+include("function_on_scalar.jl")
 include("plot_data.jl")
 include("recipes.jl")
 include("compat_naming.jl")

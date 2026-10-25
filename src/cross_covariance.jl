@@ -103,7 +103,10 @@ struct SmoothedCrossCovariance{T<:AbstractFloat,H,K,B,S,M1,M2}
     mean2::M2
 end
 
-function _cross_pool(fd1, fd2, mean1, mean2, weighting, exclude_same_time, binning; aggregate=false)
+# `require_pairs=false` lets a subject contribute no pairs (fdapace FCReg simply
+# drops them); the cross-covariance estimators keep the stricter default.
+function _cross_pool(fd1, fd2, mean1, mean2, weighting, exclude_same_time, binning;
+        aggregate=false, require_pairs=true)
     t1, y1, _, subjects1 = _mean_pool(fd1, weighting)
     t2, y2, _, subjects2 = _mean_pool(fd2, weighting)
     r1 = y1 - _covariance_mean_values(mean1, t1)
@@ -131,7 +134,7 @@ function _cross_pool(fd1, fd2, mean1, mean2, weighting, exclude_same_time, binni
             _covariance_add_pair!(pool, cells, aggregate ? true : binning,
                 x1[j], x2[k], r1[j]*r2[k], weight, i)
         end
-        has_pair || throw(ArgumentError(
+        has_pair || !require_pairs || throw(ArgumentError(
             exclude_same_time ? "subject $i has no cross-covariance pairs after excluding same-time observations" : "subject $i has no cross-covariance pairs; it lacks observations on one of the nodes"))
     end
     all(isfinite, pool.z) && all(isfinite, pool.scatter) || throw(ArgumentError(
