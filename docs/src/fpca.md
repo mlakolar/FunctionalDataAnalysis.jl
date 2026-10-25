@@ -184,9 +184,10 @@ scores even when lambda is fixed. With `H=Diagonal(h)Z`, the covariance is
 `C=A*H*H'*A'/n`, with denominator **n**, rather than dense FPCA's `n-1`.
 Fitting and scoring do not form `C`. For fixed basis size the main work is
 `O(J*c^2 + n*J*c + n*c^2 + c^3)`, plus the bounded-dimension mean smoother
-and any missing-curve initialization. For selected rank `K`, the shared
-per-curve posterior solver adds `O(n*J*K^2 + n*K^3)` for complete curves
-(replace `J` by each observed count for masked predictions).
+and any missing-curve initialization. For selected rank `K`, complete matching
+grids share one posterior factorization per fit or prediction batch, adding
+`O(J*K^2 + K^3 + n*J*K + n*K^2)`. Masked predictions retain a separate
+`O(J_i*K^2 + K^3)` factorization per curve with observed count `J_i`.
 Each missing-data pass repeats the
 data transformation and small eigenanalysis. The fit stores `C` as a
 `J` by `min(n,c)` factor obtained by QR of `H'`, retaining its full surface
@@ -283,7 +284,10 @@ Gaussian conditional expectation used by PACE, specialized to the selected
 FACE model; PACE additionally includes all components up to `maxK` in its
 observation-covariance denominator. New masked grid curves use their observed
 points in this posterior solve. Training predictions reproduce stored scores
-from completed data. Prediction requires exactly the training grid.
+from completed data. Complete curves on matching grids reuse one precision
+factorization and posterior covariance per batch; at zero noise they reuse
+one pivoted QR with the same rank checks. Prediction requires exactly the
+training grid.
 
 ### Pointwise variance: correction to refund
 

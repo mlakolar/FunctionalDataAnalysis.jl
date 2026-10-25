@@ -318,3 +318,67 @@ end
         @test scores(derivative(f; bandwidth=0.4)) == scores(f)
     end
 end
+
+@testset "FACE complete-grid posterior batches" begin
+    FDA = FunctionalDataAnalysis
+    for (T,U) in ((Float32,Float32),(Float64,Float64),(Float32,Float64),(Float64,Float32))
+        # Dyadic knots also match exactly when the model and input types differ.
+        grid = collect(range(T(0),T(1);length=17))
+        phi = hcat(ones(T,17),grid .- T(.5))
+        values = T[.8,.3]
+        mu = T.(sinpi.(grid))
+        data = U[mu[j]+(i-2)*phi[j,1]+T(.3)*i*phi[j,2]+T(.05)*sin(T(i)*t)
+            for i in 1:3,(j,t) in enumerate(grid)]
+        fd = GridFunctionalData(data,U.(grid);ids=[:a,:b,:c])
+        saved = copy(fd.values)
+        # Include an unselected covariance direction: FACE's selected-model
+        # solver must not accidentally adopt DPC's full-spectrum denominator.
+        full = FDA._LowRankCovariance(hcat(phi .* transpose(sqrt.(values)),T(4).*sinpi.(2grid)))
+        tolerance = T === Float32 || U === Float32 ? 3e-5 : 1e-10
+        for sigma2 in (zero(T),T(.2))
+            batch = @inferred FDA._face_scores(fd,grid,mu,phi,values,full,sigma2)
+            rowwise = FDA._pace_ce(fd,grid,mu,phi,values,full,sigma2;curve_ce=FDA._face_curve_ce)
+            @test eltype(batch.scores) === promote_type(T,U)
+            @test batch.scores ≈ rowwise.scores rtol=tolerance atol=tolerance
+            @test batch.covariances == rowwise.covariances
+            @test fd.values == saved
+            if sigma2 > 0
+                R = promote_type(T,U)
+                Phi, Lambda = Matrix{R}(phi),Diagonal(Vector{R}(values))
+                observation_covariance = Phi*Lambda*transpose(Phi)+R(sigma2)*I
+                posterior = Lambda-Lambda*transpose(Phi)*(observation_covariance \ (Phi*Lambda))
+                @test batch.covariances[:,:,1] ≈ posterior rtol=tolerance atol=tolerance
+            else
+                @test all(iszero,batch.covariances)
+            end
+            before = copy(batch.covariances[:,:,2])
+            batch.covariances[1,1,1] += 1
+            @test batch.covariances[:,:,2] == before
+        end
+        # Irregular, masked, and changed work grids retain per-curve geometry.
+        masked = Matrix{Union{Missing,U}}(data);masked[1,3:5] .= missing
+        for other in (to_irregular(fd),GridFunctionalData(masked,U.(grid)),
+                GridFunctionalData(data[:,2:2:16],U.(grid[2:2:16])))
+            actual = FDA._face_scores(other,grid,mu,phi,values,full,T(.2))
+            expected = FDA._pace_ce(other,grid,mu,phi,values,full,T(.2);curve_ce=FDA._face_curve_ce)
+            @test actual.scores == expected.scores
+            @test actual.covariances == expected.covariances
+        end
+        deficient = hcat(phi[:,1],phi[:,1])
+        rank_error = try
+            FDA._face_scores(fd,grid,mu,deficient,values,full,zero(T))
+        catch err
+            err
+        end
+        @test rank_error isa ArgumentError
+        @test occursin("noiseless score design for curve 1 is rank deficient",sprint(showerror,rank_error))
+    end
+    # Preserve the finite-score contract when new observations overflow after
+    # subtracting a finite mean, in both the batched and per-curve routes.
+    grid = collect(0.:.25:1.)
+    fd = GridFunctionalData(fill(floatmax(Float64),2,5),grid)
+    mu,phi = fill(-floatmax(Float64),5),ones(5,1)
+    covariance = FDA._LowRankCovariance(phi)
+    @test_throws ArgumentError FDA._face_scores(fd,grid,mu,phi,[1.],covariance,.2)
+    @test_throws ArgumentError FDA._pace_ce(fd,grid,mu,phi,[1.],covariance,.2;curve_ce=FDA._face_curve_ce)
+end
