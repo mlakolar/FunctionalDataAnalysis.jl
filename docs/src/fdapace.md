@@ -548,30 +548,10 @@ and without diagonals. Other plot-data checks use analytic rank-two curves
 and direct means, eigenvalues, eigenfunctions, and conditional expectations;
 they require no plotting package or R execution in CI.
 
-## Task 2 development validation record
+## Reproducing the PACE fixtures
 
-The 2026-10-24 development checks used Julia 1.13.2 and a temporary project at
-`/private/tmp/fda-m3-pace-tests`, with this package and the local
-KernelSmoothing.jl checkout developed into that environment. Only the affected
-test files were run:
-
-| Test file | Passing assertions |
-|:--|--:|
-| `test/fpca.jl` | 178 |
-| `test/pace.jl` | 128 |
-| `test/pace_golden.jl` | 68 |
-
-For example, the PACE checks were run with:
-
-```sh
-julia --project=/private/tmp/fda-m3-pace-tests -e 'using FunctionalDataAnalysis, Test, Random, LinearAlgebra; include("test/pace.jl")'
-```
-
-`Rscript test/reference/fdapace_m3.R` regenerated the golden fixtures with
-R 4.5.1 and fdapace 0.6.0. The existing dense CSVs remained byte-for-byte
-unchanged. The controller runs the full test suite on Julia 1.10 and the
-current release, Aqua, and the docs build. Those controller gates were not
-run during this development step.
+`Rscript test/reference/fdapace_m3.R` regenerates the PACE golden fixtures
+with R 4.5.1 and fdapace 0.6.0.
 
 References: Yao, Müller, and Wang (2005), *Functional Data Analysis for
 Sparse Longitudinal Data*, JASA 100, 577–590;
