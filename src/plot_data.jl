@@ -360,8 +360,8 @@ band_data(b::NamedTuple{(:nodes,)}) = (; nodes=band_data.(b.nodes))
     band_data(b::NamedTuple{(:grid,:estimate,:se,:lower,:upper,:alpha,:critical_value,:settings)})
 
 Return copied plotting coordinates for one pointwise coefficient interval from
-[`coefficient_bands`](@ref). The existing [`bandplot`](@ref) ribbon recipe accepts
-this result directly: `bandplot(only(coefficient_bands(model)))`.
+[`coefficient_bands`](@ref). The existing [`band_plot`](@ref) ribbon recipe accepts
+this result directly: `band_plot(only(coefficient_bands(model)))`.
 """
 function band_data(b::NamedTuple{(:grid,:estimate,:se,:lower,:upper,:alpha,:critical_value,:settings)})
     (; grid=copy(b.grid), values=permutedims(b.estimate), lower=permutedims(b.lower),

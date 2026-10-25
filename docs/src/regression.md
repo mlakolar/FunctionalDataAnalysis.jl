@@ -36,7 +36,7 @@ model = StatsAPI.fit(FPCRegression, tecator.data, tecator.covariates.Fat;
 beta = only(coefficient_functions(model))
 values = evaluate(beta, tecator.data.grid)
 pointwise = only(coefficient_bands(model))
-coordinates = band_data(pointwise) # bandplot(pointwise) uses the existing ribbon recipe
+coordinates = band_data(pointwise) # band_plot(pointwise) uses the existing ribbon recipe
 predictions = predict(model, tecator.data; interval=:prediction)
 (StatsAPI.fitted(model), predictions.lower, predictions.upper)
 ```

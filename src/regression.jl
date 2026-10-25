@@ -404,7 +404,6 @@ function _regression_project_new(m,x,evaluator::Union{PiecewiseLinear,NoInterpol
     end
     project_scores(m,GridFunctionalData(values,m.grid))
 end
-_regression_project_new(m,x,evaluator) = throw(ArgumentError("evaluator must be nothing, PiecewiseLinear(), or NoInterpolation()"))
 
 function _regression_newdesign(f::FPCRegression{T},x,z,evaluator)::Matrix{T} where {T}
     curves = _regression_inputs(x)

@@ -138,6 +138,17 @@ end
         beta = only(coefficient_functions(f))
         @test vec(evaluate(beta, points)) ≈ basis_matrix(basis, points) * [1.2, -0.8, 0.4] atol=2e-13
         @test StatsAPI.predict(f, x[[4, 1]]) ≈ (response - error)[[4, 1]] atol=2e-13
+        # Raw curves against a basis fit: explicit numerical projection on the work grid.
+        fine = collect(range(0.0, 1.0; length=2001))
+        raw = GridFunctionalData(evaluate(x[[4, 1]], fine), fine)
+        @test StatsAPI.predict(f, raw; evaluator=PiecewiseLinear()) ≈
+            (response - error)[[4, 1]] rtol=1e-3
+        # Basis curves against a raw-data fit are evaluated exactly on its grid.
+        grid = collect(range(0.0, 1.0; length=101))
+        dense = StatsAPI.fit(FPCRegression, GridFunctionalData(evaluate(x, grid), grid), response;
+            ncomponents=3, fpca_options=(; method=:dense))
+        @test StatsAPI.predict(dense, x) ≈ StatsAPI.fitted(dense) atol=1e-10
+        @test sprint(show, MIME"text/plain"(), dense) == sprint(show, dense)
     end
 
     @testset "Sparse PACE scores preserve the fitted conditional expectation" begin
@@ -339,6 +350,10 @@ end
         FunctionalDataAnalysis._plot_payload(Val(:band),coordinates))
     @test any(series -> get(series.plotattributes,:label,nothing) == "Coefficient (interval)",plotted)
     @test_throws ArgumentError predict(f,x1;evaluator=:linear)
+    @test_throws ArgumentError StatsAPI.fit(FPCRegression,1.0,y)
+    @test_throws ArgumentError StatsAPI.fit(FPCRegression,x1,"response")
+    onecomponent = StatsAPI.fit(FPCA,x1;ncomponents=1,max_k=2)
+    @test_throws r"FVE threshold" StatsAPI.fit(FPCRegression,x1,y;fpca=onecomponent,ncomponents=FVE(0.9))
     @test_throws ArgumentError coefficient_bands(f;grid="bad")
     @test_throws ArgumentError fitted_bands(f;interval=:band)
     @test_throws ArgumentError predict(f,x1;interval=:band)
