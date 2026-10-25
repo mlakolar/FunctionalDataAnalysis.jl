@@ -69,6 +69,11 @@ route for `sampling_design(fd) == :regular`; irregular or masked data use
 PACE. `method=:pace` forces PACE on either data representation, while
 `method=:dense` requires complete `GridFunctionalData`. Pooled smoothing
 keywords are accepted only on the PACE route.
+PACE does not forward `noise_method` or `noise_interval`. To choose an
+alternative, fit [`SmoothedCovariance`](@ref) explicitly with those options
+and pass it as `covariance=c`. Its noise estimate is reused unless
+`noise_variance` explicitly overrides it. Automatic estimation keeps
+`noise_method=:rotated, noise_interval=:full` unchanged.
 
 `BasisFunctionalData` dispatches to exact-basis roughness-penalized FPCA;
 see `fit(FPCA, fd::BasisFunctionalData)` for its lambda, penalty, centering,
@@ -130,6 +135,10 @@ intervals (six strictly interior knots), `p=3`, `m=2`, `center=true`,
 observed range expanded by 0.1% at each end. `grid=nothing` uses 100 equally
 spaced points across the observed range; an override must cover all observations
 and stay within that range, with full spline rank. `max_k` defaults to `knots+p`.
+Sparse `face.lambda_mean` fixes the mean penalty and `face.mean_loglambda`
+sets its log-candidate grid; these are independent of covariance
+`face.lambda`/`face.loglambda`. Dense FACE instead accepts a
+`face.mean_smoother` object. These different mean smoothers are not aliases.
 The reference's `gcv` approximates leave-one-subject-out squared prediction
 error to first order, omitting the constant sum of squared raw products.
 It fits the covariance and noise jointly, including diagonal raw products.

@@ -131,6 +131,15 @@ end
         @test b.band.upper ≈ mean.values .+ expected_c .* b.standard_error
         again = mean_bands(fd, mean; B=39, rng=b.rng_state)
         @test again.bootstrap == b.bootstrap && again.band == b.band
+        alias = @inferred mean_bands(fd, mean; bootstrap_replicates=39, rng=b.rng_state)
+        @test alias.B == b.B == 39
+        @test alias.bootstrap == b.bootstrap
+        @test alias.interval == b.interval && alias.band == b.band
+        @test alias.standard_error == b.standard_error
+        @test alias.rng_state == b.rng_state
+        @test alias.settings == b.settings
+        @test_throws ArgumentError mean_bands(fd, mean; B=39, bootstrap_replicates=39)
+        @test_throws ArgumentError mean_bands(fd, mean; bootstrap_replicates=true)
         @test b.rng_state == snapshot && b.mean !== mean
         @test fieldtype(typeof(b), :rng_state) === typeof(snapshot)
         @test b.mean.bandwidth == 2.0 && b.mean.weighting == :subj
@@ -238,6 +247,7 @@ end
         @test_throws ArgumentError mean_bands(fd, m; method=:unknown)
         @test_throws ArgumentError mean_bands(fd, m; method=:sandwich, coverage=:both)
         @test_throws ArgumentError mean_bands(fd, m; method=:sandwich, B=1000)
+        @test_throws ArgumentError mean_bands(fd, m; method=:sandwich, bootstrap_replicates=1000)
         @test_throws ArgumentError mean_bands(fd, m; method=:sandwich, rng=MersenneTwister(1))
         @test_throws ArgumentError mean_bands(fd, m; method=:sandwich, alpha=0)
         # A compact window containing just one curve has no cluster variance.

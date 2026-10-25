@@ -79,6 +79,12 @@ selection is not repeated.** Supply the original training data. A refit must
 reproduce the stored mean; this compatibility check cannot certify data
 provenance.
 
+`bootstrap_replicates` is a descriptive alias for `B`: it counts whole-curve
+resamples, with default 1000. Supply at most one name. For example,
+`mean_bands(fd, m; bootstrap_replicates=1000, rng=MersenneTwister(42))`
+has exactly the same draws and endpoints as the `B=1000` form with that RNG.
+Both names are bootstrap-only; the stored result field remains `B`.
+
 `coverage=:interval` gives pointwise percentile intervals from bootstrap
 means, with R type-7 empirical quantiles. `coverage=:band` uses
 
@@ -129,7 +135,7 @@ A window with fewer than two contributing clusters has undefined variance
 and throws. No window or grid point is dropped.
 
 Only `coverage=:interval` is available for this method and is its default.
-Explicit `B` and `rng` throw because no resampling occurs. The result has
+Explicit `B`, `bootstrap_replicates` and `rng` throw because no resampling occurs. The result has
 `B=0`, `rng_state=nothing`, an empty bootstrap matrix, and records CR1,
 conventional inference, curve clusters and `minobs=0`. Analytic simultaneous
 mean bands are not implemented.
