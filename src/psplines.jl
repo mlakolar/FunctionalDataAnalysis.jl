@@ -12,7 +12,7 @@ function _difference_penalty(k::Integer, m::Integer, ::Type{T}=Float64) where {T
     P
 end
 
-function _pspline_design(x::AbstractVector{T}, knots, p, m;
+Base.@constprop :aggressive function _pspline_design(x::AbstractVector{T}, knots, p, m;
         interval=(minimum(x), maximum(x))) where {T<:AbstractFloat}
     _integer_in(knots, 1) || throw(ArgumentError("FACE knots must be a positive integer (number of equal intervals)"))
     _integer_in(p, 0) || throw(ArgumentError("FACE degree p must be a nonnegative integer"))
@@ -34,7 +34,7 @@ function _pspline_design(x::AbstractVector{T}, knots, p, m;
     (; basis, knots=sequence, B, P)
 end
 
-function _pspline_setting(x::AbstractVector{T}, knots, p, m) where {T<:AbstractFloat}
+Base.@constprop :aggressive function _pspline_setting(x::AbstractVector{T}, knots, p, m) where {T<:AbstractFloat}
     design = _pspline_design(x, knots, p, m)
     B, P = design.B, design.P
     gram_eigen = eigen(Symmetric(transpose(B)*B))
@@ -47,7 +47,9 @@ function _pspline_setting(x::AbstractVector{T}, knots, p, m) where {T<:AbstractF
     s = max.(eig.values, zero(T))
     m > 0 && (s[1:m] .= 0)
     A0 = inverse_root * eig.vectors
-    (; design..., s, A0, A=B*A0)
+    # Spell out the fields so a runtime degree's partially known basis type
+    # does not erase the matrix field types through NamedTuple splatting.
+    (; basis=design.basis, knots=design.knots, B, P, s, A0, A=B*A0)
 end
 
 # Brent's bounded search, with the stopping constants used by R 4.5 stats
