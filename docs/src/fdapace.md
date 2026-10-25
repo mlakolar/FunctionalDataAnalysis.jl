@@ -83,6 +83,7 @@ identifies the matching conventions and the differences retained by design.
 | `methodMuCovEst` | `SetOptions`: Sparse uses `"smooth"`; Dense, DenseWithMV, and `p>>n` use `"cross-sectional"`. | Complete common-grid data use cross-sectional estimates by default. Irregular or masked data use PACE pooled smoothers; `method=:pace` forces this route on regular data too. |
 | `methodXi` | `SetOptions`: Dense and `p>>n` use `"IN"`; DenseWithMV uses `"CE"`. Sparse normally uses `"CE"`, but uses `"IN"` if every curve has **more than 20** observations and the largest spacing, including either boundary gap to the pooled range, is at most 6% of that range. | Dense scores use the stored quadrature weights. PACE always uses conditional-expectation scores. There is no additional data-driven switch between these formulas. |
 | Measurement error | `SetOptions`: `error=TRUE`, even for Dense. `R/GetCovDense.R`, `GetCovDense` uses a second-difference noise estimate on its cross-sectional route. | Dense stores `noise_variance=nothing` and defaults to `presmooth=nothing`. It assumes negligible measurement error, following Ramsay and Silverman (2005), Chapter 8. Noisy dense curves need explicit presmoothing or PACE. |
+| Smoothed noise estimator | `PC_CovE` uses the rotated diagonal; `SetOptions` supplies the middle-half `rotationCut=c(.25,.75)`, while the internal formal default is `c(0,1)`. | `SmoothedCovariance` and PACE default to the rotated diagonal over the full observed domain, selected by the issue #17 Discovery benchmark. Explicit `noise_method=:surface_diagonal` and `noise_interval=:middle_half` retain the milestone 2 rule. |
 | `rho` | `SetOptions`: `methodRho="vanilla"`, `userRho=NULL`. This means no extra regularization; details are below. | `rho` regularization is not implemented. No ridge is silently added. |
 
 The remembered claim that fdapace always uses `maxK=min(20,m-2)` is therefore
@@ -189,13 +190,17 @@ to the middle half, `c(0.25,0.75)`; the internal `PC_CovE` function's own
 formal default is instead `c(0,1)`. `GetSmoothedCovarSurface` resets a
 negative result to `1e-6`, but leaves zero and tiny positive values unchanged.
 
-The package's existing `SmoothedCovariance` shares the middle-half
-integrated variance principle. It uses the diagonal of its fitted covariance
-surface, inserts the exact interval endpoints by linear interpolation, and
-truncates a negative result to **zero**. Its diagonal bandwidth defaults to
-the covariance bandwidth and can be supplied separately. These differences
-were established in milestone 2 and are not claims of literal `PC_CovE`
-equivalence. On fdapace's cross-sectional route, `GetCovDense` instead
+The package's default `SmoothedCovariance` uses the rotated diagonal over the
+full observed domain (`noise_method=:rotated, noise_interval=:full`), following
+the issue #17 Discovery benchmark and Mladen's decision on 25 October 2026.
+PACE inherits these defaults. This matches the internal `PC_CovE` formal
+interval, while fdapace's `FPCA` entry point uses the middle half. Negative
+estimates truncate to **zero**. The raw-square bandwidth defaults to the
+covariance bandwidth and can be supplied separately. The milestone 2 rule
+remains available with `noise_method=:surface_diagonal,
+noise_interval=:middle_half`; it interpolates exact interval endpoints.
+The rotated construction and departures are detailed below.
+On fdapace's cross-sectional route, `GetCovDense` instead
 estimates noise by the mean squared second difference divided by
 `choose(4,2)=6`, and subtracts it from the sample covariance diagonal unless
 `userSigma2` is supplied. Our dense route does not perform this operation.
@@ -235,6 +240,90 @@ one to ten times that updated variance. For `"ridge"`, they are
 discrepancy between integrated reconstructed variance and `sum(lambda)`.
 Above 2048 curves, `FPCA` estimates it on a random subset of 2048. This
 regularization, penalized/smoothed FPCA, and FACE remain unimplemented.
+
+## [Rotated noise variance: milestone 5, issue #17](@id fdapace-rotated-noise)
+
+The 2026-10-25 audit inspected the versioned fdapace **0.6.0** archive above,
+including executable C++, and the installed R 4.5.1 function bodies:
+[`R/RotateLwls2DV2.R`](https://github.com/cran/fdapace/blob/0.6.0/R/RotateLwls2DV2.R),
+[`src/RrotatedMullwlsk.cpp`](https://github.com/cran/fdapace/blob/0.6.0/src/RrotatedMullwlsk.cpp),
+[`R/PC_CovE.R`](https://github.com/cran/fdapace/blob/0.6.0/R/PC_CovE.R),
+[`R/SetOptions.R`](https://github.com/cran/fdapace/blob/0.6.0/R/SetOptions.R), and
+[`R/GetSmoothedCovarSurface.R`](https://github.com/cran/fdapace/blob/0.6.0/R/GetSmoothedCovarSurface.R).
+The wrapper comment claiming quadratic terms in both directions is inaccurate.
+
+For a pair `(s,t)`, the rotated coordinates are
+`u=(s-t)/sqrt(2)` across the diagonal and `v=(s+t)/sqrt(2)` along it.
+At a diagonal query `(q,q)`, the C++ weighted regression has exactly the
+columns `1, u^2, v-sqrt(2)*q`. There is no linear across-diagonal term,
+quadratic along-diagonal term, or cross term. The product kernel acts on
+`u/h` and `(v-sqrt(2)*q)/h`. Compact kernels restrict both coordinates to
+their bandwidth windows; Gaussian uses all pairs. Julia scales the polynomial
+columns by bandwidth for conditioning, which preserves the fitted intercept.
+It reuses the covariance smoother's three-column normal-equation solver.
+
+`PC_CovE` takes **only the first covariance bandwidth** and supplies that
+scalar to both the rotated smoother and the raw-square `Lwls1D` smoother.
+The wrapper repeats it in both rotated axes. There is no extra `sqrt(2)`
+bandwidth multiplier and no bandwidth selection inside `PC_CovE`.
+Julia likewise uses its selected covariance bandwidth in both rotated axes;
+its existing `diagonal_bandwidth` override still affects only the raw squares.
+
+The integration domain is `[a,b]=extrema(obsGrid)`. A cut `(l,r)` keeps only
+existing `regGrid` points satisfying
+`q > a+(b-a)*l-buffer` and `q < a+(b-a)*r+buffer`, where
+`buffer=10*.Machine$double.eps*max(abs(obsGrid))`.
+The trapezoidal integral is divided by the **nominal** length `(b-a)*(r-l)`,
+even if the retained points cover less. No boundary points are inserted.
+`SetOptions` supplies `(0.25,0.75)`; the internal `PC_CovE` formal default is
+`(0,1)`. Julia exposes these as `:middle_half` and `:full` (default), with the
+buffer computed at the fit's floating-point precision. Its surface-diagonal
+estimator retains its original work-grid domain and interpolated boundaries.
+
+`noise_method=:rotated` matches this `PC_CovE` calculation at fixed bandwidths.
+The public covariance surface still uses unrotated local linear smoothing.
+Intentional departures are explicit:
+
+- Negative noise estimates truncate to zero, with the raw value and flag
+  retained. fdapace's enclosing surface routine changes a negative estimate
+  to `1e-6`; `PC_CovE` itself returns the raw estimate.
+- Undefined or singular fits throw, including windows with one point.
+  fdapace's C++ returns that point's response in a one-point window and
+  does not perform Julia's rank checks. At least two retained integration
+  points are required in Julia.
+- The existing observation/subject weights, supplied mean interpolation,
+  optional binning, and explicit raw-square bandwidth override remain in
+  force. These are extensions of the fixed-bandwidth calculation, not a
+  claim of identical end-to-end R FPCA tuning.
+
+`test/reference/fdapace_m5_sigma2.R` generates `test/data/m5_fdapace_sigma2.csv`
+from the unchanged milestone-2 fixture. It calls `PC_CovE` itself, for both
+intervals, two bandwidths (`0.35,0.65`), Epanechnikov/Gaussian kernels, and
+aligned, unaligned, and extended work grids. Observation and subject weights
+enter through the `BinnedRawCov` weighted-input interface without moving or
+merging times. Raw squares and weights are sorted together before entry:
+`PC_CovE` sorts diagonal values but does not itself permute `win2`.
+All raw variances and fitted diagonals are compared at relative error below
+`1e-8`. The fixture tests the retained-grid/nominal-length rule directly.
+
+The benchmark-only `projected_fgm` reference is source-audited against FGM's
+historical `bsplinekit` commit
+[`6f0eac3d5cbe0fad93e88dcad28f389d89b61495`, `src/doubly.jl`](https://github.com/mlakolar/FunctionalGraphicalModels.jl/blob/6f0eac3d5cbe0fad93e88dcad28f389d89b61495/src/doubly.jl).
+That code keeps weighted covariance eigenvalues exceeding
+`100eps(Float64)*max(maximum(abs,eigenvalues),floatmin(Float64))`, reconstructs
+the covariance from all such components, and estimates noise by the arithmetic
+mean of raw-square excesses at indices `ceil(q/4):floor(3q/4)` (clamped to
+`1:q`), followed by truncation at zero. The benchmark reuses Julia's weighted
+eigen step with relative cutoff `100eps(Float64)` and this index-average rule.
+It compares the diagonal rule on the same smoothed inputs as the other four
+estimators, including the requested weighting and bandwidth choices; it is
+not a rerun of FGM's complete pipeline. The relative-cutoff expression agrees
+with historical FGM for the non-subnormal spectra of these simulations.
+There is no projected-diagonal package option.
+
+[Noise-variance estimators (issue #17)](m5_sigma2_report.md) gives the Discovery
+results, benchmark-selected defaults and the two-cell harness smoke check.
+The Discovery benchmark led to `:rotated` with `:full` as the package defaults.
 
 ## Eigenanalysis, signs, and component selection
 
@@ -337,8 +426,9 @@ Three further source details affect these comparisons:
 `test/reference/fdapace_m3.R` also writes `m3_fdapace_end2end.csv` and
 `m3_fdapace_defaults.csv`, using R 4.5.1 and fdapace 0.6.0. Their versioned
 header comments describe the settings. Both align noise with
-`userSigma2=0.12`, because the package's existing noise estimator differs
-from `PC_CovE` as described above.
+`userSigma2=0.12`, isolating mean, covariance and score comparisons from noise
+estimation. These fixtures predate the rotated default; fdapace's enclosing
+`FPCA` still uses a different integration interval and negative-value rule.
 
 The fixed-bandwidth run estimates its mean and covariance from the sparse
 fixture. It uses `userBwMu=0.30`, `userBwCov=0.40`, `kernel="epan"`,

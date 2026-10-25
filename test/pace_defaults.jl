@@ -1,5 +1,6 @@
 import KernelSmoothing
 import StatsAPI
+import RecipesBase
 
 @testset "Automatic FPCA defaults" begin
     functions = fourier_eigenfunctions((-1.0, 2.0), 2)
@@ -30,10 +31,23 @@ import StatsAPI
         @test model.settings.mean_source == :estimated
         @test model.settings.covariance_source == :estimated
         @test model.settings.noise_variance_source == :estimated
+        @test model.settings.covariance_input.noise_details.noise_method == :rotated
+        @test model.settings.covariance_input.noise_details.noise_interval == :full
         @test isfinite(noise_variance(model)) && noise_variance(model) >= 0
         @test all(isfinite, scores(model))
         @test small.times == original_times
         @test small.values == original_values
+        # Downstream uncertainty, derivative and plot consumers must accept a
+        # PACE fit whose noise was estimated with the rotated/full default.
+        bands = fitted_bands(model; curves=[1, 2])
+        @test bands.fitted ≈ reconstruct(model).values[1:2, :]
+        @test all(bands.lower .<= bands.fitted .<= bands.upper)
+        differentiated = derivative(model; bandwidth=0.6)
+        @test all(isfinite, reconstruct(differentiated).values)
+        @test size(score_covariances(differentiated)) == size(score_covariances(model))
+        @test fitted_curve_data(model, 1).values ≈ vec(bands.fitted[1, :])
+        payload = FunctionalDataAnalysis._plot_payload(Val(:fit), fitted_curve_data(model, 1))
+        @test length(RecipesBase.apply_recipe(Dict{Symbol,Any}(), payload)) == 2
         for setting in ("grid_source", "GaussianKernel", "weighting", "obs",
                 "mean_bandwidth", "covariance_bandwidth", "diagonal_bandwidth",
                 "requested_binning", "binning", "maxK", "0.99",
@@ -66,6 +80,21 @@ import StatsAPI
         @test dense.selection.maxK == 30 # The dense default has no cap of 20.
         @test dense.selection.threshold == 0.99
         @test noise_variance(dense) === nothing
+    end
+
+    @testset "Multivariate routes inherit rotated/full noise" begin
+        data = MultivariateFunctionalData([small, small])
+        marginal = StatsAPI.fit(FPCA, data; ncomponents=2, maxK=3)
+        joint = StatsAPI.fit(MFPCA, data; ncomponents=2,
+            univariate=(; ncomponents=2, maxK=3))
+        for fitted in (marginal, joint), j in 1:2
+            node = component(fitted, j)
+            details = node.settings.covariance_input.noise_details
+            @test details.noise_method == :rotated
+            @test details.noise_interval == :full
+            @test isfinite(noise_variance(node))
+        end
+        @test all(isfinite, scores(joint))
     end
 
     @testset "Overrides, selectors, and errors" begin

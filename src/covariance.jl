@@ -1,6 +1,7 @@
 """
     fit(SmoothedCovariance, fd, mean; grid, bandwidth, diagonal_bandwidth=nothing,
-        kernel=KernelSmoothing.EpanechnikovKernel(), weighting=:obs, binning=nothing)
+        kernel=KernelSmoothing.EpanechnikovKernel(), weighting=:obs, binning=nothing,
+        noise_method=:rotated, noise_interval=:full)
 
 Smooth all ordered within-curve off-diagonal residual products by bivariate
 local linear regression and symmetrize. The required `bandwidth` is positive
@@ -22,8 +23,30 @@ errors are retained for raw-product CV scores. Residuals are computed before sna
 
 `surface` stores the symmetric covariance and `weights` its trapezoidal grid
 weights. `noise_variance` estimates measurement error by integrating the
-smoothed raw squares minus the surface diagonal over the middle half of the
-work-grid domain, multiplying by `2/domain_length`, and truncating at zero.
+smoothed raw squares minus a latent covariance diagonal, and truncating at zero.
+The defaults `noise_method=:rotated, noise_interval=:full` were chosen by the
+issue #17 benchmark (`benchmark/sigma2/results/summary.md`, 48 designs × 500
+replicates on USC Discovery): the rotated diagonal over the full interval had
+the lowest MSE in 41 of 48 cells and removed most of the upward bias of the
+surface diagonal.
+`noise_method=:surface_diagonal` uses the unrotated surface diagonal (the
+milestone 2 estimator); `noise_interval=:middle_half` integrates over the
+middle half of the domain as fdapace does, while `:full` integrates over the
+whole domain (Li and Hsing, 2010). The surface method divides by the
+integration interval's length and interpolates its exact boundaries.
+
+`noise_method=:rotated` follows fdapace 0.6.0 `PC_CovE` and
+`RotateLwls2DV2` (Yao, Müller and Wang, 2005). Rotate pairs by 45 degrees;
+fit columns `(1, across^2, along)` with the product kernel and the selected
+covariance bandwidth in both rotated axes. The raw-square bandwidth remains
+`diagonal_bandwidth`. Select existing work-grid points inside the middle half
+or full **observed** domain, with fdapace's floating-point boundary buffer;
+do not insert endpoints. Divide by the nominal interval length, even if the
+retained grid spans less. At least two retained points are required. Singular
+windows throw rather than using fdapace's one-point fallback. Subject weighting
+and binning retain the package conventions above. The covariance surface is
+unaffected. See the [Discovery results](@ref sigma2-discovery-results) for the
+default-selection study.
 By default (`diagonal_bandwidth=nothing`) the diagonal uses the covariance
 bandwidth, after any CV selection, as fdapace does; theory only requires the
 diagonal bandwidth to be of no larger order than the covariance bandwidth (Li
@@ -43,8 +66,10 @@ in dense ones; use `CurveCV` for the final choice. Density-only and pointwise ru
 `noise_details.selection` stores the rule, bandwidth, and selector details,
 or the CV candidates, errors, assignments, and pilot information when used.
 `noise_details` records its bandwidth, fold count, selection scores and assignments,
-raw estimate, truncation flag, integration bounds and grid, and fitted squares.
-Boundary values for integration are linearly interpolated. All settings and
+raw estimate, truncation flag, method, interval, domain, nominal integration
+length, boundary rule, integration grid, fitted squares, latent diagonal on
+that integration grid, and rotation settings (`applied` indicates their use).
+All settings and
 CV scores are retained and shown. No positive-semidefinite projection is made.
 """
 struct SmoothedCovariance{T<:AbstractFloat,H,D,K,S,N,B}
@@ -163,9 +188,14 @@ end
 
 function fit(::Type{SmoothedCovariance}, fd::Union{GridFunctionalData,IrregularFunctionalData},
         mean::Union{SmoothedMean,GridFunctionalData}; grid::AbstractVector{<:Real}, bandwidth, diagonal_bandwidth=nothing,
-        kernel=KernelSmoothing.EpanechnikovKernel(), weighting=:obs, binning=nothing)
+        kernel=KernelSmoothing.EpanechnikovKernel(), weighting=:obs, binning=nothing,
+        noise_method=:rotated, noise_interval=:full)
     mean isa SmoothedMean && _require_value_mean(mean)
     weighting in (:obs, :subj) || throw(ArgumentError("weighting must be :obs or :subj"))
+    noise_method isa Symbol && noise_method in (:surface_diagonal, :rotated) || throw(ArgumentError(
+        "noise_method must be :surface_diagonal or :rotated"))
+    noise_interval isa Symbol && noise_interval in (:middle_half, :full) || throw(ArgumentError(
+        "noise_interval must be :middle_half or :full"))
     binning === nothing || (binning isa Integer && 2 <= binning <= typemax(Int)) ||
         throw(ArgumentError("binning must be nothing or an integer of at least two"))
     binning = binning === nothing ? nothing : Int(binning)
@@ -193,22 +223,60 @@ function fit(::Type{SmoothedCovariance}, fd::Union{GridFunctionalData,IrregularF
     surface = (surface + transpose(surface))/2
     diagonal = T.(_mean_predict(pool.times, pool.squares, pool.diagonal_weights, grid,
         LocalPolynomial(; bandwidth=diagonal_h, kernel=method.kernel); label="noise variance diagonal smoother"))
-    a, b = first(grid), last(grid)
-    lower, upper = a + (b-a)/4, b - (b-a)/4
-    integration_grid = vcat(lower, grid[lower .< grid .< upper], upper)
-    difference = diagonal - diag(surface)
-    integrand = _evaluate_curve!(similar(integration_grid), grid, difference, integration_grid, PiecewiseLinear())
-    raw = T(2 * dot(quadrature_weights(integration_grid), integrand)/(b-a))
+    integration = _covariance_noise_integral(pool, grid, surface, diagonal, h,
+        method.kernel, noise_method, noise_interval)
+    raw = integration.raw_variance
     all(isfinite, surface) && all(isfinite, diagonal) && isfinite(raw) ||
         throw(ArgumentError("covariance and noise variance must remain finite after conversion"))
     details = (; bandwidth=diagonal_h, degree=1, minobs=0,
         folds=diagonal_bandwidth isa CurveCV ? diagonal_bandwidth.folds : 0,
         selection=diagonal_selection, diagonal_source=diagonal_bandwidth === nothing ? :covariance : :user,
-        raw_variance=raw,
-        truncated=raw < 0, bounds=(lower, upper), integration_grid, diagonal)
+        raw_variance=raw, truncated=raw < 0, diagonal,
+        noise_method, noise_interval, integration.domain, integration.bounds,
+        integration.nominal_length, integration.boundary_rule, integration.integration_grid,
+        integration.latent_diagonal,
+        rotation=(; applied=noise_method == :rotated, angle=T(pi/4), bandwidth=h,
+            across_degree=2, along_degree=1))
     SmoothedCovariance(grid, surface, weights, h, diagonal_h, method.kernel, weighting, binning, 1,
         sampling_design(fd), bandwidth isa CurveCV ? bandwidth.folds : 0,
         selection, max(zero(T), raw), details)
+end
+
+# Shared by the fit and the benchmark's integrated estimators. The
+# surface estimator preserves the original arithmetic and clipped trapezoids.
+function _covariance_noise_integral(pool, grid::AbstractVector{T}, surface, diagonal, h, kernel,
+        noise_method, noise_interval) where {T<:AbstractFloat}
+    rotated = noise_method == :rotated
+    a, b = rotated ? extrema(pool.original_times) : (first(grid), last(grid))
+    lower, upper = noise_interval == :middle_half ? (a+(b-a)/4, b-(b-a)/4) : (a, b)
+    fraction = noise_interval == :middle_half ? T(0.5) : one(T)
+    nominal_length = (b-a)*fraction
+    isfinite(nominal_length) && nominal_length > 0 || throw(ArgumentError(
+        "noise integration requires a finite positive domain length"))
+    # Keep both branches concrete on Julia 1.10 even for runtime method choices.
+    local integration_grid::Vector{T}, latent_diagonal::Vector{T}, integrand::Vector{T}
+    integration_grid, latent_diagonal, integrand = if rotated
+        buffer = 10eps(T)*max(abs(a), abs(b))
+        keep = (grid .> lower-buffer) .& (grid .< upper+buffer)
+        points = grid[keep]
+        length(points) >= 2 || throw(ArgumentError(
+            "rotated noise integration requires at least two work-grid points inside noise_interval"))
+        latent = Vector{T}(_rotated_covariance_diagonal(pool, points, h, kernel))
+        points, latent, diagonal[keep] - latent
+    else
+        points = vcat(lower, grid[lower .< grid .< upper], upper)
+        latent = _evaluate_curve!(similar(points), grid, diag(surface), points, PiecewiseLinear())
+        difference = diagonal - diag(surface)
+        values = _evaluate_curve!(similar(points), grid, difference, points, PiecewiseLinear())
+        points, latent, values
+    end
+    integral = dot(quadrature_weights(integration_grid), integrand)
+    raw_variance::T = noise_interval == :middle_half ? 2integral/(b-a) : integral/(b-a)
+    isfinite(raw_variance) && all(isfinite, latent_diagonal) || throw(ArgumentError(
+        "noise variance diagonal and integral must be finite"))
+    (; raw_variance, domain=(T(a), T(b)), bounds=(T(lower), T(upper)),
+        nominal_length=T(nominal_length), integration_grid, latent_diagonal,
+        boundary_rule=rotated ? :retained_grid : :interpolated_endpoints)
 end
 
 """

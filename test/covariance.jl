@@ -18,6 +18,147 @@ using DelimitedFiles
     end
 end
 
+@testset "Noise methods: fdapace 0.6.0 PC_CovE" begin
+    input = readdlm(joinpath(@__DIR__, "data", "m2_input.csv"), ','; comments=true)
+    times = [Float64.(input[input[:,1] .== i,2]) for i in 1:4]
+    ys = [Float64.(input[input[:,1] .== i,3]) for i in 1:4]
+    fd = IrregularFunctionalData(times, ys)
+    golden = readdlm(joinpath(@__DIR__, "data", "m5_fdapace_sigma2.csv"), ',', Any; comments=true)
+    grids = (aligned=collect(0.:.125:1.), unaligned=[0., .18, .31, .56, .69, .84, 1.],
+        extended=[-.1, .1, .35, .55, .7, .9, 1.1])
+    for weighting in (:obs, :subj)
+        m = StatsAPI.fit(SmoothedMean, fd;
+            grid=sort(unique(vcat(times...))), bandwidth=.65, weighting)
+        for (kernel_name, kernel) in (("epan", KernelSmoothing.EpanechnikovKernel()),
+                ("gauss", KernelSmoothing.GaussianKernel())), h in (.35, .65),
+                grid_name in keys(grids), interval in (:middle_half, :full)
+            grid = grids[grid_name]
+            c = @inferred StatsAPI.fit(SmoothedCovariance, fd, m; grid,
+                bandwidth=h, kernel, weighting, noise_method=:rotated, noise_interval=interval)
+            rows = (golden[:,1] .== string(weighting)) .& (golden[:,2] .== kernel_name) .&
+                (golden[:,3] .== h) .& (golden[:,4] .== string(grid_name)) .&
+                (golden[:,5] .== string(interval))
+            expected_raw = only(Float64.(golden[rows .& (golden[:,6] .== "raw_variance"),9]))
+            @test abs(c.noise_details.raw_variance - expected_raw)/abs(expected_raw) < 1e-8
+            @test c.noise_variance == max(0, c.noise_details.raw_variance)
+            @test c.noise_details.truncated == (expected_raw < 0)
+            for (quantity, actual) in (("latent_diagonal", c.noise_details.latent_diagonal),
+                    ("observed_diagonal", c.noise_details.diagonal[indexin(c.noise_details.integration_grid, grid)]))
+                selected = rows .& (golden[:,6] .== quantity)
+                expected = Float64.(golden[selected,9])
+                @test norm(actual - expected)/norm(expected) < 1e-8
+                @test c.noise_details.integration_grid == Float64.(golden[selected,8])
+            end
+            @test c.noise_details.domain == (0., 1.)
+            @test c.noise_details.nominal_length == (interval == :full ? 1. : .5)
+            @test c.noise_details.boundary_rule == :retained_grid
+            @test c.noise_details.rotation.applied
+            @test c.noise_details.rotation.bandwidth == h
+            @test c.noise_details.noise_method == :rotated
+            @test c.noise_details.noise_interval == interval
+            @test occursin("noise_method = :rotated", sprint(show, c))
+        end
+        grid = grids.unaligned
+        default = StatsAPI.fit(SmoothedCovariance, fd, m; grid, bandwidth=.65, weighting)
+        explicit = StatsAPI.fit(SmoothedCovariance, fd, m; grid, bandwidth=.65, weighting,
+            noise_method=:rotated, noise_interval=:full)
+        full = @inferred StatsAPI.fit(SmoothedCovariance, fd, m; grid, bandwidth=.65, weighting,
+            noise_method=:surface_diagonal, noise_interval=:full)
+        rotated = StatsAPI.fit(SmoothedCovariance, fd, m; grid, bandwidth=.65, weighting,
+            noise_method=:rotated, diagonal_bandwidth=.8)
+        @test default.noise_variance == explicit.noise_variance
+        @test default.noise_details == explicit.noise_details
+        @test default.noise_details.noise_method == :rotated
+        @test default.noise_details.noise_interval == :full
+        @test default.surface == full.surface == rotated.surface
+        @test full.noise_details.integration_grid == grid
+        @test full.noise_details.bounds == (0., 1.)
+        @test !full.noise_details.rotation.applied
+        @test full.noise_details.raw_variance ≈ dot(quadrature_weights(grid),
+            full.noise_details.diagonal - diag(full.surface))
+        @test rotated.diagonal_bandwidth == .8
+        @test rotated.noise_details.rotation.bandwidth == .65
+        # Snapping and within-curve aggregation preserve weighted rotated fits.
+        raw = FunctionalDataAnalysis._covariance_pool(fd, m, weighting, nothing)
+        snapped = merge(raw, (; x=FunctionalDataAnalysis._covariance_snap(raw.x, 5),
+            y=FunctionalDataAnalysis._covariance_snap(raw.y, 5)))
+        grouped = FunctionalDataAnalysis._covariance_pool(fd, m, weighting, 5)
+        ungrouped = FunctionalDataAnalysis._rotated_covariance_diagonal(snapped, grid, 1.2, full.kernel)
+        binned = @inferred StatsAPI.fit(SmoothedCovariance, fd, m; grid, bandwidth=1.2,
+            weighting, binning=5, noise_method=:rotated, noise_interval=:full)
+        @test binned.noise_details.latent_diagonal ≈ ungrouped
+        selected = @inferred StatsAPI.fit(SmoothedCovariance, fd, m; grid, weighting,
+            bandwidth=CurveCV([.65, 1.2]; folds=4), noise_method=:rotated)
+        @test selected.noise_details.rotation.bandwidth == selected.diagonal_bandwidth == selected.bandwidth
+    end
+    m = StatsAPI.fit(SmoothedMean, fd; grid=grids.aligned, bandwidth=.65)
+    for bad in (:projected, :unknown, nothing, missing, "rotated")
+        @test_throws ArgumentError StatsAPI.fit(SmoothedCovariance, fd, m;
+            grid=grids.aligned, bandwidth=.65, noise_method=bad)
+        @test_throws ArgumentError StatsAPI.fit(SmoothedCovariance, fd, m;
+            grid=grids.aligned, bandwidth=.65, noise_interval=bad)
+    end
+    @test_throws r"at least two work-grid points" StatsAPI.fit(SmoothedCovariance, fd, m;
+        grid=[0., .5, 1.], bandwidth=.65, noise_interval=:middle_half)
+    # A compact kernel and three observation times cannot identify the rotated
+    # quadratic at this bandwidth. The default must report this, without fallback.
+    smallgrid = [0., .5, 1.]
+    small = GridFunctionalData([1. 2 3; -1 -2 -3], smallgrid)
+    smallmean = StatsAPI.fit(SmoothedMean, small; grid=smallgrid, bandwidth=1.05)
+    @test_throws r"singular or undefined rotated diagonal fit .*use a larger bandwidth" StatsAPI.fit(
+        SmoothedCovariance, small, smallmean; grid=smallgrid, bandwidth=1.05)
+    surface = StatsAPI.fit(SmoothedCovariance, small, smallmean;
+        grid=smallgrid, bandwidth=1.05, noise_method=:surface_diagonal)
+    @test all(isfinite, surface.surface)
+    @test isfinite(surface.noise_variance)
+    @test surface.noise_details.noise_method == :surface_diagonal
+    wider = StatsAPI.fit(SmoothedCovariance, small, smallmean;
+        grid=smallgrid, bandwidth=2.)
+    @test isfinite(wider.noise_variance)
+    @test wider.noise_details.noise_method == :rotated
+    @test_throws ArgumentError StatsAPI.fit(SmoothedCovariance, fd, m;
+        grid=[-2., -1.], bandwidth=4., noise_method=:rotated, noise_interval=:full)
+    # Analytic rotated polynomial: intercept at (t,t) is 2 + 4sqrt(2)t.
+    # Unequal positive pair weights must not change exact polynomial recovery.
+    s = repeat([0., .2, .6, 1.]; inner=4)
+    t = repeat([0., .2, .6, 1.]; outer=4)
+    u, v = (s-t)/sqrt(2), (s+t)/sqrt(2)
+    pool = (; x=s, y=t, z=2 .+ 3u.^2 .+ 4v, weights=collect(1.:16.))
+    points = [0., .17, .61, 1.]
+    actual = @inferred FunctionalDataAnalysis._rotated_covariance_diagonal(
+        pool, points, 2., KernelSmoothing.EpanechnikovKernel())
+    @test actual ≈ 2 .+ 4sqrt(2).*points
+    # The analytic diagonal plus constant noise must integrate to that noise.
+    # Test the helper directly: runtime symbols must not leave Any fields that
+    # break inference in covariance, PACE, or multivariate fits on Julia 1.10.
+    for T in (Float32, Float64)
+        workgrid = T[0, .25, .5, .75, 1]
+        typed_pool = (; x=T.(s), y=T.(t), z=T.(pool.z), weights=T.(pool.weights),
+            original_times=T.(s))
+        surface = T[2 + 2sqrt(2)*(s+t) for s in workgrid, t in workgrid]
+        diagonal = diag(surface) .+ T(.5)
+        for method in (:surface_diagonal, :rotated), interval in (:middle_half, :full)
+            details = @inferred FunctionalDataAnalysis._covariance_noise_integral(
+                typed_pool, workgrid, surface, diagonal, T(2),
+                KernelSmoothing.EpanechnikovKernel(), method, interval)
+            @test details.raw_variance ≈ T(.5)
+            @test details.raw_variance isa T
+            @test details.latent_diagonal isa Vector{T}
+            @test details.integration_grid isa Vector{T}
+        end
+    end
+    singular = (; x=[0., 1.], y=[1., 0.], z=[1., 1.], weights=ones(2))
+    @test_throws ArgumentError FunctionalDataAnalysis._rotated_covariance_diagonal(
+        singular, [.5], 2., KernelSmoothing.GaussianKernel())
+    grid32 = Float32[0, .25, .5, .75, 1]
+    fd32 = GridFunctionalData(Float32[1 2 1 3 1; -1 -2 -1 -3 -1], grid32)
+    m32 = StatsAPI.fit(SmoothedMean, fd32; grid=grid32, bandwidth=2f0)
+    c32 = @inferred StatsAPI.fit(SmoothedCovariance, fd32, m32; grid=grid32,
+        bandwidth=2f0, noise_method=:rotated, noise_interval=:full)
+    @test eltype(c32.noise_details.latent_diagonal) == Float32
+    @test c32.noise_variance isa Float32
+end
+
 @testset "Pooled covariance" begin
     input = readdlm(joinpath(@__DIR__, "data", "m2_input.csv"), ','; comments=true)
     times = [Float64.(input[input[:,1] .== i,2]) for i in 1:4]
@@ -210,12 +351,15 @@ end
     fits = map((clean, clean + noise)) do values
         data = GridFunctionalData(values, workgrid)
         meanfit = StatsAPI.fit(SmoothedMean, data; grid=workgrid, bandwidth=.205)
-        StatsAPI.fit(SmoothedCovariance, data, meanfit; diagonal_bandwidth=.205, grid=workgrid, bandwidth=.205)
+        # This bound checks the original surface-diagonal, middle-half estimator.
+        StatsAPI.fit(SmoothedCovariance, data, meanfit; diagonal_bandwidth=.205,
+            grid=workgrid, bandwidth=.205, noise_method=:surface_diagonal, noise_interval=:middle_half)
     end
     noisy = GridFunctionalData(clean + noise, workgrid)
     noisy_mean = StatsAPI.fit(SmoothedMean, noisy; grid=workgrid, bandwidth=.205)
     different_diagonal = StatsAPI.fit(SmoothedCovariance, noisy, noisy_mean;
-        grid=workgrid, bandwidth=.205, diagonal_bandwidth=.405)
+        grid=workgrid, bandwidth=.205, diagonal_bandwidth=.405,
+        noise_method=:surface_diagonal, noise_interval=:middle_half)
     @test different_diagonal.surface == fits[2].surface
     @test different_diagonal.diagonal_bandwidth == .405
     @test !isapprox(different_diagonal.noise_variance, fits[2].noise_variance; atol=1e-8)
@@ -231,7 +375,8 @@ end
     ts = [workgrid, workgrid, [0.,1.], [0.,1.]]
     unequal = IrregularFunctionalData(ts, [ones(11), -ones(11), zeros(2), zeros(2)])
     um = StatsAPI.fit(SmoothedMean, unequal; grid=workgrid, bandwidth=2.)
-    uc = StatsAPI.fit(SmoothedCovariance, unequal, um; diagonal_bandwidth=2., grid=[0.,.2,.6,1.], bandwidth=2.)
+    uc = StatsAPI.fit(SmoothedCovariance, unequal, um; diagonal_bandwidth=2.,
+        grid=[0.,.2,.6,1.], bandwidth=2., noise_method=:surface_diagonal, noise_interval=:middle_half)
     @test uc.noise_details.truncated
     @test uc.noise_details.raw_variance < 0
     @test uc.noise_variance == 0

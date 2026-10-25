@@ -246,6 +246,8 @@ import StatsAPI
         mean = StatsAPI.fit(SmoothedMean, fd; grid, bandwidth=1.2, weighting=:subj)
         covariance = StatsAPI.fit(SmoothedCovariance, fd, mean;
             grid, bandwidth=1.2, weighting=:subj, binning=5)
+        @test covariance.noise_details.noise_method == :rotated
+        @test covariance.noise_details.noise_interval == :full
         # A positive explicit noise variance separates integration of the
         # smoothers from invertibility of their estimated latent covariance.
         estimated = @inferred StatsAPI.fit(FPCA, fd; grid, ncomponents=1, maxK=2,

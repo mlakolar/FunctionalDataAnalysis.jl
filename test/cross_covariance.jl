@@ -196,6 +196,8 @@ end
     blocks = @inferred cross_covariances(mfd; bandwidth=2.)
     @test size(blocks) == (2,2)
     @test blocks[1,1] isa SmoothedCovariance
+    @test blocks[1,1].noise_details.noise_method == :rotated
+    @test blocks[1,1].noise_details.noise_interval == :full
     @test blocks[1,2] isa SmoothedCrossCovariance
     @test blocks[1,2].surface == transpose(blocks[2,1].surface)
     @test blocks[1,2].mean1.values == sum(values; dims=1)/6

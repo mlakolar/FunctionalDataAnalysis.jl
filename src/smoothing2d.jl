@@ -4,7 +4,15 @@
 _bandwidth_axes(h::Real) = (h, h)
 _bandwidth_axes(h::Tuple{<:Real,<:Real}) = h
 
-function _local_linear2d(x, y, z, weights, s, t, h, kernel)
+_covariance_row(u, v, ::Val{:linear}) = (one(u), u, v)
+# fdapace 0.6.0 RrotatedMullwlsk.cpp: no linear across-diagonal term
+# and no cross term. Scaling columns by bandwidth preserves the intercept.
+_covariance_row(u, v, ::Val{:rotated}) = (one(u), u^2, v)
+
+_local_linear2d(x, y, z, weights, s, t, h, kernel) =
+    _local_covariance2d(x, y, z, weights, s, t, h, kernel, Val(:linear))
+
+function _local_covariance2d(x, y, z, weights, s, t, h, kernel, basis)
     h1, h2 = _bandwidth_axes(h)
     T = promote_type(eltype(x), eltype(y), eltype(z), eltype(weights),
         typeof(h1), typeof(h2), typeof(s), typeof(t))
@@ -14,7 +22,7 @@ function _local_linear2d(x, y, z, weights, s, t, h, kernel)
         u, v = (x[i] - s)/h1, (y[i] - t)/h2
         w = weights[i] * kernel(u) * kernel(v)
         w == 0 && continue
-        row = (one(T), u, v)
+        row = _covariance_row(u, v, basis)
         for j in 1:3
             b[j] += w * row[j] * z[i]
             for k in 1:3
@@ -22,7 +30,8 @@ function _local_linear2d(x, y, z, weights, s, t, h, kernel)
             end
         end
     end
-    failure() = ArgumentError("covariance has a singular or undefined local linear fit at point ($s, $t); use a larger bandwidth")
+    label = basis isa Val{:rotated} ? "rotated diagonal" : "local linear"
+    failure() = ArgumentError("covariance has a singular or undefined $label fit at point ($s, $t); use a larger bandwidth")
     all(isfinite, A) && all(isfinite, b) || throw(failure())
     factor = cholesky(Symmetric(A); check=false)
     isposdef(factor) || throw(failure())
@@ -30,4 +39,17 @@ function _local_linear2d(x, y, z, weights, s, t, h, kernel)
     value = (factor \ b)[1]
     isfinite(value) || throw(failure())
     value
+end
+
+function _rotated_covariance_diagonal(pool, grid, bandwidth, kernel)
+    T = promote_type(eltype(pool.x), eltype(grid), typeof(bandwidth))
+    root = sqrt(T(2))
+    across = (pool.x - pool.y)/root
+    along = (pool.x + pool.y)/root
+    out = Vector{T}(undef, length(grid))
+    for (i, t) in enumerate(grid)
+        out[i] = _local_covariance2d(across, along, pool.z, pool.weights,
+            zero(T), root*t, bandwidth, kernel, Val(:rotated))
+    end
+    out
 end
