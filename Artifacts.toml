@@ -1,0 +1,7 @@
+[fda_datasets]
+git-tree-sha1 = "b4a7d08b6826cf57a804710db60204957237f738"
+lazy = true
+
+    [[fda_datasets.download]]
+    sha256 = "ed2db0310705dac6852d37aca6d14bf59e2c68e24269c87254ceffdb16660cd2"
+    url = "https://github.com/mlakolar/FunctionalDataAnalysis.jl/releases/download/DATASETS_RELEASE_TAG/fda-datasets-v1.tar.gz"

@@ -38,5 +38,8 @@ Pkg.add(url = "https://github.com/mlakolar/FunctionalDataAnalysis.jl")
 - Milestone 4 (done in FDA): marginal, pooled, and Happ--Greven (`MFPCA`)
   multivariate FPCA; sample and smoothed cross-covariance surfaces with
   multivariate blocks. FGM estimator migration is maintained in its own repository.
-- Milestone 5: registration, functional regression, depth and outliers,
-  plotting recipes.
+- Milestone 5 (in progress): plotting coordinates and Plots.jl recipes;
+  six classic datasets through lazy artifacts, with offline samples;
+  derivatives, confidence bands, and the noise-variance benchmark.
+- Milestone 6: FACE and penalized FPCA.
+- Milestones 7–9: regression; depth and clustering; registration.
