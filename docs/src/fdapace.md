@@ -84,7 +84,7 @@ identifies the matching conventions and the differences retained by design.
 | `methodXi` | `SetOptions`: Dense and `p>>n` use `"IN"`; DenseWithMV uses `"CE"`. Sparse normally uses `"CE"`, but uses `"IN"` if every curve has **more than 20** observations and the largest spacing, including either boundary gap to the pooled range, is at most 6% of that range. | Dense scores use the stored quadrature weights. PACE always uses conditional-expectation scores. There is no additional data-driven switch between these formulas. |
 | Measurement error | `SetOptions`: `error=TRUE`, even for Dense. `R/GetCovDense.R`, `GetCovDense` uses a second-difference noise estimate on its cross-sectional route. | Dense stores `noise_variance=nothing` and defaults to `presmooth=nothing`. It assumes negligible measurement error, following Ramsay and Silverman (2005), Chapter 8. Noisy dense curves need explicit presmoothing or PACE. |
 | Smoothed noise estimator | `PC_CovE` uses the rotated diagonal; `SetOptions` supplies the middle-half `rotationCut=c(.25,.75)`, while the internal formal default is `c(0,1)`. | `SmoothedCovariance` and PACE default to the rotated diagonal over the full observed domain, selected by the issue #17 Discovery benchmark. Explicit `noise_method=:surface_diagonal` and `noise_interval=:middle_half` retain the milestone 2 rule. |
-| `rho` | `SetOptions`: `methodRho="vanilla"`, `userRho=NULL`. This means no extra regularization; details are below. | `rho` regularization is not implemented. No ridge is silently added. |
+| `rho` | `SetOptions`: `methodRho="vanilla"`, `userRho=NULL`. This means no extra regularization; details are below. | The `rho` selector is not implemented. Estimated noise instead receives the recorded relative floor described below. |
 
 The remembered claim that fdapace always uses `max_k=min(20,m-2)` is therefore
 incorrect for 0.6.0. So is a description of GCV as its default bandwidth
@@ -194,9 +194,10 @@ The package's default `SmoothedCovariance` uses the rotated diagonal over the
 full observed domain (`noise_method=:rotated, noise_interval=:full`), following
 the issue #17 Discovery benchmark and Mladen's decision on 25 October 2026.
 PACE inherits these defaults. This matches the internal `PC_CovE` formal
-interval, while fdapace's `FPCA` entry point uses the middle half. Negative
-estimates truncate to **zero**. The raw-square bandwidth defaults to the
-covariance bandwidth and can be supplied separately. The milestone 2 rule
+interval, while fdapace's `FPCA` entry point uses the middle half. Standalone
+`SmoothedCovariance` truncates negative estimates to **zero**; a PACE fit uses
+the raw estimate with the positive floor described below. The raw-square
+bandwidth defaults to the covariance bandwidth and can be supplied separately. The milestone 2 rule
 remains available with `noise_method=:surface_diagonal,
 noise_interval=:middle_half`; it interpolates exact interval endpoints.
 The rotated construction and departures are detailed below.
@@ -224,22 +225,53 @@ score covariance use the selected eigenfunctions and eigenvalues.
 
 PACE follows that full-covariance score denominator. It uses a Cholesky
 factorization, rather than fdapace's LDLT solve. A non-positive-definite
-subject system throws and suggests supplying `noise_variance`. It uses the
-nonnegative `SmoothedCovariance` value, including a truncation to zero, or
-the supplied nonnegative number. It does not copy fdapace's absolute `1e-6`
-replacement for a negative variance: that replacement depends on the data's
-units. No noise floor is applied during scoring.
+subject system throws and suggests supplying `noise_variance`. For estimated
+noise it uses `max(raw_noise_variance, 0.025V)`, including noise inherited from
+a supplied `SmoothedCovariance`. Here `V` is the maximum diagonal of the full
+positive projected covariance retained up to `maxK` on the work grid. This
+relative floor deliberately departs from fdapace 0.6.0's strictly negative
+replacement to stabilize conditional estimates. A supplied nonnegative
+`noise_variance`, including zero, is unchanged.
 
-The optional non-vanilla `rho` path in `R/FPCA.R`, `FPCA` **replaces** the
+Both FACE routes use the same relative rule. Sparse FACE takes `V` from its
+full positive spline covariance on the work grid and at all training
+observation times. Dense FACE takes `V` from its full smoothed covariance on
+the grid at each completion iteration. The package departs from face 0.1-8, whose
+[`face.sparse.inner`](https://github.com/cran/face/blob/0.1-8/R/face.sparse.inner.r#L185-L189)
+floors estimates at `1e-6` and whose
+[`predict.face.sparse`](https://github.com/cran/face/blob/0.1-8/R/predict.face.sparse.r#L33-L36)
+uses the same absolute threshold. refund 0.1-40's `fpca.face` instead truncates
+at zero. Multiplying observation units by `a` multiplies the package's raw
+variance and floor by `a²`, preserving their ratio. Changing time units leaves
+the pointwise variance scale unchanged. Absolute reference thresholds do not
+provide the first invariance.
+
+The factor `0.025` bounds the condition number by `1+40m` for `m` observations
+whose fitted variances are at most `V`, hence by 401 when `m<=10`. It also
+bounds the pointwise conditional reconstruction's gain from the residual
+vector by `sqrt(10)` at targets with fitted variance at most `V`. Unseen sparse
+spline prediction points can exceed the training scale, so that uniform gain
+bound need not apply there. The derivation is in
+[Estimated noise and its positive floor](@ref fpca-noise-floor).
+The raw estimate, floor, relative factor, variance scale, application flag,
+source and value used are retained and shown by the fit. An estimate exactly
+equal to its floor is unchanged, so its application flag is false. No second
+floor or ridge is added by scoring or prediction.
+
+The optional non-vanilla [`rho` path](https://github.com/cran/fdapace/blob/0.6.0/R/FPCA.R#L219-L233)
+in `FPCA` **replaces** the
 noise variance passed to `GetCEScores`; it is not an additional diagonal
-term on top of that noise variance. `R/GetRho.R`, `GetRho` first updates a
+term on top of that noise variance.
+[`GetRho`](https://github.com/cran/fdapace/blob/0.6.0/R/GetRho.R) first updates a
 residual variance twice. For `methodRho="trunc"`, its 50 candidates span
 one to ten times that updated variance. For `"ridge"`, they are
 `exp(seq(-13,-1.5,length.out=50))*R`, where
 `R=sqrt((integral(mu^2)+sum(lambda))/(b-a))`. It minimizes squared
 discrepancy between integrated reconstructed variance and `sum(lambda)`.
 Above 2048 curves, `FPCA` estimates it on a random subset of 2048. This
-regularization, penalized/smoothed FPCA, and FACE remain unimplemented.
+selector remains unimplemented. It provides prior art for regularizing the
+variance used for conditional scores, but the package's fixed relative floor
+does not reproduce its candidates, criterion, or default vanilla behavior.
 
 ## [Rotated noise variance: milestone 5, issue #17](@id fdapace-rotated-noise)
 
@@ -284,9 +316,11 @@ estimator retains its original work-grid domain and interpolated boundaries.
 The public covariance surface still uses unrotated local linear smoothing.
 Intentional departures are explicit:
 
-- Negative noise estimates truncate to zero, with the raw value and flag
-  retained. fdapace's enclosing surface routine changes a negative estimate
-  to `1e-6`; `PC_CovE` itself returns the raw estimate.
+- Standalone `SmoothedCovariance` truncates negative noise estimates to zero,
+  with the raw value and flag retained. PACE applies its recorded positive
+  `0.025V` floor to the raw estimate instead. fdapace's enclosing surface routine
+  changes only a strictly negative estimate to `1e-6`; `PC_CovE` itself returns
+  the raw estimate.
 - Undefined or singular fits throw, including windows with one point.
   fdapace's C++ returns that point's response in a one-point window and
   does not perform Julia's rank checks. At least two retained integration

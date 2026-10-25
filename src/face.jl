@@ -182,6 +182,7 @@ Base.@constprop :aggressive function _fit_face(fd::GridFunctionalData{T}; ncompo
         sum(abs2, Y[observed])/count(observed)
     iterations = 0
     sigma2 = zero(T)
+    noise_settings = nothing
     # Refund updates the missing values once AFTER checking convergence of YS.
     # The final eigensystem is from YS, while final scores use the updated Y.
     for iteration in 1:(observed === nothing ? 1 : 100)
@@ -189,8 +190,12 @@ Base.@constprop :aggressive function _fit_face(fd::GridFunctionalData{T}; ncompo
         iteration > 1 && mul!(transformed, transpose(setting.A), transpose(Y))
         smoothed .= shrink .* transformed
         all(isfinite, smoothed) || throw(ArgumentError("FACE smoothed data must be finite; rescale the observations"))
-        sigma2 = max(observed_mean_square - sum(abs2, smoothed)/(n*J), zero(T))
-        isfinite(sigma2) || throw(ArgumentError("FACE noise estimate must be finite; rescale the observations"))
+        raw_sigma2 = observed_mean_square - sum(abs2, smoothed)/(n*J)
+        # Evaluate diag(A*Cov(smoothed)*A') without a grid-square matrix.
+        signal_covariance = smoothed*transpose(smoothed)/n
+        signal_variance = maximum(sum((setting.A*signal_covariance) .* setting.A; dims=2))
+        noise_settings = _fpca_estimated_noise_settings(raw_sigma2, signal_variance)
+        sigma2 = max(raw_sigma2, noise_settings.noise_floor)
         if observed !== nothing
             system = _fpca_eigen(smoothed*transpose(smoothed)/n, ones(T, c), zeros(T, c);
                 max_k, eigen_tol, sign_tol)
@@ -233,13 +238,14 @@ Base.@constprop :aggressive function _fit_face(fd::GridFunctionalData{T}; ncompo
     # the same selected-K model and the same completed observation design.
     completed_fd = GridFunctionalData(Y .+ transpose(mu), fd.grid)
     scored = _face_scores(completed_fd, fd.grid, mu, basis.values, values, projected, sigma2)
-    settings = (; requested_method=:face, grid_source=:data, ncomponents=deepcopy(ncomponents),
+    settings = merge((; requested_method=:face, grid_source=:data, ncomponents=deepcopy(ncomponents),
         max_k=Int(max_k), maxK=Int(max_k), eigen_tol, sign_tol, knots=Int(knots), p=Int(p), m=Int(m),
         knot_sequence=copy(setting.knots), lambda=selected, lambda_source=lambda === nothing ? :GCV : :supplied,
         loglambda=T.(loglambda), gcv_lambdas=candidates, gcv_scores,
         alpha=T(alpha), center, mean=mean_settings, covariance_denominator=n,
         quadrature=:stored_trapezoidal, score_method=:conditional_expectation,
         noise_scale=:observed_mean_square_minus_euclidean_trace_over_grid_length,
+        noise_variance_source=:estimated,
         design_eigenvalue_floor=T(1e-7), score_design=:completed_training_observed_prediction,
         full_projected_covariance=projected, smoothing_spectrum=copy(setting.s),
         imputation=(; iterations, converged, relative_changes=changes, tolerance=T(0.02),
@@ -249,7 +255,7 @@ Base.@constprop :aggressive function _fit_face(fd::GridFunctionalData{T}; ncompo
                 knot_rule=:smooth_spline_default, spar_bounds=(-1.5, 1.5),
                 spar_tolerance=1e-4, spar_epsilon=2e-8, spar_maxiter=500,
                 spar_rule=:last_evaluated_R_fit,
-                extrapolation=:observed_centered_mean)))
+                extrapolation=:observed_centered_mean))), noise_settings)
     sign_rule = (; method=:mean_alignment, fallback=:largest_absolute_entry, tolerance=sign_tol)
     FPCA(:face, sampling_design(fd), copy(fd.grid), copy(fd.weights),
         GridFunctionalData(reshape(mu, 1, :), fd.grid), covariance, sigma2,

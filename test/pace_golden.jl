@@ -27,6 +27,7 @@ using DelimitedFiles
     @test nobs(model) == 40
     @test ids(model) == labels
     @test noise_variance(model) == sigma2
+    @test !model.settings.noise_floor_applied
     @test all(2 <= length(t) <= 8 for t in times)
     @test relative_error(vec(model.mean.values), reference("mean")) < 1e-8
     @test relative_error(model.covariance,

@@ -118,9 +118,13 @@ FACE covariance storage is low rank; fitting never forms the grid-square
 covariance. Weighted eigenanalysis gives the same stored-quadrature L² scale
 as dense/PACE. On rectangular weights Δ, refund's eigenvalues, eigenfunctions,
 and scores convert by Δ, `1/sqrt(Δ)`, and `sqrt(Δ)`, respectively; trapezoidal
-weights require diagonalizing the small weighted operator. Noise variance is
-`max(mean(observed_centered_y²) - tr(smoothed_covariance)/grid_length, 0)`
-on the measurement scale. Scores use Gaussian shrinkage under the selected
+weights require diagonalizing the small weighted operator. Raw noise variance is
+`mean(observed_centered_y²) - tr(smoothed_covariance)/grid_length` on the
+measurement scale. Each completion iteration uses `max(raw_noise_variance,
+0.025V)`, where `V` is the maximum diagonal of its full smoothed covariance
+on the grid. This relative floor departs from refund's zero truncation to
+stabilize conditional scores, including partial predictions.
+Scores use Gaussian shrinkage under the selected
 covariance, computed by the low-rank conditional-expectation solver. FACE
 [`fitted_bands`](@ref) provides pointwise posterior variance consistent with
 those scores, correcting refund's use of eigenvalues in place of their
@@ -143,8 +147,10 @@ The reference's `gcv` approximates leave-one-subject-out squared prediction
 error to first order, omitting the constant sum of squared raw products.
 It fits the covariance and noise jointly, including diagonal raw products.
 Its explicit covariance ridge is `1e-6*maximum(eigvals(X'X))`, recorded in
-`settings.covariance_ridge`. Negative noise estimates are truncated at zero;
-face resets estimates at or below `1e-6` to `1e-6`.
+`settings.covariance_ridge`. Estimated noise is `max(raw_noise_variance, 0.025V)`,
+where `V` is the maximum fitted variance of the full positive spline covariance
+over the work grid and all training observation times. This scale-invariant
+floor deliberately replaces face 0.1-8's absolute `1e-6` threshold.
 
 Sparse FACE's estimated mean uses the shared P-spline building block with the
 same interval count, cubic degree, second differences, and observation weights
@@ -173,8 +179,34 @@ work grid and every observation. A missing `covariance` estimates
 [`SmoothedCovariance`](@ref), using an estimated
 or supplied `SmoothedMean`. Alternatively supply that fitted type or a
 symmetric `(; grid, surface)` for bilinear interpolation.
-`noise_variance=nothing` uses the covariance smoother's stored nonnegative
-estimate; a supplied surface requires a finite nonnegative override.
+`noise_variance=nothing` uses `max(raw_noise_variance, 0.025V)` from the
+covariance smoother; a supplied surface requires a finite nonnegative override.
+Here `V` is the maximum diagonal of the full positive projected covariance
+retained up to `maxK` on the work grid. PACE and both FACE routes use this
+relative floor to stabilize conditional-expectation systems. It deliberately
+departs from fdapace 0.6.0's negative-only replacement by `1e-6`, face 0.1-8's
+absolute `1e-6` floor, and refund 0.1-40's zero truncation. Multiplying observation
+units by `a` multiplies both the raw variance and floor by `a²`; changing time
+units does not change their ratio. fdapace's optional `rho` regularization is
+prior art for stabilizing conditional scores, but this fixed rule does not
+reproduce its selector. The factor `0.025` bounds the observation-covariance
+condition number by `1+40m` for `m` observations whose fitted variances are at
+most `V`. At a target with fitted variance at most `V`, the Euclidean gain
+from the observation residual vector to the conditional reconstructed deviation
+is at most `sqrt(10)`. Sparse spline predictions at unseen times can have larger
+fitted variance and are not covered by that uniform bound.
+A supplied `noise_variance`, including zero, is used unchanged. The fit stores
+`settings.raw_noise_variance` before zero truncation, `settings.noise_floor`
+(`0.025V` when estimated, `nothing` when supplied), `settings.noise_floor_relative`
+(`0.025`), `settings.noise_floor_scale` (`V`), and
+`settings.noise_floor_scale_source` (`:maximum_fitted_pointwise_variance`).
+These three scale fields are `nothing` for supplied noise.
+`settings.noise_floor_applied` is true only when the raw estimate is below
+the floor. `settings.noise_variance_source` and `settings.noise_truncation`
+(`:positive_floor` when estimated, `:none` when supplied) retain provenance.
+These settings are shown with the fit; [`noise_variance`](@ref) returns the
+value used for scoring and prediction. Standalone `SmoothedCovariance` retains
+its zero truncation.
 Supplying a fitted mean together with `mean_bandwidth`, or a covariance with
 `covariance_bandwidth` or `diagonal_bandwidth`, throws rather than ignoring
 the requested tuning of an input that is not refitted.
@@ -224,9 +256,10 @@ PACE also supports [`AIC`](@ref) and [`BIC`](@ref). Their criteria use the
 K-component covariance, including the Gaussian normalization constant, for
 every candidate `K=1:max_k`. Beyond the retained positive rank the covariance
 has zero additional variance, while the penalty still increases. Selection
-stops at the first increase as fdapace does; the global minimizer is retained too. No noise
-floor or ridge is added. A non-positive-definite observation covariance
-throws with the curve index and a suggestion to supply `noise_variance`.
+stops at the first increase as fdapace does; the global minimizer is retained too.
+Scoring adds no ridge beyond the recorded estimated-noise floor. A
+non-positive-definite observation covariance throws with the curve index and
+a suggestion to supply `noise_variance`.
 
 The eigensystem of `sqrt(W)*G*sqrt(W)` uses the data's stored trapezoidal weights,
 including on nonuniform grids. Eigenvalues must exceed `eigen_tol` times the
@@ -531,8 +564,12 @@ fve(f::FPCA) = f.fve
 """
     noise_variance(f::Union{FPCA,SmoothedCovariance})
 
-Return estimated or supplied measurement-error variance. Dense and basis FPCA return `nothing`;
-`SmoothedCovariance` returns its stored nonnegative variance estimate.
+Return the measurement-error variance used by the fit. PACE and both FACE
+routes floor estimated variance at `0.025` times the maximum fitted pointwise
+variance; explicitly supplied PACE variance, including zero, is unchanged.
+The raw estimate, floor, variance scale, relative factor and application flag are in
+`f.settings`. Dense and basis FPCA return `nothing`; `SmoothedCovariance`
+returns its stored nonnegative variance estimate without the FPCA floor.
 """
 noise_variance(f::Union{FPCA,SmoothedCovariance}) = f.noise_variance
 

@@ -196,13 +196,17 @@ Base.@constprop :aggressive function _fit_face_sparse(fd::IrregularFunctionalDat
     alpha = coordinates.A0*(cv.rhs ./ (1 .+ selected .* coordinates.s))
     all(isfinite, cv.scores) && all(isfinite, alpha) || throw(ArgumentError("sparse FACE covariance fit must be finite; rescale observations"))
     raw_sigma2 = alpha[end]
-    sigma2 = max(raw_sigma2, zero(T))
     theta = reshape(G*alpha[1:q], c, c)
     ce = eigen(Symmetric(theta))
     positive = findall(>(zero(T)), ce.values)
     isempty(positive) && throw(ArgumentError("sparse FACE covariance has no positive eigenvalues"))
     coefficient_root = ce.vectors[:,positive] .* transpose(sqrt.(ce.values[positive]))
     Bnew = basis_matrix(design.basis, workgrid)
+    # Include observed times: spline variance can peak between work-grid nodes.
+    signal_variance = max(maximum(sum(abs2, Bnew*coefficient_root; dims=2)),
+        maximum(sum(abs2, design.B*coefficient_root; dims=2)))
+    noise_settings = _fpca_estimated_noise_settings(raw_sigma2, signal_variance)
+    sigma2 = max(raw_sigma2, noise_settings.noise_floor)
     # Transfer the stored quadrature into a small covariance eigensystem.
     gram = transpose(Bnew)*(weights .* Bnew)
     ge = eigen(Symmetric(gram))
@@ -223,7 +227,7 @@ Base.@constprop :aggressive function _fit_face_sparse(fd::IrregularFunctionalDat
     k = selection.chosen
     basis = FPCBasis(workgrid, functions[:,1:k]; weights)
     covariance = _SplineCovariance(Bnew*coefficient_root, design.basis, coefficient_root)
-    settings = (; requested_method=:face, route=:sparse, grid_source,
+    settings = merge((; requested_method=:face, route=:sparse, grid_source,
         ncomponents=deepcopy(ncomponents), max_k=Int(max_k), maxK=Int(max_k), eigen_tol, sign_tol,
         knots=Int(knots), p=Int(p), m=Int(m), knot_sequence=design.knots,
         knot_range_expansion=T(.001), lambda=selected,
@@ -235,13 +239,13 @@ Base.@constprop :aggressive function _fit_face_sparse(fd::IrregularFunctionalDat
         penalty_nullity=Int(m)*(Int(m)+1)÷2+1,
         normal_matrix_type=promote_type(T,Float64),
         center, mean=mean_settings, two_step=false,
-        raw_noise_variance=raw_sigma2, noise_truncation=:zero,
+        noise_variance_source=:estimated,
         coefficient_projection=(; negative_count=count(<(zero(T)),ce.values),
             negative_total=sum(abs,ce.values[ce.values .< 0])),
         quadrature=:stored_trapezoidal, score_method=:conditional_expectation,
         score_covariance=:full_positive_spline_covariance,
         eigenfunction_coefficients=coefficients[:,1:k],
-        full_projected_covariance=covariance)
+        full_projected_covariance=covariance), noise_settings)
     scored = _face_sparse_scores(fd, workgrid, mu, basis.values,
         system.eigenvalues[1:k], covariance, sigma2, settings)
     sign_rule = (; method=:mean_alignment, fallback=:largest_absolute_entry, tolerance=sign_tol)
@@ -260,7 +264,7 @@ function _face_sparse_scores(fd, grid, mu, functions, values, covariance, sigma2
 end
 
 _face_sparse_cholesky(covariance, curve) = _pace_cholesky(covariance, curve;
-    label="sparse FACE", advice="zero estimated noise can make the spline observation covariance singular; adjust covariance smoothing")
+    label="sparse FACE", advice="adjust covariance smoothing or rescale the observations")
 
 _face_sparse_curve_ce(times, residuals, phi, values, grid, projected, sigma2, curve, ::Type{T}) where {T} =
     _pace_curve_ce(times, residuals, phi, values, grid, projected, sigma2, curve, T;

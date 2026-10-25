@@ -17,6 +17,7 @@ using DelimitedFiles
     # separate trapezoidal column normalization. Reproduce that documented
     # quantity explicitly; the public fit retains its quadrature convention.
     function check_rectangular_reference(model, table, prefix)
+        @test !model.settings.noise_floor_applied
         m = length(model.grid)
         k = Int(only(reference(table, prefix * "selected_k")))
         step = model.grid[2] - model.grid[1]

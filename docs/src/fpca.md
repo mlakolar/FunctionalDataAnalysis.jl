@@ -60,6 +60,74 @@ reconstructing from that copy does not inherit training IDs.
 Prediction applies the training presmoothing settings. When spline GCV selected
 a penalty, prediction uses that selected penalty for new curves.
 
+## Choosing a route
+
+The [scaling benchmark](https://github.com/mlakolar/FunctionalDataAnalysis.jl/tree/main/benchmark/scaling)
+compares dense FPCA with dense FACE on long grids, and PACE with sparse FACE
+on sparsely observed curves: three Fourier components, two noise levels and
+200 replicates per cell, one CPU per fit on USC Discovery (AMD EPYC 7513,
+Julia 1.13.2). Results are in
+[`benchmark/scaling/results`](https://github.com/mlakolar/FunctionalDataAnalysis.jl/tree/main/benchmark/scaling/results).
+Mean time per fit:
+
+| n | m | Dense FPCA | Dense FACE |
+|---:|---:|---:|---:|
+| 100 | 100 | 0.0014 s | 0.0043 s |
+| 100 | 500 | 0.024 s | 0.0084 s |
+| 1000 | 500 | 0.054 s | 0.044 s |
+| 100 | 2000 | 0.97 s | 0.042 s |
+| 1000 | 2000 | 1.26 s | 0.35 s |
+| 100 | 5000 | 25 s | 0.12 s |
+| 1000 | 5000 | 27 s | 1.2 s |
+
+Dense FACE is faster from about 500 grid points and 20–200 times faster at
+5000; dense FPCA is faster at 100 points. At m=5000 dense FPCA also needs
+about twice the memory (2.7 GB against 1.4 GB peak per process). The two
+routes estimate the leading eigenvalues equally well. FACE's eigenfunctions
+are as accurate or slightly more accurate, and its reconstructions are far
+closer to the noise-free curves, because dense FPCA does not smooth and
+`FVE(0.99)` then keeps tens to hundreds of noise components. Neither route
+failed.
+
+On sparse curves with 2–10 points each, sparse FACE took 0.007 s (n=100)
+and 0.07 s (n=1000) per fit, against 0.63 s and 6.3 s for PACE. At n=1000
+its eigenvalue error was less than half of PACE's (0.064 against 0.148,
+relative) with similar eigenfunction error, and it overestimated σ²
+slightly more (bias 0.045 against 0.035, true σ² 0.0875 or 0.35). At n=100
+the two routes had similar eigenvalue and eigenfunction errors, but sparse
+FACE's σ² bias was larger (0.16 against 0.085 at the low noise level).
+Without a floor on the estimated noise variance, both routes sometimes
+failed with low noise and n=100, because the estimate was truncated to zero
+and the observation covariance became singular (sparse FACE 9 of 200
+replicates, PACE 4 of 200), and PACE gave a few extreme reconstructions.
+With the estimated-noise floor described below, every replicate of every
+cell fits, the largest reconstruction error in the sparse cells is 0.94
+(against 1.8e5 before), and eigenvalue and eigenfunction errors are
+unchanged; dense FACE results are identical, because the floor never binds
+there.
+
+The implementation has the following covariance-estimation and
+eigenanalysis costs for fixed tuning-search sizes:
+
+| Route | Main time cost | Covariance storage |
+|:--|:--|:--|
+| Dense FPCA | `O(n*m^2 + m^3)` | `O(m^2)` |
+| Dense FACE | `O(m*c^2 + n*m*c + n*c^2 + c^3)` | `O(m*c)` factor |
+| PACE, without binning | `O(g*M + g^2*P + g^3)` | `O(g^2)`, plus `O(P)` raw products |
+| Sparse FACE | `O(Pplus*q^2 + q^3 + g*c^2)` | `O(g*c)` factor, plus tensor-design working storage |
+
+Here `n` is curve count, `m` is common-grid length, `g` is work-grid length,
+`c` is spline-basis size, `N_i` is curve `i`'s observed count,
+`M=sum(N_i)`, `P=sum(N_i*(N_i-1))`,
+`Pplus=sum(N_i*(N_i+1)/2)`, and `q=c*(c+1)/2+1`.
+Sparse FACE's tensor design and subject-CV moments need
+`O(Pplus*q + n*q^2)` working storage. Conditional scores add
+`O(n*m*K^2 + n*K^3)` time for dense FACE with `K` selected components,
+and `O(sum(N_i^3))` for PACE and sparse FACE. The FACE mean smoother uses a
+bounded basis; missing-data iterations and optional bandwidth searches add
+the costs described below. Automatic PACE binning reduces the covariance
+pool when enabled.
+
 ## Defaults and where they come from
 
 Let `n = nobs(data)`, `g = length(model.grid)`, and `r` be the range of the
@@ -81,6 +149,7 @@ some older help text. See [Comparison with fdapace](fdapace.md) for details.
 | `covariance_bandwidth`, PACE | `0.10r`. | fdapace [`methodBwCov="Default"`, `userBwCov`](https://github.com/cran/fdapace/blob/0.6.0/R/SetOptions.R). Pass a number or `CurveCV` with explicit candidates. |
 | `diagonal_bandwidth`, PACE | The selected covariance bandwidth. | The milestone 2 smoother default, following fdapace's diagonal-variance smoothing. Pass a number, `CurveCV`, or a supported univariate selector. |
 | Noise estimation, PACE | Rotated diagonal over the full observed domain, inherited from `SmoothedCovariance`. | Issue #17 Discovery benchmark and the 25 October 2026 default decision. The rotated fit follows fdapace 0.6.0 `PC_CovE`; the full interval matches its internal formal default, while `SetOptions` uses the middle half. To change either choice, supply a `SmoothedCovariance` fitted with explicit `noise_method` / `noise_interval`, or supply `noise_variance`. |
+| Estimated-noise floor, PACE and both FACE routes | `max(raw_noise_variance, 0.025V)`, where `V` is the maximum fitted pointwise variance. | Package stability rule, with the scale and constant justified under [Estimated noise and its positive floor](@ref fpca-noise-floor). Deliberately replaces face 0.1-8's absolute `1e-6` floor, fdapace 0.6.0's negative-only replacement, and refund 0.1-40's zero truncation. Explicit `noise_variance`, including zero, is unchanged. |
 | `binning`, PACE | `:auto`, the audited fdapace `useBinnedData="AUTO"` bin-count rule. | fdapace [`GetBinNum`](https://github.com/cran/fdapace/blob/0.6.0/R/GetBinNum.R). Pass `nothing` to disable snapping or an integer of at least two to set its grid size. The package retains milestone 2's weighted covariance-pair aggregation. |
 | Dense mean and covariance | Cross-sectional sample mean and covariance with denominator `n-1`. | fdapace [`GetCovDense`](https://github.com/cran/fdapace/blob/0.6.0/R/GetCovDense.R). |
 | Quadrature | Stored trapezoidal weights, including nonuniform grids. | Package inner-product convention. This differs from fdapace's rectangular eigenvalue scaling. |
@@ -265,13 +334,21 @@ outputs for a rectangular compatibility calculation.
 Noise remains on the **observation** scale:
 
 ```math
-\widehat\sigma^2=\max\left\{
-\operatorname{mean}_{\rm observed}(Y^2)-\operatorname{tr}(C)/J,\ 0\right\}.
+\widehat\sigma^2_{\rm raw}=
+\operatorname{mean}_{\rm observed}(Y^2)-\operatorname{tr}(C)/J,\qquad
+\widehat\sigma^2=\max\{\widehat\sigma^2_{\rm raw},0.025V\},\qquad
+V=\max_j C_{jj}.
 ```
 
-The trace includes the full smoothed covariance before truncation. This is
-refund's `max(mean(Y[observed]^2)-sum(Sigma),0)`; summing the L² eigenvalues
-without converting the integration scale would give the wrong noise variance.
+The trace and variance scale include the full smoothed covariance before
+truncation and are recomputed at each completion iteration. The raw
+estimate matches refund's `mean(Y[observed]^2)-sum(Sigma)`; summing the L²
+eigenvalues without converting the integration scale would give the wrong noise
+variance. refund 0.1-40 [`fpca.face`](https://github.com/cran/refund/blob/0.1-40/R/fpca.face.R)
+truncates at zero. The package instead uses the same positive floor as sparse
+FACE and PACE, so prediction from a rank-deficient subset of grid observations
+retains positive observation covariance. The floor and its application are
+recorded as described under [Estimated noise and its positive floor](@ref fpca-noise-floor).
 For selected functions `Phi` and diagonal L² eigenvalues `Lambda`, scores are
 
 ```math
@@ -377,7 +454,7 @@ intervals = fitted_bands(sparse_face; curves=[1, 3])
 | `grid` | 100 equally spaced points across the observed range, from `argvals.new`. An explicit finite increasing grid must span all observation times, remain in the observed range, and have full spline rank. |
 | `ncomponents`, `maxK` | `FVE(0.99)`; cap `c`, the spline dimension. Shared fixed-K and numerical cutoff rules apply. The package selects from functional eigenvalues; R's source uses coefficient-space eigenvalues for its component count. AIC/BIC throw. |
 | Ridges | Covariance always adds `1e-6*maximum(eigvals(X'X))` to the Gram spectrum. Mean adds `1e-6` if its smallest weighted Gram eigenvalue is at most `1e-7`. Both reference rules and realized values are stored. |
-| Noise | Joint fitted diagonal coefficient, truncated at zero if negative. R resets every estimate at or below `1e-6` to `1e-6`, including in prediction; the package adds no noise floor. |
+| Noise | Joint fitted diagonal coefficient, used as `max(raw_noise_variance, 0.025V)`. `V` is the full positive spline covariance's maximum variance over the work grid and all training observation times. This deliberately replaces face 0.1-8's absolute `1e-6` floor; see [Estimated noise and its positive floor](@ref fpca-noise-floor). The raw estimate, threshold, scale, relative factor and application flag are stored and shown. |
 | Signs and quadrature | The same mean-alignment sign rule and stored trapezoidal weights as other routes; `eigen_tol=1e-10`, `sign_tol=1e-12`. |
 
 A supplied `mean=(; grid, values)` or value-valued `SmoothedMean` uses the
@@ -455,8 +532,8 @@ computes
 This is the coefficient BLUP in `predict.face.sparse`, expressed in the
 weighted functional eigenbasis. All positive spline directions enter `C_i`,
 including directions beyond `maxK` or the selected K. New grid or irregular
-data must lie within the work grid. Zero-noise singular observation
-covariances throw without adding a ridge or noise floor to the score solve.
+data must lie within the work grid. The score solve uses the fitted positive
+noise variance unchanged; prediction applies no additional ridge or floor.
 `predict` returns the usual `(scores,covariances)` tuple. Reconstruction and
 pointwise `fitted_bands` use the selected components, with variance
 `diag(Phi*Omega_i*Phi')`; omitted components and estimation uncertainty are
@@ -511,6 +588,94 @@ with `noise_method=:surface_diagonal` for a small design. Pass
 selection metadata, the origin of every supplied or estimated input, and the
 noise truncation details are retained on the fit. Inputs are copied.
 
+### [Estimated noise and its positive floor](@id fpca-noise-floor)
+
+PACE and both FACE routes use
+`noise_variance(model) = max(raw_noise_variance, 0.025V)` when noise is estimated.
+The scale `V` is a maximum fitted pointwise signal variance:
+
+- PACE uses the diagonal of the full positive projected covariance retained
+  up to `maxK`, evaluated on the work grid. Its piecewise-linear representation
+  also bounds the fitted variance between grid points.
+- Sparse FACE uses the full positive spline covariance on the work grid and
+  at every training observation time, including components beyond the selected K.
+- Dense FACE uses the full smoothed covariance on the common grid at each
+  completion iteration, before selecting components.
+
+This scale has the same squared observation units as the raw estimate.
+Multiplying observations and their fitted mean by `a` multiplies both the
+raw variance and the floor by `a²`, preserving whether the floor binds.
+Changing time units leaves the pointwise covariance scale unchanged. Using
+functional eigenvalues without their integration scale would not have this
+time-unit invariance.
+Explicit `noise_variance` values on the PACE route, including zero, are used
+unchanged. Noise inherited from a supplied `SmoothedCovariance` is still
+estimated and receives the floor. Standalone `SmoothedCovariance` continues
+to truncate negative estimates to zero; the FPCA fit retains its raw estimate
+before that truncation.
+
+The factor `0.025` controls statistical amplification as well as numerical
+conditioning. Let `K_i` be the positive-semidefinite fitted observation
+covariance for a curve with `m_i` observations and diagonal entries at most
+`V`. Its largest eigenvalue is at most `m_i*V`, so
+
+```math
+\kappa_2(K_i+\sigma^2 I)
+\le 1+\frac{m_iV}{\sigma^2}
+\le 1+40m_i.
+```
+
+For at most ten observations this bound is 401. At a target with fitted
+variance at most `V`, the map from the observation residual vector to the
+conditional reconstructed deviation has Euclidean gain at most `sqrt(10)`.
+To see this, factor the full fitted covariance as `BB'`. The singular values
+of `B'*(BB'+sigma2*I)^(-1)` are `s/(s²+sigma2)`, bounded by
+`1/(2sqrt(sigma2))`; multiplying by a target factor row with norm at most
+`sqrt(V)` gives the bound. Restricting the reconstructed numerator to selected
+components preserves it. These bounds motivate the constant as a safeguard
+against amplification of noisy observations; they do not bound reconstruction
+error against an unknown true curve. Sparse FACE evaluates splines exactly,
+so an unseen prediction time can have fitted variance above the stored `V`.
+The same stored noise is used there, but the uniform `sqrt(10)` gain bound
+then does not apply. Prediction does not silently change the fit's floor.
+
+The source audit found that face 0.1-8
+[`face.sparse.inner`](https://github.com/cran/face/blob/0.1-8/R/face.sparse.inner.r#L185-L189)
+resets estimates at or below `1e-6` to `1e-6`, and
+[`predict.face.sparse`](https://github.com/cran/face/blob/0.1-8/R/predict.face.sparse.r#L33-L36)
+uses `max(sigma2, 1e-6)`.
+fdapace 0.6.0
+[`GetSmoothedCovarSurface`](https://github.com/cran/fdapace/blob/0.6.0/R/GetSmoothedCovarSurface.R#L81-L109)
+replaces strictly negative estimates by `1e-6` but leaves zero and tiny
+positive estimates unchanged. Dense FACE's reference, refund 0.1-40
+[`fpca.face`](https://github.com/cran/refund/blob/0.1-40/R/fpca.face.R), truncates
+at zero. The relative floor deliberately departs from these safeguards:
+an absolute threshold changes its relative strength with the observation units
+and can leave conditional estimates highly sensitive to noise.
+fdapace's optional [`rho` path](https://github.com/cran/fdapace/blob/0.6.0/R/FPCA.R#L219-L233)
+is prior art for replacing the estimated variance when scoring needs more
+regularization. Its [`GetRho`](https://github.com/cran/fdapace/blob/0.6.0/R/GetRho.R)
+selects a value using reconstructed total variance. The package uses the fixed
+relative rule above and does not reproduce that selector or its default
+`methodRho="vanilla"` behavior.
+
+The fit records `settings.raw_noise_variance`, `settings.noise_floor`,
+`settings.noise_floor_relative`, `settings.noise_floor_scale`,
+`settings.noise_floor_scale_source`, `settings.noise_floor_applied`,
+`settings.noise_variance_source`, and `settings.noise_truncation`; `show`
+displays them. For estimated noise, `noise_floor=0.025V`,
+`noise_floor_relative=0.025`, `noise_floor_scale=V`, and
+`noise_floor_scale_source=:maximum_fitted_pointwise_variance`.
+`noise_floor_applied` tests whether the raw estimate is strictly below the
+threshold, and `noise_truncation=:positive_floor`. Equality leaves the estimate
+unchanged and the flag false. For supplied noise, the threshold and three scale
+fields are `nothing`, the flag is false, and `noise_truncation=:none`;
+`raw_noise_variance` records the supplied value.
+The existing [`noise_variance`](@ref) accessor
+returns the variance actually used in component selection, scores,
+uncertainties, reconstruction, and prediction. Prediction and derivative
+scores reuse this stored value without adding a second floor.
+
 Let ``\widetilde G`` denote the positive-semidefinite projection of the work-grid
 surface over **all** positive components retained up to `max_k`. Negative
 eigenvalues are dropped and reported in `model.dropped`. The selected component
@@ -532,9 +697,10 @@ including components beyond the selected ``K``. This is the observed-curve
 covariance in Yao, Müller, and Wang (2005) and fdapace. The numerator and
 ``\Omega_i`` use the selected components. Mean and eigenfunction evaluation
 are linear; covariance evaluation is bilinear. The systems are solved by
-Cholesky factorization. A non-positive-definite system raises an error naming
-the curve and suggesting an explicit `noise_variance`. No ridge, noise floor,
-or pseudoinverse is added.
+Cholesky factorization, using the recorded positive floor when noise is
+estimated. No additional ridge or pseudoinverse is added. A
+non-positive-definite system, including one from explicit zero noise, raises
+an error naming the curve and suggesting an explicit `noise_variance`.
 
 `score_covariances(model)` is a `K × K × n` array: slice `[:, :, i]` is
 ``\Omega_i``. Under the Gaussian model, it measures remaining uncertainty
@@ -706,9 +872,10 @@ weight-preserving binning and CV contracts.
 
 Missing `mean` and `covariance` inputs estimate the pooled smoothers, following
 [Yao, Müller, and Wang (2005)](https://doi.org/10.1198/016214504000001745).
-Missing `noise_variance` uses `SmoothedCovariance`'s nonnegative estimate;
+Missing `noise_variance` uses `SmoothedCovariance`'s raw estimate with the
+[positive floor](@ref fpca-noise-floor);
 a supplied surface requires an explicit number. The score solve uses
-unregularized conditional expectation and must admit Cholesky factorization.
+this stored noise variance and must admit Cholesky factorization.
 Eigenanalysis, signs, and numerical tolerances are shared with the dense route.
 
 For `AIC()` and `BIC()`, each candidate ``k`` uses its own ``k``-component
@@ -869,7 +1036,7 @@ reference, sparse-route differences and defaults.
 
 Cross-covariances are described on the cross-structure page. FACE and
 roughness-penalized basis FPCA are described on this page. fdapace's
-conditional-score `rho` regularization remains unimplemented. Presmoothing
+conditional-score `rho` selector remains unimplemented. Presmoothing
 individual curves does not implement a roughness penalty on FPCA eigenfunctions.
 
 ```@docs
@@ -929,7 +1096,8 @@ weighted eigenstep. Dense fits use the sample covariance and project the
 correspondingly differentiated centered training curves. PACE and FACE use
 the full projected covariance and conditional-expectation scores from the
 original observations. The curve/derivative-score cross-covariance supplies the CE
-numerator. No noise ridge is introduced. Conditional score covariances omit
+numerator. The parent fit's stored noise variance, including any estimated-noise
+floor, is reused without an additional ridge. Conditional score covariances omit
 uncertainty from fitting mean, covariance, and noise.
 
 For FACE, DPC uses all retained components up to `maxK` in this denominator,
