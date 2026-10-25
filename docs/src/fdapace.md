@@ -736,3 +736,38 @@ polynomial coefficients and G clusters in the window. FDA's
 `method=:sandwich` supplies subject labels, the stored smoothing choices,
 `minobs=0`, and conventional standard errors, keeping the original mean
 estimate as the interval center. Insufficient clusters produce an error.
+
+## Cross-structure source audit
+
+Reference: **fdapace 0.6.0**, CRAN source tarball
+`fdapace_0.6.0.tar.gz`, SHA-256
+`1d3e80d885ab8a091b5a99f7edff1e043ad878030f98eadb53d1b3062c5d3bcb`.
+The authoritative sources are
+[`FSVD.R`](https://github.com/cran/fdapace/blob/0.6.0/R/FSVD.R),
+[`SetSVDOptions.R`](https://github.com/cran/fdapace/blob/0.6.0/R/SetSVDOptions.R),
+[`FCCor.R`](https://github.com/cran/fdapace/blob/0.6.0/R/FCCor.R), and
+[`DynCorr.R`](https://github.com/cran/fdapace/blob/0.6.0/R/DynCorr.R).
+See [Cross-structure](cross_structure.md) for usage and reference comparisons.
+
+| Choice | Audited source behavior | Package behavior |
+|:--|:--|:--|
+| FSVD component cap | `SetSVDOptions`: `min(20,length(Ly1)-2)`, despite help text saying n−1. | Same default; at least three subjects are required. A cap may exceed a grid's rank; selection uses only retained positive singular values. |
+| FSVD selection | `methodSelectK="FVE"`, `FVEthreshold=.9999`. FVE uses squared singular values after the cap. Numeric `methodSelectK` sets `FVEthreshold=1`, disabling FVE selection. Invalid integers can reset to FVE(.95); excessive counts can be reduced with a warning. | `FVE(.9999)` or a positive integer; invalid counts and rank-exceeding requests throw. The full capped cumulative curve and selected count are stored. |
+| Marginal FPCA when options are NULL | Calls `SetOptions` with the SVD node's inferred `dataType` and `nRegGrid` (51 by default), checks it, then calls `FPCA` for each node. | Calls the existing `fit(FPCA,fd)` for each node. Two complete grids use dense FPCA; otherwise both marginals force `method=:pace`, including a complete-grid partner, to provide measurement-error variances for joint conditional scores. Explicit dense overrides on this route throw. Requested and effective options are stored in FSVD settings. FVE(.99), grids, bandwidths, component caps and documented quadrature departures remain in force. Override other tuning using `fpca_options1/2`. |
+| Dense cross covariance | Centers each node by its FPCA mean; divides by `n-2+mudf`, where `mudf` counts supplied SVD means. This is different from `GetCrCovYX`'s dense sample covariance. | Reuses `CrossCovariance` and rescales from n−1 to **n−2**. No separate dense SVD mean overrides; presmoothing is explicit on input data. |
+| Sparse cross covariance | `GetCrCovYX`, Gaussian by default, local linear with exact-duplicate aggregation, `rmDiag=FALSE`, `useGAM=FALSE`. Missing bandwidths trigger Gaussian GCV using the default `l-bfgs-b` routine. `SetSVDOptions` does not implement a `methodBwCov` field despite the FSVD help text mentioning it. | Reuses `SmoothedCrossCovariance`, Gaussian, observation-pair weights, equal-time products retained, no snapping by default. Bandwidth or explicit whole-subject `CurveCV` is required, preserving the existing cross-covariance contract instead of adding pair-level GCV. Marginal kernels are independently controlled through their FPCA options. |
+| Singular operator | Ordinary matrix SVD of `CrCov`; retain strictly positive values, cap, select, then multiply values by `sqrt(first_spacing1*first_spacing2)`. Functions receive separate trapezoidal normalization. | SVD of `sqrt(W1)*C*sqrt(W2)`, divided by square-root weights for the functions. Uses the same stored quadrature for operator, orthogonality and scores, including unequal nonuniform grids, as in package FPCA. Relative singular cutoff `1e-10` follows its numerical tolerance. |
+| Sign | `flip=FALSE`, meaning no flip of R's arbitrary SVD signs. | Largest absolute left entry positive, paired right entry and scores flipped together; first index breaks ties. |
+| Scores | `noScores=FALSE` in source, despite the help text saying TRUE. Dense uses `GetINScores`. Sparse conditions jointly on both processes. | Always computes scores: stored-weight integration for dense; joint conditional expectation otherwise. |
+| Sparse CE | PSD-projects the stacked **smoothed** covariance by dropping negative ordinary eigenvalues. Adds marginal noise before support conversion. Numerators integrate marginal fitted covariance against singular functions and use singular values times opposite functions in the cross block. `regulRS="sigma2"`. | Reuses the existing eigen step with unit weights for this unweighted PSD projection, the PACE interpolation and Cholesky solver, and marginal full projected covariances for the numerators. Those integrals use stored marginal weights. Noise is added before linear interpolation. No new solver, smoother or rho rule. Singular observation covariance throws. |
+| FCCor bandwidth | Required `bw`; length one replicates to five, otherwise requires five. Order: two means, two variances, cross-product. | Same; vector/tuple length one or five, or scalar. All values finite and positive. |
+| FCCor kernel and grids | Actual `kern='epan'`, despite the help text saying Gaussian. Means on sorted unique pooled times; residual products smoothed at `Tout`, which defaults to those times. Observation weights one. | Same five local linear calculations through KernelSmoothing. Paired observation times must agree; an explicit output grid stays inside the observed range. |
+| FCCor nonpositive variance | Replaces values ≤0 with NaN and warns; does not clip correlation. | Same, with separate affected-point masks retained. |
+| DynCorr | Paired dense common-grid matrices. Subtracts each curve's time mean, then population mean. Divides each residual by its time RMS and returns individual time-averaged products. Uses trapezoidal integration divided by domain length. Missing values trigger `approx(...,rule=2)` interpolation. | Same centering, normalization and integration with stored weights. Returns both individual correlations and their arithmetic mean. Complete data required; no silent interpolation. Zero residual RMS throws instead of producing undefined values. There are no tuning defaults. |
+
+The dense FSVD R fixture passes `shrink=FALSE` explicitly. With explicit raw
+FPCA option lists, `FSVD` passes those lists to `GetINScores` without filling
+all defaults; absent `shrink` otherwise causes an invalid logical operand.
+This supplies the normal default and does not change the score formula.
+The sparse fixture uses fixed bandwidths and supplied marginal inputs to
+separate cross-structure validation from marginal bandwidth selection.

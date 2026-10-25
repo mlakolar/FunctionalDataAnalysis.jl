@@ -86,7 +86,12 @@
   is now the default. Makie recipes are deferred.
   This scope follows the Tier 1 Gap Map and Mladen's 24 October decision,
   replacing the original milestone 5 scope.
-- Milestone 6: FACE and penalized FPCA.
+- Milestone 6: scale and cross-structure. The independent cross-structure
+  task adds weighted FSVD with dense integration and joint PACE scores,
+  concurrent correlation through five local linear smooths, and dynamic
+  correlation. See [Cross-structure](cross_structure.md) for defaults,
+  conventions and fdapace 0.6.0 reference validation. FACE, penalized FPCA/CCA
+  and the Discovery scaling study are separate tasks.
 - Milestone 7: functional regression.
 - Milestone 8: depth, outliers, and clustering.
 - Milestone 9: registration.
