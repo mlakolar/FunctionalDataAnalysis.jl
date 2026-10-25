@@ -593,6 +593,7 @@ end
     reconstruct(f::FPCA, scores=scores(f); grid=f.grid)
 
 Return `GridFunctionalData` containing `mean + scores * eigenfunctions'`.
+This extends the `StatsAPI.reconstruct` generic (StatsAPI 1.8 or newer).
 The finite increasing grid must lie inside the work-grid domain. Both the mean
 and eigenfunctions are linearly interpolated for grid/PACE/FACE fits; basis
 fits evaluate their exact basis expansions. Subject ids are retained when

@@ -289,6 +289,43 @@ struct FunctionalCCA{T<:AbstractFloat,B1,B2,O}
     settings::O
 end
 
+"""
+    canonical_weights(f::FunctionalCCA)
+
+Return `(left=weights1, right=weights2)`, the exact `BasisFunctionalData`
+canonical weights, with one canonical pair per row. Both objects are owned by
+the fit; use `deepcopy` for independent data, coefficient and basis storage.
+"""
+canonical_weights(f::FunctionalCCA) = (; left=f.weights1, right=f.weights2)
+
+"""
+    canonical_variates(f::FunctionalCCA)
+
+Return `(left=variates1, right=variates2)`, with paired training subjects in
+rows and canonical pairs in columns. Both matrices are owned by the fit;
+use `map(copy, canonical_variates(f))` for independent array storage.
+"""
+canonical_variates(f::FunctionalCCA) = (; left=f.variates1, right=f.variates2)
+
+"""
+    canonical_correlations(f::FunctionalCCA)
+
+Return the selected penalized canonical correlations (singular values of the
+whitened cross-covariance). They generally differ from empirical correlations
+of the canonical variates. The vector is owned by the fit; use `copy` for
+independent storage.
+"""
+canonical_correlations(f::FunctionalCCA) = f.correlations
+
+"""
+    squared_canonical_correlations(f::FunctionalCCA)
+
+Return the squares of [`canonical_correlations`](@ref), the penalized
+criterion values, rather than empirical squared correlations of the variates.
+The vector is owned by the fit; use `copy` for independent storage.
+"""
+squared_canonical_correlations(f::FunctionalCCA) = f.squared_correlations
+
 function _cca_pair(value, label)
     value isa Tuple && length(value) == 2 && return value
     value isa Tuple && throw(ArgumentError("$label must be a scalar setting or a pair"))
@@ -403,7 +440,18 @@ function predict(f::FunctionalCCA, fd1::BasisFunctionalData, fd2::BasisFunctiona
     all(isfinite, X) && all(isfinite, Y) || throw(ArgumentError("CCA prediction variates must be finite"))
     (; variates1=X, variates2=Y)
 end
+"""
+    nobs(f::FunctionalCCA)
+
+Return the number of paired training subjects, using `StatsAPI.nobs`.
+"""
 nobs(f::FunctionalCCA) = size(f.variates1, 1)
+
+"""
+    ncomponents(f::FunctionalCCA)
+
+Return the number of selected canonical pairs.
+"""
 ncomponents(f::FunctionalCCA) = length(f.correlations)
 ids(f::FunctionalCCA) = f.ids === nothing ? nothing : deepcopy(f.ids)
 function Base.show(io::IO, f::FunctionalCCA)

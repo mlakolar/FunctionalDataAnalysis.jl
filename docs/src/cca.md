@@ -16,7 +16,7 @@ b = FourierBasis(domain(temperature), 3)
 x = to_basis(temperature, b)
 y = to_basis(precipitation, b)
 canonical = StatsAPI.fit(FunctionalCCA, x, y; lambda=1e4)
-(canonical.squared_correlations, size(canonical.variates1))
+(squared_canonical_correlations(canonical), size(canonical_variates(canonical).left))
 ```
 
 `weights1` and `weights2` are exact `BasisFunctionalData`, one weight per row.
@@ -25,6 +25,13 @@ columns. Evaluate weights with `evaluate(canonical.weights1, times)`.
 `correlations` contains the penalized singular values, and
 `squared_correlations` their squares. These are the penalized criterion values,
 which generally differ from empirical squared correlations of the variates.
+
+Use `canonical_weights(canonical)` and `canonical_variates(canonical)` to
+obtain `(left, right)` named tuples referencing those stored objects, and
+`canonical_correlations` / `squared_canonical_correlations` for their stored
+criterion vectors. `nobs` counts paired training subjects and `ncomponents`
+counts canonical pairs. Use `deepcopy` for independent weights and `copy`
+for independent arrays; these accessors do not copy the fit's storage.
 
 The reference is fda **6.3.0**
 [`cca.fd.R`](https://github.com/cran/fda/blob/6.3.0/R/cca.fd.R) and
@@ -75,4 +82,8 @@ correlation comparisons use relative tolerance `1e-8`.
 
 ```@docs
 FunctionalCCA
+canonical_weights
+canonical_variates
+canonical_correlations
+squared_canonical_correlations
 ```

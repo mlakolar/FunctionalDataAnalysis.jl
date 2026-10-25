@@ -42,8 +42,11 @@ scores raise an error. Exact ties choose the first supplied candidate.
 This criterion concerns prediction within curves and does not account for
 within-curve error correlation.
 
-Pointwise confidence bands for the pooled mean are outside this API. They
-require cluster-robust variances, which KernelSmoothing.jl does not yet provide.
+Pooled-mean uncertainty is available through [`mean_bands`](@ref):
+whole-curve bootstrap intervals and simultaneous bands, or analytic pointwise
+intervals using KernelSmoothing's curve-cluster sandwich variance. See
+[mean uncertainty](uncertainty.md#The-mean) for assumptions and fixed-bandwidth
+calibration.
 Covariance and noise variance are estimated as described below.
 
 KernelSmoothing.jl is currently unregistered. From this package's development

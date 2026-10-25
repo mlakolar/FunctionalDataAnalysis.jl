@@ -45,6 +45,10 @@ data require an explicit `PiecewiseLinear()` or `NoInterpolation()` evaluator.
 Piecewise-linear evaluation returns `NaN` outside a curve's observed range; exact
 lookup throws at any unobserved time. Query points must be finite.
 
+This generic is owned by FunctionalDataAnalysis. Use
+`FunctionalDataAnalysis.evaluate` when also loading another package that
+exports `evaluate`, such as MultivariateStats.
+
 Multivariate evaluation on a common point vector returns an
 `nobs × ncomponents × length(t)` array and rejects points outside any
 component's domain. A vector of point vectors returns one matrix per

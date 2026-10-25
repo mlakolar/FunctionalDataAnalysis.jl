@@ -1,6 +1,10 @@
 import StatsAPI
 using DelimitedFiles
 
+module StatsAPIReconstructionClient
+import StatsAPI: reconstruct
+end
+
 @testset "FPCA" begin
     @testset "fdapace 0.6.0 dense golden values" begin
         input = readdlm(joinpath(@__DIR__, "data", "m3_dense_input.csv"), ','; comments=true)
@@ -57,6 +61,9 @@ using DelimitedFiles
         fd = GridFunctionalData(values, grid; ids=labels)
         model = @inferred (data -> StatsAPI.fit(FPCA, data;
             method=:dense, ncomponents=2, max_k=3))(fd)
+        @test FunctionalDataAnalysis.reconstruct === StatsAPI.reconstruct
+        @test StatsAPIReconstructionClient.reconstruct === FunctionalDataAnalysis.reconstruct
+        @test StatsAPIReconstructionClient.reconstruct(model).values ≈ values
         @test model.method == :dense
         @test model.design == :regular
         @test model.grid == grid

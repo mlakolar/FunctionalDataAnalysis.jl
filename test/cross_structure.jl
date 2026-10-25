@@ -10,6 +10,17 @@ _m6_relative(a, b) = norm(a-b)/norm(b)
     x = GridFunctionalData(_m6_read("dense_input1"), l[:,1]; ids=1:18)
     y = GridFunctionalData(_m6_read("dense_input2"), r[:,1]; ids=1:18)
     f = @inferred StatsAPI.fit(FSVD, x, y; ncomponents=2, max_k=2)
+    @test (@inferred nobs(f)) == nobs(x)
+    @test (@inferred ncomponents(f)) == 2
+    @test (@inferred svdvals(f)) === f.singular_values
+    @test (@inferred left_functions(f)) === f.left_functions
+    @test (@inferred right_functions(f)) === f.right_functions
+    @test (@inferred left_scores(f)) === f.left_scores
+    @test (@inferred right_scores(f)) === f.right_scores
+    @test (@inferred fve(f)) === f.fve
+    independent_scores = copy(left_scores(f))
+    independent_scores[1,1] += 1
+    @test independent_scores[1,1] != left_scores(f)[1,1]
     expected = _m6_read("dense_values")
     @test _m6_relative(f.singular_values, expected[:,1]) < 1e-8
     @test _m6_relative(f.left_functions, l[:,2:end]) < 1e-8
@@ -24,7 +35,10 @@ _m6_relative(a, b) = norm(a-b)/norm(b)
     @test f.right_functions' * Diagonal(y.weights) * f.right_functions ≈ I
     @test f.settings.effective_fpca_options1 == f.settings.effective_fpca_options2 == (;method=:auto)
     @test StatsAPI.fit(FSVD,x,y).selection.max_k == 16
-    @test StatsAPI.fit(FSVD,x,y;ncomponents=FVE(.5),max_k=2).selection.chosen == 1
+    selected = StatsAPI.fit(FSVD,x,y;ncomponents=FVE(.5),max_k=2)
+    @test selected.selection.chosen == 1
+    @test ncomponents(selected) == length(svdvals(selected)) == 1
+    @test length(fve(selected)) == 2
     @test occursin("denominator=16", sprint(show, f))
     @test f.cross_covariance.ids == x.ids
     @test f.cross_covariance.ids !== x.ids
