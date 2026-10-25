@@ -55,6 +55,69 @@ reconstructing from that copy does not inherit training IDs.
 Prediction applies the training presmoothing settings. When spline GCV selected
 a penalty, prediction uses that selected penalty for new curves.
 
+## Choosing a route
+
+The [scaling benchmark](https://github.com/mlakolar/FunctionalDataAnalysis.jl/tree/main/benchmark/scaling)
+compares dense FPCA with dense FACE on long grids, and PACE with sparse FACE
+on sparsely observed curves: three Fourier components, two noise levels and
+200 replicates per cell, one CPU per fit on USC Discovery (AMD EPYC 7513,
+Julia 1.13.2). Results are in
+[`benchmark/scaling/results`](https://github.com/mlakolar/FunctionalDataAnalysis.jl/tree/main/benchmark/scaling/results).
+Mean time per fit:
+
+| n | m | Dense FPCA | Dense FACE |
+|---:|---:|---:|---:|
+| 100 | 100 | 0.0014 s | 0.0043 s |
+| 100 | 500 | 0.024 s | 0.0084 s |
+| 1000 | 500 | 0.054 s | 0.044 s |
+| 100 | 2000 | 0.97 s | 0.042 s |
+| 1000 | 2000 | 1.26 s | 0.35 s |
+| 100 | 5000 | 25 s | 0.12 s |
+| 1000 | 5000 | 27 s | 1.2 s |
+
+Dense FACE is faster from about 500 grid points and 20–200 times faster at
+5000; dense FPCA is faster at 100 points. At m=5000 dense FPCA also needs
+about twice the memory (2.7 GB against 1.4 GB peak per process). The two
+routes estimate the leading eigenvalues equally well. FACE's eigenfunctions
+are as accurate or slightly more accurate, and its reconstructions are far
+closer to the noise-free curves, because dense FPCA does not smooth and
+`FVE(0.99)` then keeps tens to hundreds of noise components. Neither route
+failed.
+
+On sparse curves with 2–10 points each, sparse FACE took 0.007 s (n=100)
+and 0.07 s (n=1000) per fit, against 0.63 s and 6.3 s for PACE. At n=1000
+its eigenvalue error was less than half of PACE's (0.064 against 0.148,
+relative) with similar eigenfunction error, and it overestimated σ²
+slightly more (bias 0.045 against 0.035, true σ² 0.0875 or 0.35). At n=100
+the two routes had similar eigenvalue and eigenfunction errors, but sparse
+FACE's σ² bias was larger (0.16 against 0.085 at the low noise level).
+With low noise and n=100 both routes sometimes failed because the noise
+estimate was truncated to zero and the observation covariance became
+singular (sparse FACE 9 of 200 replicates, PACE 4 of 200); PACE also gave
+a few extreme reconstructions in that cell.
+
+The implementation has the following covariance-estimation and
+eigenanalysis costs for fixed tuning-search sizes:
+
+| Route | Main time cost | Covariance storage |
+|:--|:--|:--|
+| Dense FPCA | `O(n*m^2 + m^3)` | `O(m^2)` |
+| Dense FACE | `O(m*c^2 + n*m*c + n*c^2 + c^3)` | `O(m*c)` factor |
+| PACE, without binning | `O(g*M + g^2*P + g^3)` | `O(g^2)`, plus `O(P)` raw products |
+| Sparse FACE | `O(Pplus*q^2 + q^3 + g*c^2)` | `O(g*c)` factor, plus tensor-design working storage |
+
+Here `n` is curve count, `m` is common-grid length, `g` is work-grid length,
+`c` is spline-basis size, `N_i` is curve `i`'s observed count,
+`M=sum(N_i)`, `P=sum(N_i*(N_i-1))`,
+`Pplus=sum(N_i*(N_i+1)/2)`, and `q=c*(c+1)/2+1`.
+Sparse FACE's tensor design and subject-CV moments need
+`O(Pplus*q + n*q^2)` working storage. Conditional scores add
+`O(n*m*K^2 + n*K^3)` time for dense FACE with `K` selected components,
+and `O(sum(N_i^3))` for PACE and sparse FACE. The FACE mean smoother uses a
+bounded basis; missing-data iterations and optional bandwidth searches add
+the costs described below. Automatic PACE binning reduces the covariance
+pool when enabled.
+
 ## Defaults and where they come from
 
 Let `n = nobs(data)`, `g = length(model.grid)`, and `r` be the range of the
