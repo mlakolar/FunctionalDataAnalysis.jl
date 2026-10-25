@@ -46,7 +46,7 @@ is added; a singular penalized metric raises an informative error.
 
 | Choice | Default and source |
 |:--|:--|
-| `ncan` | `2`, fda `cca.fd`; any positive integer up to the smaller basis dimension |
+| `ncan` / `ncomponents` | Alias names for the number of canonical pairs, default `2` from fda `cca.fd`; supply at most one. A positive integer up to the smaller basis dimension; this is not an FPCA FVE criterion. Settings retain the key `ncan`. |
 | `lambda` | `(1e-10,1e-10)`, fda `cca.fd`; a scalar sets both sides, a pair sets them separately |
 | `penalty` | `(2,2)`, fda `cca.fd`; each side can instead use a derivative order, Fourier harmonic-acceleration symbol, or symmetric positive-semidefinite matrix. A scalar setting applies to both. |
 | `center` | `true`, fda `centerfns`; false uses zero means |

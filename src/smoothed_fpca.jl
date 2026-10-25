@@ -258,7 +258,7 @@ end
 """
     FunctionalCCA
     fit(FunctionalCCA, fd1::BasisFunctionalData, fd2=fd1;
-        ncan=2, lambda=(1e-10, 1e-10), penalty=(2, 2), center=true)
+        ncan=nothing, ncomponents=nothing, lambda=(1e-10, 1e-10), penalty=(2, 2), center=true)
 
 Penalized functional canonical correlation analysis following fda 6.3.0
 `cca.fd`/`geigen`. Defaults are R's two canonical pairs, second-derivative
@@ -267,6 +267,9 @@ nonnegative scalar, a pair of scalars, or `LambdaCV(lambdas)` choosing a common
 lambda by held-out leading-variate squared correlation (Ramsay and Silverman,
 2005, §11.3.3). Penalties may be a common derivative order or a pair of orders,
 Fourier harmonic-acceleration symbols, or positive-semidefinite matrices.
+`ncomponents` is a descriptive alias for `ncan`, the number of canonical
+pairs, not a marginal FPCA truncation. Supply at most one; omitting both
+selects two. The stored settings key remains `ncan`.
 
 `weights1` and `weights2` are exact `BasisFunctionalData` with one canonical
 weight per row. As in R, each coefficient vector has Euclidean norm one.
@@ -407,7 +410,10 @@ function _cca_lambda(cv::LambdaCV, C::Matrix{T}, D, G, H, P, Q, center) where {T
 end
 
 function fit(::Type{FunctionalCCA}, fd1::BasisFunctionalData, fd2::BasisFunctionalData=fd1;
-        ncan=2, lambda=(1e-10, 1e-10), penalty=(2, 2), center=true)
+        ncan=nothing, ncomponents=nothing, lambda=(1e-10, 1e-10), penalty=(2, 2), center=true)
+    ncan === nothing || ncomponents === nothing || throw(ArgumentError(
+        "supply only one of ncan and its alias ncomponents"))
+    ncan = something(ncomponents, ncan, 2)
     _cca_subjects(fd1, fd2)
     center isa Bool || throw(ArgumentError("center must be Boolean"))
     ncan isa Integer && !(ncan isa Bool) && 1 <= ncan <= min(nbasis(fd1.basis), nbasis(fd2.basis)) ||

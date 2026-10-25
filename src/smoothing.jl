@@ -9,6 +9,8 @@ is a nonnegative integer and `degree >= derivative`. The default degree is
 KernelSmoothing.jl. Estimates are derivatives, not finite differences. Kernels
 are `KernelSmoothing.AbstractKernel` instances.
 Use [`smooth_curves`](@ref), or `StatsAPI.fit(LocalPolynomial, fd; grid, bandwidth, ...)`.
+Here `degree` is polynomial degree; [`BSplineBasis`](@ref) instead takes
+spline `order = degree + 1`. Neither is the derivative order being estimated.
 """
 struct LocalPolynomial{T<:AbstractFloat,K<:KernelSmoothing.AbstractKernel}
     bandwidth::T

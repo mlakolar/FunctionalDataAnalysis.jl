@@ -105,6 +105,23 @@ StatsAPI.residuals(::FPCA)
 StatsAPI.coef(::BasisFunctionalData)
 ```
 
+## Tuning vocabulary
+
+| Route / keyword | Meaning and default | Distinction / compatibility |
+|:--|:--|:--|
+| `LocalPolynomial.degree` | Polynomial degree; default `derivative + 1` | Derivative order is a separate quantity. |
+| `BSplineBasis(order, ...)` | Spline order = polynomial degree + 1 | Cubic splines have order 4. This is also distinct from the derivative order in `PenalizedSpline(...; order=2)`'s roughness penalty. |
+| Dense / sparse `face.knots` | Number of equal intervals, default 35 / 7 | Strictly interior knot count is `knots - 1`; basis dimension is `knots + p`, with spline degree `p=3` by default. This is not a generic interior-knot count. |
+| CCA `ncan` / `ncomponents` | Number of canonical pairs, default 2 | Additive aliases; supply at most one. Unlike FPCA's `ncomponents`, this accepts a fixed count, not FVE. Stored settings retain `ncan`. |
+| Sparse `face.lambda_mean` / `face.mean_loglambda` | Fixed mean penalty / log-candidate grid; defaults `nothing` / `range(-20,20; length=100)` | Candidates are exponentiated. Independent of covariance `face.lambda` / `face.loglambda`; a supplied mean or `center=false` cannot request mean tuning. |
+| Dense `face.mean_smoother` | A `PenalizedSpline` smoother specification, or the documented default when `nothing` | The dense and sparse mean-smoothing mechanisms are distinct, not interchangeable keyword aliases. |
+| `mean_bands(...; B, bootstrap_replicates)` | Number of whole-curve bootstrap resamples; default 1000 | Additive aliases; supply at most one. Both are bootstrap-only; the stored result field remains `B`. |
+| `SmoothedCovariance.noise_method` / `noise_interval` | Default `:rotated` / `:full` | FPCA/PACE do not forward these options. Fit a covariance explicitly and supply it as shown in the [noise-options recipe](smoothing.md#Noise-options-for-PACE). |
+
+Alias names change neither numerical defaults nor stored settings keys. See
+[smoothing](smoothing.md), [FPCA](fpca.md), [CCA](cca.md) and
+[uncertainty](uncertainty.md) for the route-specific controls and their sources.
+
 ## Generic ownership and storage
 
 `nobs`, `fit`, `predict`, `reconstruct`, `fitted`, `residuals` and `coef` are

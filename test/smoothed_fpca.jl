@@ -102,6 +102,15 @@ end
         y = [1.,-3,-1,2,-2,0,4,3]
         left, right = BasisFunctionalData(reshape(x,:,1), b), BasisFunctionalData(reshape(y,:,1), b)
         f = @inferred StatsAPI.fit(FunctionalCCA, left, right; ncan=1)
+        alias = @inferred StatsAPI.fit(FunctionalCCA, left, right; ncomponents=1)
+        @test alias.weights1.coefs == f.weights1.coefs
+        @test alias.weights2.coefs == f.weights2.coefs
+        @test canonical_variates(alias) == canonical_variates(f)
+        @test canonical_correlations(alias) == canonical_correlations(f)
+        @test squared_canonical_correlations(alias) == squared_canonical_correlations(f)
+        @test alias.settings == f.settings
+        @test_throws ArgumentError StatsAPI.fit(FunctionalCCA, left, right; ncan=1, ncomponents=1)
+        @test_throws ArgumentError StatsAPI.fit(FunctionalCCA, left, right; ncomponents=true)
         weights = @inferred canonical_weights(f)
         variates = @inferred canonical_variates(f)
         @test keys(weights) == keys(variates) == (:left, :right)
@@ -304,6 +313,8 @@ end
         @test_throws ArgumentError StatsAPI.fit(FunctionalCCA,fd;lambda=(1.,2.,3.))
         @test_throws ArgumentError StatsAPI.fit(FunctionalCCA,BasisFunctionalData(ones(4,4),b);lambda=0)
         cc = StatsAPI.fit(FunctionalCCA,fd)
+        @test cc.settings.ncan == 2
+        @test canonical_correlations(StatsAPI.fit(FunctionalCCA,fd;ncomponents=2)) == canonical_correlations(cc)
         @test_throws ArgumentError StatsAPI.predict(cc,fd,BasisFunctionalData(C,BSplineBasis(3,(0,1),4)))
         P = penalty(b,2)
         stored = StatsAPI.fit(FPCA,fd;penalty=P)

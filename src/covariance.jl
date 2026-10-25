@@ -3,6 +3,10 @@
         kernel=KernelSmoothing.EpanechnikovKernel(), weighting=:obs, binning=nothing,
         noise_method=:rotated, noise_interval=:full)
 
+These noise-estimator options are defined here, not forwarded by FPCA/PACE.
+To use alternatives there, fit this object explicitly and pass it as
+`covariance=c`; PACE reuses `c.noise_variance` unless explicitly overridden.
+
 Smooth all ordered within-curve off-diagonal residual products by bivariate
 local linear regression and symmetrize. The required `bandwidth` is positive
 or a [`CurveCV`](@ref) with explicit candidates. KernelSmoothing selectors and

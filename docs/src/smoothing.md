@@ -69,6 +69,11 @@ GCV
 smooth_curves
 ```
 
+Polynomial `degree` and spline `order` count different things: a local
+quadratic uses `degree=2`, while a cubic `BSplineBasis` uses `order=4`.
+The `order=2` in `PenalizedSpline` instead selects the derivative in its
+integrated roughness penalty. These are separate controls, not aliases.
+
 ## Pooled means and curve-level CV
 
 `StatsAPI.fit(SmoothedMean, fd; grid, bandwidth, weighting=:obs)` pools all
@@ -240,6 +245,28 @@ sampling design, CV results, and noise details appear in `show`.
 ```@docs
 SmoothedCovariance
 ```
+
+### Noise options for PACE
+
+`noise_method` and `noise_interval` belong to `SmoothedCovariance` and are
+not forwarded by `fit(FPCA, ...; method=:pace)`. To choose a nondefault noise
+estimator, fit the covariance explicitly and supply the fitted object:
+
+```julia
+alternative = StatsAPI.fit(SmoothedCovariance, sparse, pooled;
+    grid=workgrid, bandwidth=0.8, diagonal_bandwidth=0.6, weighting=:subj,
+    noise_method=:surface_diagonal, noise_interval=:middle_half)
+pace = StatsAPI.fit(FPCA, sparse; method=:pace, grid=workgrid,
+    mean=pooled, covariance=alternative, ncomponents=1)
+```
+
+This reuses the fitted surface and `alternative.noise_variance`; it does not
+re-estimate the noise with PACE's defaults. The mean/covariance objects and
+their work grids must be compatible with the observations. An explicit
+`noise_variance` overrides the object's estimate, as in the existing FPCA API.
+Supplying only a `(grid, surface)` named tuple instead requires that explicit
+noise value. The unchanged automatic default remains `noise_method=:rotated,
+noise_interval=:full`; use the explicit recipe only to select an alternative.
 
 ## [Cross-covariance](@id smoothing-cross-covariance)
 
