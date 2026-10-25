@@ -6,6 +6,12 @@ on:
         tags: ['*']
     pull_request:
     workflow_dispatch:
+        inputs:
+            coverage_study:
+                description: Run only the band coverage regression or larger study
+                type: choice
+                default: none
+                options: [none, regression, full]
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
@@ -13,6 +19,7 @@ concurrency:
 
 jobs:
     test:
+        if: github.event_name != 'workflow_dispatch' || inputs.coverage_study == 'none'
         name: Julia ${{ matrix.julia-version }} - ${{ matrix.os }}
         runs-on: ${{ matrix.os }}
         permissions:
@@ -46,6 +53,7 @@ jobs:
                   fail_ci_if_error: false
 
     docs:
+        if: github.event_name != 'workflow_dispatch' || inputs.coverage_study == 'none'
         name: Documentation
         runs-on: ubuntu-latest
         permissions:
@@ -64,3 +72,32 @@ jobs:
               run: julia --project=docs docs/make.jl
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    coverage-study:
+        name: Band coverage study
+        if: github.event_name == 'workflow_dispatch' && inputs.coverage_study != 'none'
+        runs-on: ubuntu-latest
+        permissions:
+            actions: write
+            contents: read
+        env:
+            JULIA_NUM_THREADS: '1'
+            OPENBLAS_NUM_THREADS: '1'
+            OMP_NUM_THREADS: '1'
+            MKL_NUM_THREADS: '1'
+            FDA_BANDS_FULL_COVERAGE: ${{ inputs.coverage_study == 'full' && 'true' || 'false' }}
+        steps:
+            - uses: actions/checkout@v7
+            - uses: julia-actions/setup-julia@v3
+              with:
+                  version: '1'
+            - uses: julia-actions/cache@v3
+            - name: Run the unchanged statistical regression
+              shell: bash
+              run: julia --color=yes scripts/test_master.jl --coverage-study 2>&1 | tee coverage-study.log
+            - name: Retain study results
+              if: always()
+              uses: actions/upload-artifact@v7
+              with:
+                  name: band-coverage-${{ inputs.coverage_study }}-${{ github.run_id }}
+                  path: coverage-study.log
