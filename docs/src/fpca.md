@@ -72,6 +72,7 @@ some older help text. See [Comparison with fdapace](fdapace.md) for details.
 | `mean_bandwidth`, PACE | `0.05r`. | fdapace [`methodBwMu="Default"`, `userBwMu`](https://github.com/cran/fdapace/blob/0.6.0/R/SetOptions.R). Pass a number, `CurveCV`, or a supported KernelSmoothing regression bandwidth selector. |
 | `covariance_bandwidth`, PACE | `0.10r`. | fdapace [`methodBwCov="Default"`, `userBwCov`](https://github.com/cran/fdapace/blob/0.6.0/R/SetOptions.R). Pass a number or `CurveCV` with explicit candidates. |
 | `diagonal_bandwidth`, PACE | The selected covariance bandwidth. | The milestone 2 smoother default, following fdapace's diagonal-variance smoothing. Pass a number, `CurveCV`, or a supported univariate selector. |
+| Noise estimation, PACE | Rotated diagonal over the full observed domain, inherited from `SmoothedCovariance`. | Issue #17 Discovery benchmark and the 25 October 2026 default decision. The rotated fit follows fdapace 0.6.0 `PC_CovE`; the full interval matches its internal formal default, while `SetOptions` uses the middle half. To change either choice, supply a `SmoothedCovariance` fitted with explicit `noise_method` / `noise_interval`, or supply `noise_variance`. |
 | `binning`, PACE | `:auto`, the audited fdapace `useBinnedData="AUTO"` bin-count rule. | fdapace [`GetBinNum`](https://github.com/cran/fdapace/blob/0.6.0/R/GetBinNum.R). Pass `nothing` to disable snapping or an integer of at least two to set its grid size. The package retains milestone 2's weighted covariance-pair aggregation. |
 | Dense mean and covariance | Cross-sectional sample mean and covariance with denominator `n-1`. | fdapace [`GetCovDense`](https://github.com/cran/fdapace/blob/0.6.0/R/GetCovDense.R). |
 | Quadrature | Stored trapezoidal weights, including nonuniform grids. | Package inner-product convention. This differs from fdapace's rectangular eigenvalue scaling. |
@@ -131,7 +132,10 @@ model = StatsAPI.fit(FPCA, simulation.data)
 (ncomponents(model), size(scores(model)), size(score_covariances(model)))
 ```
 
-This fit estimates the noise variance with `SmoothedCovariance`. Pass
+This fit estimates the noise variance with `SmoothedCovariance`'s rotated,
+full-interval default. Singular rotated windows throw an informative error;
+increase the covariance bandwidth or supply a `SmoothedCovariance` fitted
+with `noise_method=:surface_diagonal` for a small design. Pass
 `noise_variance=0.09` to use the simulation's known value. Smoother settings,
 selection metadata, the origin of every supplied or estimated input, and the
 noise truncation details are retained on the fit. Inputs are copied.
@@ -361,9 +365,11 @@ two eigenfunctions, and noise relative error below `0.40`. An 80-curve,
 and absolute weighted eigenfunction correlations above `0.98`.
 
 These thresholds describe finite simulations. They are not universal
-recovery guarantees. In a lower-noise diagnostic with the same sparse signal
-and true variance `0.25`, the default fit estimated `0.56615`. The fixed
-`0.10r` covariance bandwidth can leave appreciable diagonal smoothing bias.
+recovery guarantees. A historical lower-noise diagnostic with the same sparse
+signal and true variance `0.25` estimated `0.56615` under the former
+surface-diagonal, middle-half default. That value does not describe the current
+rotated, full-interval default, chosen using the [Discovery results](@ref sigma2-discovery-results).
+The fixed `0.10r` covariance bandwidth can leave appreciable smoothing bias.
 Inspect the fitted noise estimate and use an explicit bandwidth selector or
 known `noise_variance` when appropriate.
 

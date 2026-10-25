@@ -1,0 +1,59 @@
+{
+  "run_id": "m5-sigma2-smoke-2026-10-25",
+  "purpose": "Two-cell harness smoke, not a default decision",
+  "execution": "local",
+  "jobs": [],
+  "source_base_commit": "eb32a57f8898976e06ae2537c31c5b732b2303c8",
+  "source_state": "uncommitted task changes; source hashes below identify executed numerical code",
+  "source_sha256": {
+    "src/covariance.jl": "a1f46f315edf7804d1c993d52833cbccdea89b63466a899f94211d0c9f47890f",
+    "src/smoothing2d.jl": "e31fa5c9028b27ee2e223080cf063b6a296f59f94324ea104301141641695fea",
+    "benchmark/sigma2/common.jl": "b3bb27a506a1fe5ea973e19c499e9f8c7f5fdfcb0eddcda68fd4f229e646b867",
+    "benchmark/sigma2/run.jl": "02e22b265e20e0d8c206a8958117f440394c9f7ea259f3d21f18640988592e46",
+    "benchmark/sigma2/configs.py": "c6adfe11b0469a6e854a0ff6cfd5b9f6ca7df33162e3924b2347b55c1c67b2cb",
+    "benchmark/sigma2/summarize.py": "43797ee683d631c57cb5df23b6928330e7303708a6eb6f3c62ad544a9b31c9da",
+    "benchmark/sigma2/check.jl": "290e8413d19257ad452309c92eea4cf1cd18576cd0d481d0228a69eda23afa9d",
+    "benchmark/sigma2/discovery.sbatch": "a858df1e7124f54844521b9da689d70692bdfd06c03b6507420caf25aeab807d"
+  },
+  "versions": {
+    "Julia": "1.13.2",
+    "FunctionalDataAnalysis": "0.1.0",
+    "KernelSmoothing": "0.1.0",
+    "KernelSmoothing_tree": "3178afc11653d934bdb8aec4a68539fe1473ec46",
+    "R": "4.5.1",
+    "fdapace": "0.6.0",
+    "Python": "3.9.6"
+  },
+  "configuration": "benchmark/sigma2/smoke/configurations.csv",
+  "commands": [
+    "python3 benchmark/sigma2/configs.py benchmark/sigma2/smoke/configurations.csv --smoke",
+    "julia --project=. benchmark/sigma2/check.jl",
+    "julia --project=. benchmark/sigma2/run.jl benchmark/sigma2/smoke/configurations.csv 1 benchmark/sigma2/smoke/cell-001.csv",
+    "julia --project=. benchmark/sigma2/run.jl benchmark/sigma2/smoke/configurations.csv 2 benchmark/sigma2/smoke/cell-002.csv",
+    "python3 benchmark/sigma2/summarize.py benchmark/sigma2/smoke/configurations.csv benchmark/sigma2/smoke benchmark/sigma2/smoke/summary"
+  ],
+  "outputs": [
+    "benchmark/sigma2/smoke/cell-001.csv",
+    "benchmark/sigma2/smoke/cell-001.failures.csv",
+    "benchmark/sigma2/smoke/cell-001.replicates.csv",
+    "benchmark/sigma2/smoke/cell-002.csv",
+    "benchmark/sigma2/smoke/cell-002.failures.csv",
+    "benchmark/sigma2/smoke/cell-002.replicates.csv",
+    "benchmark/sigma2/smoke/configurations.csv",
+    "benchmark/sigma2/smoke/summary.csv",
+    "benchmark/sigma2/smoke/summary.md"
+  ],
+  "outcome": {
+    "configurations": 2,
+    "replicates_per_configuration": 20,
+    "estimates": 200,
+    "failures": 0,
+    "harness_assertions": 64
+  },
+  "checks": [
+    "Public-fit and grouped-CV equivalence; independent PSD reconstruction",
+    "Bias, sample variance, MSE, truncation and seed counts recomputed independently from raw replicate CSVs",
+    "Both failure CSVs contain headers only"
+  ],
+  "scope": "No cluster work. Full Discovery campaign and default decision deferred."
+}

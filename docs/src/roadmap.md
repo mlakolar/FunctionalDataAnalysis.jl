@@ -15,7 +15,9 @@
   Covariances use `StatsAPI.fit(SmoothedCovariance, fd, mean; ...)`, with
   off-diagonal product-kernel local linear smoothing, optional time binning,
   curve-level CV conditional on the supplied mean, bilinear evaluation, and
-  middle-half integrated noise variance. `diagonal_bandwidth` defaults to the
+  rotated full-interval noise variance (selected in milestone 5, issue #17).
+  The original surface-diagonal, middle-half rule remains explicit.
+  `diagonal_bandwidth` defaults to the
   covariance bandwidth and may be set separately as a number or `CurveCV`.
   The mean `bandwidth` and `diagonal_bandwidth` also accept KernelSmoothing
   regression `BandwidthSelector`s and pilot-centred `CurveCV(; pilot, multipliers)`;
@@ -78,8 +80,10 @@
   Task 4 adds six classic datasets through a lazy artifact, with offline
   samples and source/licence provenance. DTI retains both cca and rcst on
   separate grids, with masks and scan/subject covariates. See [Datasets](datasets.md).
-  Remaining task: the
-  noise-variance estimator benchmark (issue #17). Makie recipes are deferred.
+  Task 5 adds the rotated noise diagonal (fdapace `PC_CovE`; Yao, Müller and
+  Wang 2005), full-interval integration and the Discovery benchmark in
+  `benchmark/sigma2/` (issue #17); the rotated diagonal over the full interval
+  is now the default. Makie recipes are deferred.
   This scope follows the Tier 1 Gap Map and Mladen's 24 October decision,
   replacing the original milestone 5 scope.
 - Milestone 6: FACE and penalized FPCA.

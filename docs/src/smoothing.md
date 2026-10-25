@@ -114,7 +114,8 @@ CurveCV
 
 ## Covariance and noise variance
 
-`StatsAPI.fit(SmoothedCovariance, fd, mean_fit; grid, bandwidth, diagonal_bandwidth)` smooths all
+`StatsAPI.fit(SmoothedCovariance, fd, mean_fit; grid, bandwidth, diagonal_bandwidth,
+noise_method=:rotated, noise_interval=:full)` smooths all
 ordered within-curve residual products with distinct observation indices.
 This excludes measurement noise on the raw diagonal. The product kernel uses
 the same scalar bandwidth in both coordinates. Local linear fits solve a
@@ -166,8 +167,9 @@ curves at their original observation times, using the pooled-mean weighting
 and fold rules. The supplied mean remains fixed. When binning is enabled,
 training times are snapped as in the final diagonal smoother; held-out query
 times remain original. Its weights are one
-for `:obs` and `1/N_i` for `:subj`. If this fit is `V(t)` and the covariance is
-`G(s,t)`, the raw noise estimate is
+for `:obs` and `1/N_i` for `:subj`. With the former default selected explicitly
+as `noise_method=:surface_diagonal, noise_interval=:middle_half`, this fit
+`V(t)` and the covariance `G(s,t)` give the raw noise estimate
 `(2/(b-a)) * integral(V(t)-G(t,t), t=a+(b-a)/4..b-(b-a)/4)`.
 Here `[a,b]` is the work-grid range. Trapezoidal quadrature includes the exact
 middle-half boundaries, interpolating `V-G` linearly when needed. Negative
@@ -176,6 +178,42 @@ truncation flag, diagonal bandwidth, fold count, selection candidates, errors
 and assignments, fitted squares, and integration settings.
 `diagonal_bandwidth` also appears directly on the fit.
 The stored `weights` integrate over the full covariance work grid.
+
+With `noise_interval=:full`, the surface-diagonal method
+integrates over the whole work-grid domain and divides by its length,
+following the unrotated integrated diagonal estimator of Li and Hsing (2010).
+The default is now `noise_method=:rotated, noise_interval=:full`, chosen from
+the issue #17 Discovery benchmark (48 designs × 500 replicates) on 25 October
+2026. PACE inherits this choice. The latent diagonal follows
+Yao, Müller and Wang (2005), as implemented by fdapace 0.6.0 `PC_CovE` and
+`RotateLwls2DV2`: rotate by 45 degrees, fit a quadratic across the diagonal
+and a linear term along it, and use the covariance bandwidth in both rotated
+axes. This option uses existing work-grid points within the selected portion
+of the **observed** domain and divides by that portion's nominal length.
+It does not insert interval endpoints; at least two retained points are
+required. The covariance surface is unaffected. The raw-square bandwidth can
+still be overridden independently. Negative estimates truncate to zero.
+Singular rotated fits throw an informative error suggesting a larger bandwidth.
+For a small design that cannot support the rotated quadratic, explicitly use
+`noise_method=:surface_diagonal`; there is no automatic fallback.
+The [source audit](@ref fdapace-rotated-noise) details the construction and
+the differences from fdapace's enclosing FPCA routine.
+
+`noise_details.noise_method` and `.noise_interval` record these choices.
+The details also store the integration domain, nominal length, boundary rule,
+latent diagonal at the integration points, and rotation settings. `show`
+includes them.
+The standalone harness lives in `benchmark/sigma2/`; its configuration grid,
+Discovery array template, recreation commands, and summary script are described
+in that directory's README. [Noise-variance estimators (issue #17)](m5_sigma2_report.md)
+gives the Discovery results, benchmark-selected defaults and a separate harness
+smoke check.
+
+References: Yao, Müller and Wang (2005), *Functional Data Analysis for Sparse
+Longitudinal Data*, [doi:10.1198/016214504000001745](https://doi.org/10.1198/016214504000001745);
+Li and Hsing (2010), *Uniform convergence rates for nonparametric regression
+and principal component analysis in functional/longitudinal data*,
+[doi:10.1214/10-AOS813](https://doi.org/10.1214/10-AOS813).
 
 ```@example smoothing
 using Random
