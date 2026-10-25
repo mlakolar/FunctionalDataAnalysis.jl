@@ -63,9 +63,9 @@ function _face_subject_gcv(A, y, groups, subject_weights, s, candidates)
     k = size(A, 2)
     f = zeros(T, k)
     local_rhs = map(eachindex(groups)) do i
-        rhs = transpose(view(A, groups[i], :))*view(y, groups[i])
-        f .+= subject_weights[i] .* rhs
-        rhs
+        subject_rhs = transpose(view(A, groups[i], :))*view(y, groups[i])
+        f .+= subject_weights[i] .* subject_rhs
+        subject_rhs
     end
     gram = transpose(A)*A
     rhs = transpose(A)*y
