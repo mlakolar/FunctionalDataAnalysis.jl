@@ -19,6 +19,7 @@ using .GoldenTestHelpers
     include("datasets.jl")
     include("simulation.jl")
     include("smoothing.jl")
+    include("penalized.jl")
     include("mean.jl")
     include("covariance.jl")
     include("fpcbasis.jl")
