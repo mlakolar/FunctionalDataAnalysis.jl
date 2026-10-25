@@ -51,7 +51,7 @@ function _test_prediction_contract(model, data)
         @test StatsAPI.coef(residual) === residual.coefs
         @test StatsAPI.coef(data) === data.coefs
         points = collect(range(domain(data)...; length=31))
-        latent = evaluate(model.mean,points) + scores(model)*transpose(basis_matrix(eigenfunctions(model),points))
+        latent = evaluate(model.mean,points) .+ scores(model)*transpose(basis_matrix(eigenfunctions(model),points))
         @test evaluate(residual,points) + latent ≈ evaluate(data,points) atol=1e-12
         @test !applicable(StatsAPI.coef, model)
     else
