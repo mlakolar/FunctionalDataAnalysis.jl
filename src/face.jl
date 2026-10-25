@@ -171,18 +171,25 @@ Base.@constprop :aggressive function _fit_face(fd::GridFunctionalData{T}; ncompo
     shrink = inv.(1 .+ selected .* setting.s)
     changes = T[]
     converged = observed === nothing
-    previous = zeros(T, size(transformed))
+    previous = observed === nothing ? Matrix{T}(undef, 0, 0) : similar(transformed)
+    difference = similar(previous)
     smoothed = similar(transformed)
+    absent = observed === nothing ? CartesianIndex{2}[] : findall(!, observed)
+    completed = Matrix{T}(undef, observed === nothing ? 0 : J, observed === nothing ? 0 : n)
+    # Observed entries never change during imputation. Preserve the original
+    # packed-vector reduction, but compute it once rather than each iteration.
+    observed_mean_square = observed === nothing ? sum(abs2, Y)/length(Y) :
+        sum(abs2, Y[observed])/count(observed)
     iterations = 0
     sigma2 = zero(T)
     # Refund updates the missing values once AFTER checking convergence of YS.
     # The final eigensystem is from YS, while final scores use the updated Y.
     for iteration in 1:(observed === nothing ? 1 : 100)
         iterations = iteration
-        transformed = transpose(setting.A)*transpose(Y)
-        smoothed = shrink .* transformed
+        iteration > 1 && mul!(transformed, transpose(setting.A), transpose(Y))
+        smoothed .= shrink .* transformed
         all(isfinite, smoothed) || throw(ArgumentError("FACE smoothed data must be finite; rescale the observations"))
-        sigma2 = max((observed === nothing ? sum(abs2, Y)/length(Y) : sum(abs2, Y[observed])/count(observed)) - sum(abs2, smoothed)/(n*J), zero(T))
+        sigma2 = max(observed_mean_square - sum(abs2, smoothed)/(n*J), zero(T))
         isfinite(sigma2) || throw(ArgumentError("FACE noise estimate must be finite; rescale the observations"))
         if observed !== nothing
             system = _fpca_eigen(smoothed*transpose(smoothed)/n, ones(T, c), zeros(T, c);
@@ -190,15 +197,18 @@ Base.@constprop :aggressive function _fit_face(fd::GridFunctionalData{T}; ncompo
             selection = _fpca_selection(ncomponents, system.fve, Int(max_k))
             U = system.eigenfunctions[:, 1:selection.chosen]
             d = system.eigenvalues[1:selection.chosen]
-            completed = transpose(setting.A * (U * ((d ./ (d .+ sigma2)) .* (transpose(U)*transformed))))
-            Y[.!observed] = completed[.!observed]
+            mul!(completed, setting.A, U * ((d ./ (d .+ sigma2)) .* (transpose(U)*transformed)))
+            for index in absent
+                Y[index] = completed[index[2], index[1]]
+            end
             if iteration > 1
                 denominator = norm(smoothed)
-                change = denominator == 0 ? zero(T) : norm(smoothed-previous)/denominator
+                difference .= smoothed .- previous
+                change = denominator == 0 ? zero(T) : norm(difference)/denominator
                 push!(changes, change)
                 converged = change <= T(0.02)
             end
-            previous = smoothed
+            copyto!(previous, smoothed)
         end
         converged && break
     end

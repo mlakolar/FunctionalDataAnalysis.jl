@@ -382,3 +382,52 @@ end
     @test_throws ArgumentError FDA._face_scores(fd,grid,mu,phi,[1.],covariance,.2)
     @test_throws ArgumentError FDA._pace_ce(fd,grid,mu,phi,[1.],covariance,.2;curve_ce=FDA._face_curve_ce)
 end
+
+@testset "FACE initialization and imputation workspaces" begin
+    FDA = FunctionalDataAnalysis
+    t = collect(range(.1, .9; length=13)).^1.2
+    y = sinpi.(3t) .+ .1cospi.(17t)
+    targets = [-.1, t[1], .31, .68, t[end], 1.1]
+    t_snapshot, y_snapshot = copy(t), copy(y)
+    initialized = FDA._face_initial_curve(t, y, targets)
+    x = (t .- first(t)) ./ (last(t)-first(t))
+    cubic = BSplineBasis(4, initialized.knots)
+    slopes = diff(basis_matrix(cubic, cubic.breakpoints; derivative=2); dims=1)
+    roughness = penalty(cubic, 2) - slopes'*(diff(cubic.breakpoints) .* slopes)/3000
+    basis = FDA._RInitializationBasis(cubic, roughness)
+    raw = GridFunctionalData(reshape(y, 1, :), x)
+    # Compare the prepared final fit with the ordinary spline API, including
+    # exact endpoint evaluation and the observed-mean extrapolation rule.
+    direct = smooth_curves(raw, PenalizedSpline(basis; lambda=initialized.lambda))
+    @test initialized.values[2:5] ≈ vec(evaluate(direct,
+        (targets[2:5] .- first(t)) ./ (last(t)-first(t)))) rtol=1e-12
+    @test initialized.values[[1,6]] == fill(sum(y)/length(y), 2)
+    @test initialized.lambda > 0 && isfinite(initialized.spar)
+    @test t == t_snapshot && y == y_snapshot
+
+    for T in (Float32, Float64)
+        grid = collect(range(T(0), T(1); length=61))
+        mu = one(T) .+ grid.^2
+        values = T[mu[j]+cos(T(.4)*i)*(1+t)+sin(T(.7)*i)*sinpi(t)+
+            T(.1)*cos(T(2)*i+T(11)*t) for i in 1:10, (j,t) in enumerate(grid)]
+        masked = Matrix{Union{Missing,T}}(values)
+        masked[1, [1,3,5]] .= missing
+        masked[2, 20:26] .= missing
+        masked[3, end-2:end] .= missing
+        fd = GridFunctionalData(masked, grid)
+        snapshot = deepcopy(fd)
+        f = StatsAPI.fit(FPCA, fd; method=:face, ncomponents=2, max_k=4,
+            mean=(; grid, values=mu), face=(; knots=8, lambda=.5))
+        imputation = f.settings.imputation
+        @test imputation.converged && imputation.iterations >= 2
+        @test length(imputation.relative_changes) == imputation.iterations-1
+        @test all(isfinite, imputation.relative_changes)
+        @test imputation.relative_changes[end] <= imputation.tolerance
+        @test imputation.completed_centered[fd.observed] ==
+            (fd.values .- transpose(mu))[fd.observed]
+        @test all(isfinite, imputation.completed_centered)
+        @test fd.values == snapshot.values && fd.observed == snapshot.observed
+        @test scores(f) == predict_scores(f, fd).scores
+        @test eltype(scores(f)) == T
+    end
+end
