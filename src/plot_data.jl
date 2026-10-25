@@ -355,3 +355,16 @@ function band_data(b::MeanBands; coverage=b.coverage)
 end
 
 band_data(b::NamedTuple{(:nodes,)}) = (; nodes=band_data.(b.nodes))
+
+"""
+    band_data(b::NamedTuple{(:grid,:estimate,:se,:lower,:upper,:alpha,:critical_value,:settings)})
+
+Return copied plotting coordinates for one pointwise coefficient interval from
+[`coefficient_bands`](@ref). The existing [`bandplot`](@ref) ribbon recipe accepts
+this result directly: `bandplot(only(coefficient_bands(model)))`.
+"""
+function band_data(b::NamedTuple{(:grid,:estimate,:se,:lower,:upper,:alpha,:critical_value,:settings)})
+    (; grid=copy(b.grid), values=permutedims(b.estimate), lower=permutedims(b.lower),
+        upper=permutedims(b.upper), curves=[1], types=[:interval], alpha=b.alpha,
+        target=:coefficient, ncomponents=nothing, settings=b.settings)
+end
