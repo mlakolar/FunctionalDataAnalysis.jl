@@ -1,7 +1,7 @@
 module FunctionalDataAnalysis
 
 using LinearAlgebra
-import StatsAPI: nobs, fit, predict
+import StatsAPI: nobs, fit, predict, reconstruct
 import KernelSmoothing
 import BSplineKit
 import Tables
@@ -21,11 +21,13 @@ export GridFunctionalData, IrregularFunctionalData, BasisFunctionalData,
     ncomponents, component, to_array, to_irregular, to_grid, to_basis
 export SmoothedMean, SmoothedCovariance, CurveCV
 export CrossCovariance, SmoothedCrossCovariance, cross_covariances
-export FSVD, concurrent_correlation, dynamic_correlation
+export FSVD, svdvals, left_functions, right_functions, left_scores, right_scores,
+    concurrent_correlation, dynamic_correlation
 export FPCA, FPCBasis, FVE, AIC, BIC, eigenfunctions, eigvals, scores,
     score_covariances, fve, noise_variance, reconstruct, predict, pace_bandwidth_candidates
 export MultivariateFPCA, MFPCA, score_array
-export LambdaCV, FunctionalCCA
+export LambdaCV, FunctionalCCA, canonical_weights, canonical_variates,
+    canonical_correlations, squared_canonical_correlations
 export LocalPolynomial, PenalizedSpline, GCV, smooth_curves
 export ids, RegularSampling, SparseSampling, simulate_kl,
     fourier_eigenfunctions, legendre_eigenfunctions

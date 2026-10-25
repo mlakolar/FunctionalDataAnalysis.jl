@@ -52,6 +52,73 @@ struct FSVD{T<:AbstractFloat,T1<:AbstractFloat,T2<:AbstractFloat,C,S,O}
     settings::O
 end
 
+"""
+    nobs(f::FSVD)
+
+Return the number of paired training subjects, using `StatsAPI.nobs`.
+"""
+nobs(f::FSVD) = size(f.left_scores, 1)
+
+"""
+    ncomponents(f::FSVD)
+
+Return the number of selected singular components.
+"""
+ncomponents(f::FSVD) = length(f.singular_values)
+
+"""
+    svdvals(f::FSVD)
+
+Return the selected singular values, using `LinearAlgebra.svdvals`.
+The vector is owned by the fit; use `copy` for independent storage.
+"""
+LinearAlgebra.svdvals(f::FSVD) = f.singular_values
+
+"""
+    fve(f::FSVD)
+
+Return cumulative fractions of squared singular values within the component
+cap, including components beyond the selected count. The vector is owned by
+the fit; use `copy` for independent storage.
+"""
+fve(f::FSVD) = f.fve
+
+"""
+    left_functions(f::FSVD)
+
+Return the left singular-function matrix, with rows on
+`f.cross_covariance.grid1` and selected components in columns. The matrix is
+owned by the fit; use `copy` for independent storage.
+"""
+left_functions(f::FSVD) = f.left_functions
+
+"""
+    right_functions(f::FSVD)
+
+Return the right singular-function matrix, with rows on
+`f.cross_covariance.grid2` and selected components in columns. The matrix is
+owned by the fit; use `copy` for independent storage.
+"""
+right_functions(f::FSVD) = f.right_functions
+
+"""
+    left_scores(f::FSVD)
+
+Return the left training scores, with paired subjects in rows and selected
+singular components in columns. The matrix is owned by the fit; use `copy`
+for independent storage.
+"""
+left_scores(f::FSVD) = f.left_scores
+
+"""
+    right_scores(f::FSVD)
+
+Return the right training scores, with paired subjects in rows and selected
+singular components in columns. The matrix is owned by the fit; use `copy`
+for independent storage.
+"""
+right_scores(f::FSVD) = f.right_scores
+
 function _fsvd_marginal_covariance(f::FPCA)
     f.method == :pace ? f.settings.full_projected_covariance : f.covariance
 end

@@ -97,6 +97,21 @@ end
         y = [1.,-3,-1,2,-2,0,4,3]
         left, right = BasisFunctionalData(reshape(x,:,1), b), BasisFunctionalData(reshape(y,:,1), b)
         f = @inferred StatsAPI.fit(FunctionalCCA, left, right; ncan=1)
+        weights = @inferred canonical_weights(f)
+        variates = @inferred canonical_variates(f)
+        @test keys(weights) == keys(variates) == (:left, :right)
+        @test weights.left === f.weights1
+        @test weights.right === f.weights2
+        @test variates.left === f.variates1
+        @test variates.right === f.variates2
+        @test (@inferred canonical_correlations(f)) === f.correlations
+        @test (@inferred squared_canonical_correlations(f)) === f.squared_correlations
+        independent_weights = deepcopy(weights)
+        independent_weights.left.coefs[1,1] += 1
+        @test independent_weights.left.coefs != weights.left.coefs
+        independent_variates = map(copy, variates)
+        independent_variates.right[1,1] += 1
+        @test independent_variates.right != variates.right
         yc = y .- sum(y)/length(y)
         rho = dot(x,yc)/sqrt(dot(x,x)*dot(yc,yc))
         @test f.correlations ≈ [rho]

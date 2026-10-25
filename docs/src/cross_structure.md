@@ -15,10 +15,10 @@ weather = load_dataset(:canadian_weather; sample=true).data
 temperature = component(weather, 1)
 precipitation = component(weather, 2)
 f = StatsAPI.fit(FSVD, temperature, precipitation; ncomponents=1)
-f.singular_values
-f.left_functions, f.right_functions
-f.left_scores, f.right_scores
-f.fve[1:1]
+svdvals(f)
+left_functions(f), right_functions(f)
+left_scores(f), right_scores(f)
+fve(f)[1:ncomponents(f)]
 ```
 
 FSVD decomposes the cross-covariance operator. The two processes may have
@@ -36,8 +36,10 @@ The default component cap is `min(20,n-2)` and default selection is
 `FVE(0.9999)`, applied to cumulative **squared** singular values within the cap.
 A fixed integer disables FVE selection and throws if the retained rank is too
 small. Values at most `1e-10` of the largest are discarded. At least three
-subjects are required. `f.fve` retains the full cumulative curve within the
+subjects are required. `fve(f)` retains the full cumulative curve within the
 cap; `f.selection` records the chosen count and criterion.
+`nobs(f)` counts paired training subjects. Singular-value, function, score
+and FVE accessors return stored arrays; use `copy` before changing them.
 
 If either node is irregular or masked, both marginal fits use PACE, including
 a complete-grid partner, and the cross surface uses `SmoothedCrossCovariance`.
@@ -137,6 +139,11 @@ defaults, source discrepancies and deliberate departures.
 
 ```@docs
 FSVD
+LinearAlgebra.svdvals(::FSVD)
+left_functions
+right_functions
+left_scores
+right_scores
 concurrent_correlation
 dynamic_correlation
 ```
