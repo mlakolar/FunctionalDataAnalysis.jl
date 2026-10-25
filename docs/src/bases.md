@@ -22,8 +22,14 @@ julia> penalty(b, 2)
 ```
 
 `BSplineBasis` uses BSplineKit's clamped basis, collocation matrices, and
-Galerkin matrices. Its order is degree plus one. Integer order is a runtime
-argument; the wrapper retains a concrete return type for constructors.
+Galerkin matrices. Its order is degree plus one. The wrapper stores the concrete
+backend type, including the spline order, as its second type parameter.
+`BSplineBasis{T}` remains a valid partial type annotation and its existing
+three-argument backend constructor remains available. Code spelling out every
+type parameter must account for the backend parameter. Construction with an
+order known to the compiler can be inferred; an arbitrary runtime integer order
+does not determine one concrete return type. Evaluation and penalties specialize
+on the constructed basis, including when its order was chosen at runtime.
 The Fourier basis starts with a constant and then sine/cosine pairs. It is
 orthonormal on its domain. `penalty(b, :harmonic_acceleration)` for a Fourier
 basis integrates products of `D³φ + (2π/domain_width)² Dφ`, the default

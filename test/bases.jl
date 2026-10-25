@@ -1,8 +1,13 @@
+import BSplineKit
+
 @testset "Bases" begin
     @testset "B-splines" begin
         breaks = [0.0, 0.2, 0.6, 1.0]
         original = copy(breaks)
-        b = @inferred BSplineBasis(4, breaks)
+        # The backend type includes the order, so construction is inferred when
+        # the order is known to the compiler; runtime orders have distinct types.
+        b = @inferred (x -> BSplineBasis(4, x))(breaks)
+        @test isconcretetype(fieldtype(typeof(b), :backend))
         @test breaks == original
         breaks[2] = 0.1
         @test b.breakpoints == original
@@ -25,10 +30,41 @@
         @test basis_matrix(b, t; derivative=4) == zeros(length(t), 6)
         @test penalty(b, 4) == zeros(6, 6)
         @test size(basis_matrix(b, Float64[])) == (0, 6)
-        @test nbasis(@inferred BSplineBasis(4, (0, 1), 7)) == 7
-        @test eltype(@inferred BSplineBasis(2, Float32[0, 0.5, 1])) == Float32
-        @test eltype(@inferred BSplineBasis(2, [0, 1])) == Float64
-        @test eltype(@inferred BSplineBasis(2, (0.0f0, 1.0f0), 3)) == Float32
+        @test nbasis(@inferred (() -> BSplineBasis(4, (0, 1), 7))()) == 7
+        @test eltype(@inferred (x -> BSplineBasis(2, x))(Float32[0, 0.5, 1])) == Float32
+        @test eltype(@inferred (x -> BSplineBasis(2, x))([0, 1])) == Float64
+        @test eltype(@inferred (() -> BSplineBasis(2, (0.0f0, 1.0f0), 3))()) == Float32
+    end
+
+    @testset "Concrete B-spline backend" begin
+        for T in (Float32, Float64), order in (2, 3, 4, 6)
+            b = BSplineBasis(order, T[0, 0.2, 0.6, 1])
+            @test isconcretetype(typeof(b))
+            @test fieldtype(typeof(b), :backend) === typeof(b.backend)
+            # Exercise the existing partial constructor used by FACE as well.
+            @test typeof(BSplineBasis{T}(b.backend, b.breakpoints, order)) === typeof(b)
+            t = T[0, 0.13, 0.33, 0.72, 1]
+            for m in 0:order
+                X = @inferred basis_matrix(b, t; derivative=m)
+                P = @inferred penalty(b, m)
+                @test X isa Matrix{T}
+                @test P isa Matrix{T}
+                if m < order
+                    # Direct BSplineKit calls retain the previous arithmetic.
+                    expected = zeros(T, length(t), nbasis(b))
+                    BSplineKit.collocation_matrix!(expected, b.backend, t,
+                        BSplineKit.Derivative(m); clip_threshold=0)
+                    @test X == expected
+                    expected_penalty = zeros(T, nbasis(b), nbasis(b))
+                    d = BSplineKit.Derivative(m)
+                    BSplineKit.galerkin_matrix!(expected_penalty, b.backend, (d, d))
+                    @test P == (expected_penalty + transpose(expected_penalty)) / 2
+                else
+                    @test iszero(X)
+                    @test iszero(P)
+                end
+            end
+        end
     end
 
     @testset "Analytic bases" begin
