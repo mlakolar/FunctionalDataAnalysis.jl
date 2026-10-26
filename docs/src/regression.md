@@ -697,7 +697,7 @@ bands = only(coefficient_bands(penalized))   # Vc, as refund's coef.pfr
 | Presmoothing | `presmooth=nothing`, refund `presmooth=NULL` |
 | B-spline presmoother | `presmooth_options=(; nbasis=10)`, refund `create.prep.func` |
 | Coefficient bands | Normal pointwise, `covariance=nothing` = `Vc` when available, else `Vp` (refund `coef.pfr(useVc=TRUE)`); `alpha=0.05` |
-| Band grid | refund `coef.pfr`'s `ndefault`: the covariate grid when it has fewer than five distinct spacings (at most 101 points), else 101 equally spaced points |
+| Band grid | refund `coef.pfr`'s `ndefault`: with fewer than five distinct spacings, equally spaced points at the smallest spacing, their number halved (rounding half to even) until at most 101; else 101 equally spaced points |
 | Prediction intervals | `interval=:none`; requested intervals use `Vp` (mgcv `predict.gam`) and normal quantiles |
 
 A [`BSplineBasis`](@ref) or any other basis covering the grid can be supplied

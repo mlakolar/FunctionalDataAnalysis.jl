@@ -296,6 +296,18 @@ end
         lambda=[1.0], criterion=:GCV).criterion_value)
     # Selection still rejects these points.
     @test_throws ArgumentError StatsAPI.fit(PenalizedLeastSquares, B, zeros(length(t)); penalties=[P])
+    # A criterion that overflows (GCV's n·RSS beyond floatmax) is undefined as
+    # well; β is linear in y at fixed lambda.
+    wiggly = 1 .+ t .+ 0.3 .* sinpi.(7 .* t)
+    huge = StatsAPI.fit(PenalizedLeastSquares, B, 1e154 .* wiggly; penalties=[P], lambda=[1.0],
+        criterion=:GCV)
+    @test isnan(huge.criterion_value) && !huge.settings.criterion_defined
+    @test coef(huge) ≈ 1e154 .* coef(StatsAPI.fit(PenalizedLeastSquares, B, wiggly; penalties=[P],
+        lambda=[1.0])) rtol=1e-10
+    # maxiter=0 stops at the initial smoothing parameters.
+    stopped = StatsAPI.fit(PenalizedLeastSquares, B, wiggly; penalties=[P], maxiter=0)
+    @test stopped.settings.convergence === :maxiter && stopped.settings.iterations == 0
+    @test stopped.lambda ≈ stopped.settings.initial_lambda rtol=1e-12
     model = StatsAPI.fit(PenalizedLeastSquares, X, y; good...)
     @test_throws ArgumentError vcov(model; type=:sandwich)
     @test_throws DimensionMismatch StatsAPI.predict(model, ones(2, 2))

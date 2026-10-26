@@ -486,9 +486,8 @@ _pirls_gram(X, v) = Matrix(Symmetric(transpose(X) * (v .* X)))
 # diverging direction (separation), so the fit is rejected.
 function _pirls_boundary(fam::_GLMFamily, state)
     limit = 10 * eps(eltype(state.eta))
-    fam.family === :binomial && return any(o -> o.mu < limit || o.mu > 1 - limit, state.obs)
-    fam.family === :poisson && return any(o -> o.mu < limit, state.obs)
-    false
+    fam.family === :binomial ? any(o -> o.mu < limit || o.mu > 1 - limit, state.obs) :
+        fam.family === :poisson ? any(o -> o.mu < limit, state.obs) : false
 end
 
 # Penalized IRLS (mgcv 1.9-3 gam.fit3): Newton's method on the penalized
@@ -593,6 +592,8 @@ function _pls_evaluate(problem::_PIRLSProblem{T}, lambda::Vector{T}, criterion::
     known = _glm_scale_known(problem.family)
     gradient, hessian = zeros(T, M), zeros(T, M, M)
     db, hess_Dp, grad_Dp, hess_logdet = zeros(T, p, M), zeros(T, M, M), zeros(T, M), zeros(T, M, M)
+    grad_logdet = zeros(T, M)
+    grad_dev, hess_dev, grad_tau, hess_tau = zeros(T, M), zeros(T, M, M), zeros(T, M), zeros(T, M, M)
     if derivatives && M > 0
         HNinv = canonical ? HFinv : _scaled_inverse(FN)
         wn1, wn2 = _pirls_values(state, Val(:wn1)), _pirls_values(state, Val(:wn2))
@@ -630,7 +631,6 @@ function _pls_evaluate(problem::_PIRLSProblem{T}, lambda::Vector{T}, criterion::
             C = [HFinv * (A[j] + _pirls_gram(X, wf1 .* deta[j])) for j in 1:M]
             E = [HFinv * A[j] for j in 1:M]
             grad_tau = T[_trace_product(C[j], P) - tr(E[j]) for j in 1:M]
-            hess_tau = zeros(T, M, M)
             for j in 1:M, k in 1:M
                 v = wf2 .* deta[j] .* deta[k] .+ wf1 .* d2eta[j, k]
                 hess_tau[j, k] = -_trace_product(C[k] * C[j], P) - _trace_product(C[j] * C[k], P) +
@@ -638,9 +638,6 @@ function _pls_evaluate(problem::_PIRLSProblem{T}, lambda::Vector{T}, criterion::
                     _trace_product(C[j], E[k]) + _trace_product(C[k], E[j])
             end
         end
-    else
-        grad_logdet = zeros(T, M)
-        grad_dev, hess_dev, grad_tau, hess_tau = zeros(T, M), zeros(T, M, M), zeros(T, M), zeros(T, M, M)
     end
     residual_df = n - tau
     nu = n - null_dimension

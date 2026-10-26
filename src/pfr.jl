@@ -607,8 +607,10 @@ covariance of its basis coefficients.
 smoothing-parameter-corrected `Vc` when available (REML selection), else
 `Vp`; pass `:bayesian`, `:frequentist` or `:corrected` to choose. The choice is
 recorded in `settings.covariance`. `grid=nothing` uses refund's default
-coordinates (the covariate grid when it has fewer than five distinct
-spacings and at most 101 points, otherwise 101 equally spaced points); one
+coordinates: with fewer than five distinct spacings, equally spaced points
+at the smallest spacing (the covariate grid itself when it is regular), their
+number halved, rounding half to even, until it is at most 101 (a regular
+201-point grid gives 100 points); otherwise 101 equally spaced points. One
 grid, or a tuple of grids, may be supplied. Refund offers no simultaneous
 bands for `pfr`, and none are returned. Presmoothing is treated as fixed.
 """

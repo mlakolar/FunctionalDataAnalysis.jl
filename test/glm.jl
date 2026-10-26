@@ -192,6 +192,48 @@ end
     Xs = hcat(ones(40), t, sinpi.(t), cospi.(t))
     @test_throws ArgumentError StatsAPI.fit(PenalizedLeastSquares, Xs, separated; family=:binomial,
         penalties=[[1.0 0; 0 1] => 3:4], lambda=[1.0])
+
+    # Undefined criteria of PIRLS fits with fixed lambda are reported as NaN.
+    tb = collect(range(0.0, 1.0; length=20))
+    sb = BSplineBasis(4, (0.0, 1.0), 8)
+    Bs, Ps = basis_matrix(sb, tb), penalty(sb, 2)
+    # n = Mₚ = 2 with an estimated scale: REML has no residual degrees of
+    # freedom and GCV has n - τ = 0.
+    for criterion in (:REML, :GCV)
+        two = StatsAPI.fit(PenalizedLeastSquares, Bs[[1, end], :], [1.0, 3.0]; penalties=[Ps],
+            lambda=[1.0], family=:gaussian, link=:log, criterion)
+        @test isnan(two.criterion_value) && !two.settings.criterion_defined
+        @test two.fitted ≈ [1.0, 3.0]
+    end
+    @test_throws ArgumentError StatsAPI.fit(PenalizedLeastSquares, Bs[[1, end], :], [1.0, 3.0];
+        penalties=[Ps], family=:gaussian, link=:log)
+    # Means near 1e100 overflow the weight derivatives (μ⁴): the criterion is
+    # undefined but the fit is not. Scaling y by s shifts η by log s (the
+    # B-splines sum to one, a direction the penalty ignores) and divides the
+    # effective lambda by s².
+    wiggly = 1 .+ tb .+ 0.3 .* sinpi.(7 .* tb)
+    scaled = StatsAPI.fit(PenalizedLeastSquares, Bs, 1e100 .* wiggly; penalties=[Ps], lambda=[1.0],
+        family=:gaussian, link=:log)
+    @test isnan(scaled.criterion_value) && !scaled.settings.criterion_defined
+    @test StatsAPI.coef(scaled) ≈ StatsAPI.coef(StatsAPI.fit(PenalizedLeastSquares, Bs, wiggly;
+        penalties=[Ps], lambda=[1e-200], family=:gaussian, link=:log)) .+ log(1e100) rtol=1e-8
+    # maxiter=0 stops at the initial smoothing parameters.
+    stopped = StatsAPI.fit(PenalizedLeastSquares, X, bernoulli; family=:binomial, penalties, maxiter=0)
+    @test stopped.settings.convergence === :maxiter && stopped.settings.iterations == 0
+    @test stopped.lambda ≈ stopped.settings.initial_lambda rtol=1e-12
+
+    # Where the Newton Hessian of a non-canonical link is not positive
+    # definite, PIRLS takes a Fisher scoring step. Gaussian log link at μ = 1:
+    # Newton weights μ(2μ - y) = [1, 1, 1, -8] sum to -5 < 0.
+    ylog = [1.0, 1, 1, 10]
+    flog = FDA._glm_family(:gaussian, :log)
+    intercept = FDA._PIRLSProblem{Float64}(ones(4, 1), ylog, ones(4), flog, 4, 1, Matrix{Float64}[],
+        Vector{Int}[], FDA._PenaltyGroup{Float64}[], [1], FDA._pls_rank_tol(nothing, Float64),
+        FDA._glm_saturated(flog, ylog, ones(4)), zeros(1), Ref(false), 1e-12, 200)
+    start = FDA._pirls_state(intercept, zeros(4), zeros(1), zeros(1, 1))
+    @test FDA._pirls_values(start, Val(:wn)) ≈ [1, 1, 1, -8]
+    newton = FDA._pirls_fit(intercept, ones(4, 1), zeros(1, 1), zeros(1); warm=true)
+    @test only(newton.state.beta) ≈ log(3.25) rtol=1e-12
 end
 
 @testset "Penalized functional GLM against refund 0.1-40" begin

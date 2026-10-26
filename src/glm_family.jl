@@ -72,9 +72,7 @@ function _glm_valid(f::_GLMFamily, eta, mu, mc)
     isfinite(eta) && isfinite(mu) || return false
     f.link === :inverse && eta == 0 && return false
     f.link === :sqrt && eta <= 0 && return false
-    f.family === :poisson && return mu > 0
-    f.family === :binomial && return mu > 0 && mc > 0
-    true
+    f.family === :poisson ? mu > 0 : f.family === :binomial ? mu > 0 && mc > 0 : true
 end
 
 # Variance function V(μ) and its first two derivatives (V''' = 0 here).
