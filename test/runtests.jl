@@ -44,6 +44,7 @@ using .GoldenTestHelpers
     include("regression.jl")
     include("regression_functional.jl")
     include("pfr.jl")
+    include("regression_fosr.jl")
     include("kernelsmoothing_agreement.jl")
     include("validation.jl")
     include("shared_helpers.jl")

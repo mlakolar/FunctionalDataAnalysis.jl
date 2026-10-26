@@ -274,3 +274,121 @@ function penalty(b::MonomialBasis{T}, order) where {T}
     end
     out
 end
+
+# ---------------------------------------------------------------------------
+# mgcv P-splines.
+
+"""
+    PSplineBasis(domain, nbasis; degree=3, difference_order=2)
+
+The B-spline basis of mgcv's P-spline smooth (`bs="ps"`, mgcv 1.9-3
+`smooth.construct.ps.smooth.spec`) on the finite interval `domain`. The
+`nbasis` functions of polynomial `degree` have simple, equally spaced knots
+that extend `degree` intervals beyond a range widened by 0.1% on each side,
+exactly as mgcv places them when it is given no knots (or only the range):
+with `[a, b] = domain`, `r = b - a`, `nk = nbasis - degree + 1`,
+`xl = a - r/1000`, `xu = b + r/1000` and `dx = (xu - xl)/(nk - 1)`, the
+`nbasis + degree + 1` knots run from `xl - degree*dx` to `xu + degree*dx`.
+mgcv's `m = c(m1, m2)` corresponds to `degree = m1 + 1` and
+`difference_order = m2`; the defaults are mgcv's `m = c(2, 2)`. mgcv takes the
+range from the data, so pass the range of the observation times to reproduce
+it. Requires `nbasis >= degree + 1` and `0 <= difference_order < nbasis`.
+
+[`difference_penalty`](@ref) gives the P-spline penalty `D'D` (mgcv's `S`
+before its `S.scale` normalization). [`penalty`](@ref) and [`gram`](@ref)
+integrate products of derivatives over `domain`, as for every other basis.
+Evaluation outside `domain` is an error, although the functions do not vanish
+at its ends.
+"""
+struct PSplineBasis{T<:AbstractFloat,B<:BSplineKit.BSplineBasis} <: AbstractBasis
+    backend::B
+    interval::Tuple{T,T}
+    knots::Vector{T}
+    degree::Int
+    difference_order::Int
+end
+
+function PSplineBasis(interval::Tuple{<:Real,<:Real}, n::Integer; degree::Integer=3, difference_order::Integer=2)
+    _integer_in(degree, 0) || throw(ArgumentError("P-spline degree must be a nonnegative integer"))
+    _pspline_basis(interval, n, Val(Int(degree)), difference_order)
+end
+
+# A degree known to the compiler gives a concrete backend type.
+function _pspline_basis(interval::Tuple{<:Real,<:Real}, n::Integer, ::Val{p}, difference_order::Integer) where {p}
+    _integer_in(n, p + 1) || throw(ArgumentError(
+        "P-spline nbasis must be at least degree + 1 (mgcv needs two knots inside the range)"))
+    _integer_in(difference_order, 0, n - 1) || throw(ArgumentError(
+        "P-spline difference_order must be in 0:nbasis-1"))
+    a, b = _interval(interval)
+    T = typeof(a)
+    k = Int(n)
+    nk = k - p + 1
+    r = b - a
+    xl, xu = a - r*T(0.001), b + r*T(0.001)
+    dx = (xu - xl)/(nk - 1)
+    # R's seq(from, to, length.out): exact ends, from + i*by in between.
+    from, to = xl - dx*p, xu + dx*p
+    count = nk + 2p
+    by = (to - from)/(count - 1)
+    knots = T[i == 0 ? from : i == count - 1 ? to : from + i*by for i in 0:count-1]
+    all(isfinite, knots) && issorted(knots; lt=<=) || throw(ArgumentError(
+        "P-spline knots must be finite and strictly increasing; use a smaller nbasis"))
+    backend = BSplineKit.BSplineBasis(BSplineKit.BSplineOrder(p + 1), copy(knots); augment=Val(false))
+    PSplineBasis{T,typeof(backend)}(backend, (a, b), knots, p, Int(difference_order))
+end
+
+Base.eltype(::Type{<:PSplineBasis{T}}) where {T} = T
+nbasis(b::PSplineBasis) = length(b.knots) - b.degree - 1
+domain(b::PSplineBasis) = b.interval
+Base.:(==)(a::PSplineBasis, b::PSplineBasis) = a.interval == b.interval &&
+    a.knots == b.knots && a.degree == b.degree && a.difference_order == b.difference_order
+Base.hash(b::PSplineBasis, h::UInt) = hash(b.interval, hash(b.knots,
+    hash(b.degree, hash(b.difference_order, hash(:PSplineBasis, h)))))
+
+function Base.show(io::IO, b::PSplineBasis)
+    a, z = domain(b)
+    print(io, "PSplineBasis(degree ", b.degree, ", ", nbasis(b), " functions on [", a, ", ", z,
+        "], difference order ", b.difference_order, ")")
+end
+
+Base.show(io::IO, ::MIME"text/plain", b::PSplineBasis) = show(io, b)
+
+function basis_matrix(b::PSplineBasis, t::AbstractVector{<:Real}; derivative=0)
+    m = _derivative_order(derivative)
+    x = _basispoints(b, t)
+    out = zeros(eltype(x), length(x), nbasis(b))
+    if m <= b.degree && !isempty(x)
+        BSplineKit.collocation_matrix!(out, b.backend, x, BSplineKit.Derivative(m);
+            clip_threshold=0)
+    end
+    out
+end
+
+# On its domain a P-spline basis spans the clamped spline space with the knots
+# inside the domain as breakpoints. Integrate exactly in that basis and map
+# back through the collocation change of basis at the Greville abscissae.
+function penalty(b::PSplineBasis{T}, order) where {T}
+    m = _derivative_order(order)
+    k = nbasis(b)
+    m > b.degree && return zeros(T, k, k)
+    lo, hi = domain(b)
+    clamped = BSplineBasis(b.degree + 1, vcat(lo, filter(x -> lo < x < hi, b.knots), hi))
+    nbasis(clamped) == k || throw(ArgumentError(
+        "P-spline basis has more functions than its domain supports; use a smaller nbasis"))
+    sequence = vcat(fill(lo, b.degree), clamped.breakpoints, fill(hi, b.degree))
+    points = [sum(view(sequence, j+1:j+b.degree))/max(b.degree, 1) for j in 1:k]
+    b.degree == 0 && (points = (clamped.breakpoints[1:end-1] + clamped.breakpoints[2:end])/2)
+    change = basis_matrix(clamped, points) \ basis_matrix(b, points)
+    out = transpose(change)*penalty(clamped, m)*change
+    (out + transpose(out))/2
+end
+
+"""
+    difference_penalty(b::PSplineBasis, order=b.difference_order)
+
+Return the P-spline penalty `D'D`, where `D` takes coefficient differences of
+the nonnegative integer `order` (the identity for order zero). This is mgcv
+1.9-3's `ps` penalty `S` before mgcv rescales it by `S.scale`.
+"""
+difference_penalty(b::PSplineBasis{T}, order=b.difference_order) where {T} =
+    _difference_penalty(nbasis(b), order, T)

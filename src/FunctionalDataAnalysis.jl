@@ -17,7 +17,8 @@ import Random
 export AbstractFunctionalData, AbstractBasis, nobs, domain, evaluate, evaluate!,
     sampling_design, quadrature_weights
 export nbasis, basis_matrix, gram, penalty, BSplineBasis, FourierBasis,
-    MonomialBasis, DerivativeBasis, derivative, FPCADerivative, MultivariateFPCADerivative
+    MonomialBasis, PSplineBasis, difference_penalty, DerivativeBasis, derivative, FPCADerivative,
+    MultivariateFPCADerivative
 export GridFunctionalData, IrregularFunctionalData, BasisFunctionalData,
     MultivariateFunctionalData, PiecewiseLinear, NoInterpolation, nobs_per_curve,
     ncomponents, component, to_array, to_irregular, to_grid, to_basis

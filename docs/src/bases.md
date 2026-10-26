@@ -39,10 +39,21 @@ regression spline basis (refund's default for penalized regression), is
 documented on the [Regression](regression.md#Penalized-scalar-on-function-regression)
 page.
 
+`PSplineBasis` is mgcv's P-spline basis (`bs="ps"`): B-splines with simple,
+equally spaced knots extending beyond a range widened by 0.1%, exactly as
+mgcv 1.9-3 places them, with the coefficient-difference penalty from
+[`difference_penalty`](@ref). Its `penalty` and `gram` integrate over the
+domain like every other basis. [Function-on-scalar regression](regression.md#Function-on-scalar-regression)
+uses it for `pffr`'s default bases. `test/bases.jl` compares knots, basis
+values, first derivatives and the penalty with mgcv at relative error below
+`1e-12`; recreate the fixture with `Rscript test/reference/psplines_mgcv.R`.
+
 ```@docs
 BSplineBasis
 FourierBasis
 MonomialBasis
+PSplineBasis
+difference_penalty
 nbasis
 basis_matrix
 gram

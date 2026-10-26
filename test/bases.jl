@@ -1,4 +1,5 @@
 import BSplineKit
+using DelimitedFiles
 
 @testset "Bases" begin
     @testset "B-splines" begin
@@ -141,6 +142,76 @@ import BSplineKit
         @test sprint(show, first(pairs[2])) == "FourierBasis(3 functions on [0.0, 1.0])"
         @test sprint(show, first(pairs[3])) ==
             "MonomialBasis(degree 2, 3 functions on [0.0, 1.0])"
+    end
+
+    @testset "mgcv P-splines" begin
+        reference = readdlm(joinpath(@__DIR__, "data", "psplines_mgcv.csv"), ',', Any; comments=true)
+        for (case, degree, difference_order) in ((1, 3, 1), (2, 3, 1), (3, 4, 2))
+            rows(q) = reference[(reference[:, 1] .== case) .& (reference[:, 2] .== q), :]
+            values(q) = Float64.(rows(q)[:, 5])
+            function matrix(q)
+                r = rows(q)
+                out = zeros(maximum(Int.(r[:, 3])), maximum(Int.(r[:, 4])))
+                for row in eachrow(r)
+                    out[Int(row[3]), Int(row[4])] = Float64(row[5])
+                end
+                out
+            end
+            range_ = values("range")
+            k = size(matrix("S"), 1)
+            b = PSplineBasis((range_[1], range_[2]), k; degree, difference_order)
+            x = values("points")
+            @test nbasis(b) == k
+            @test domain(b) == (range_[1], range_[2])
+            @test b.knots ≈ values("knots") rtol=1e-14
+            @test basis_matrix(b, x) ≈ matrix("value") rtol=1e-12
+            @test basis_matrix(b, x; derivative=1) ≈ matrix("derivative") rtol=1e-12
+            @test difference_penalty(b) == matrix("S")
+        end
+        # Integrated products over the domain. With Greville coefficients the
+        # basis reproduces 1 and t exactly, so G and the derivative penalties
+        # have analytic quadratic forms.
+        b = PSplineBasis((-1.0, 2.5), 9; degree=3, difference_order=2)
+        a, z = domain(b)
+        one_ = ones(nbasis(b))
+        line = [sum(b.knots[j+1:j+3]) / 3 for j in 1:nbasis(b)]
+        t = collect(range(a, z; length=17))
+        @test basis_matrix(b, t) * one_ ≈ ones(17)
+        @test basis_matrix(b, t) * line ≈ t
+        G = gram(b)
+        @test G ≈ transpose(G)
+        @test dot(one_, G, one_) ≈ z - a rtol=1e-12
+        @test dot(line, G, line) ≈ (z^3 - a^3) / 3 rtol=1e-12
+        @test dot(line, G, one_) ≈ (z^2 - a^2) / 2 rtol=1e-12
+        @test norm(penalty(b, 1) * one_) < 1e-12
+        @test dot(line, penalty(b, 1), line) ≈ z - a rtol=1e-12
+        @test norm(penalty(b, 2) * line) < 1e-10
+        @test penalty(b, 4) == zeros(9, 9)
+        @test basis_matrix(b, t; derivative=4) == zeros(17, 9)
+        # The integrated penalty matches a fine composite Simpson rule.
+        fine = collect(range(a, z; length=4001))
+        w = fill(2.0, 4001); w[2:2:end] .= 4.0; w[[1, end]] .= 1.0; w .*= (fine[2] - fine[1]) / 3
+        D2 = basis_matrix(b, fine; derivative=2)
+        @test penalty(b, 2) ≈ transpose(D2) * (w .* D2) rtol=1e-6
+        # Cubic data are reproduced exactly by an unpenalized fit.
+        cubic = GridFunctionalData(reshape(t .^ 3, 1, :), t)
+        @test evaluate(to_basis(cubic, b), t) ≈ reshape(t .^ 3, 1, :)
+        @test difference_penalty(b, 0) == Matrix(1.0I, 9, 9)
+        @test difference_penalty(b, 1) == difference_penalty(PSplineBasis((-1.0, 2.5), 9; difference_order=1))
+        @test eltype(PSplineBasis((0.0f0, 1.0f0), 6)) == Float32
+        @test eltype(difference_penalty(PSplineBasis((0.0f0, 1.0f0), 6))) == Float32
+        @test PSplineBasis((0, 1), 5; degree=3, difference_order=1) == PSplineBasis((0.0, 1.0), 5; difference_order=1)
+        @test PSplineBasis((0, 1), 5) != PSplineBasis((0, 1), 5; difference_order=1)
+        @test hash(PSplineBasis((0, 1), 5)) == hash(PSplineBasis((0.0, 1.0), 5))
+        @test sprint(show, PSplineBasis((0, 1), 5; difference_order=1)) ==
+            "PSplineBasis(degree 3, 5 functions on [0.0, 1.0], difference order 1)"
+        @test sprint(show, MIME"text/plain"(), b) == sprint(show, b)
+        @test_throws ArgumentError PSplineBasis((0, 1), 3)
+        @test_throws ArgumentError PSplineBasis((0, 1), 5; degree=-1)
+        @test_throws ArgumentError PSplineBasis((0, 1), 5; difference_order=5)
+        @test_throws ArgumentError PSplineBasis((1, 0), 5)
+        @test_throws ArgumentError basis_matrix(b, [3.0])
+        @test_throws ArgumentError difference_penalty(b, 9)
     end
 
     @testset "Invalid bases" begin

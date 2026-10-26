@@ -2,8 +2,9 @@
 
 The package fits Gaussian functional regression models by two routes. FPC
 regression has no smoothing parameter: β is expanded in leading FPCs.
-[`PenalizedFunctionalRegression`](@ref) expands β in a spline basis and selects
-its smoothing parameters by REML (default) or GCV through
+[`PenalizedFunctionalRegression`](@ref) and penalized
+[`FunctionOnScalarRegression`](@ref) expand β in a spline basis and select
+their smoothing parameters by REML (default) or GCV through
 [`PenalizedLeastSquares`](@ref). Concurrent regression records the bandwidths it
 uses on the fit.
 
@@ -13,7 +14,7 @@ uses on the fit.
 | Scalar | Functional (and scalar) | same | [`PenalizedFunctionalRegression`](@ref), penalized splines with REML | refund `pfr` with `lf()` |
 | Functional | Functional (and scalar) | `Y(s) = μ(s) + Σ∫β_j(s,t)X_j(t)dt + zᵀγ(s) + ε(s)` | [`FPCRegression`](@ref) with a functional response | fdapace `FLM` |
 | Functional | Functional at the same time (and scalar) | `Y(t) = β₀(t) + Σβ_j(t)X_j(t) + zᵀγ(t) + ε(t)` | [`ConcurrentRegression`](@ref), kernel smoothing | fdapace `FCReg` (formerly `ConcurReg`) |
-| Functional | Scalar only | `Y(t) = Σ x_k β_k(t) + ε(t)` | [`FunctionOnScalarRegression`](@ref), fixed-λ basis expansion | fda `fRegress` |
+| Functional | Scalar only (numeric or factor) | `Y(t) = Σ x_k β_k(t) + ε(t)` | [`FunctionOnScalarRegression`](@ref), penalized splines with REML (fixed-λ basis expansion when λ is supplied) | refund `pffr`, `fosr`; fda `fRegress` |
 
 All estimators follow the StatsAPI interface: `fit`, `predict`, `coef`,
 `fitted`, and, where the model defines them, `residuals`, `vcov`, `stderror`,
@@ -318,11 +319,145 @@ coefficient; the bandwidth is not reselected and smoothing bias is ignored.
 
 ## Function-on-scalar regression
 
-[`FunctionOnScalarRegression`](@ref) implements fda 6.3.0 `fRegress` with
-scalar covariates and a fixed `fdPar` penalty. The response must be
-`BasisFunctionalData`; convert raw curves explicitly, for example with
-`to_basis` or `smooth_curves`. Each coefficient function uses the response
-basis, and the coefficients solve
+[`FunctionOnScalarRegression`](@ref) fits
+
+```math
+Y_i(t) = \sum_{k=1}^{q} x_{ik}\,\beta_k(t) + \epsilon_i(t),
+\qquad \beta_k(t) = \phi(t)^\top b_k,
+```
+
+with `x_i = [1, z_i]`. Scalar covariates are a vector or matrix, or a
+Tables.jl table whose non-numeric columns are factors. Factor levels are
+`sort(unique(column))` and enter through treatment contrasts against the
+first level, as in R's `model.matrix`; the design column names are stored in
+`settings.design_columns`. Grid (also with missing values), irregular and
+basis responses are accepted.
+
+### Penalized fit with REML (default)
+
+Without `lambda`, every coefficient function is a penalized spline and the
+smoothing parameters are chosen by REML on the
+[penalized least-squares solver](penalized.md). Grid and irregular responses
+are fitted at their observed points; basis responses in the L2 norm.
+
+```@example fos
+using FunctionalDataAnalysis
+import StatsAPI
+grid = collect(range(0.0, 1.0; length=31))
+u = 1:40
+group = ["a", "b", "c"][mod.(7u, 3) .+ 1]
+covariates = (; z=sin.(2.3u), group)
+values = transpose(1 .+ sin.(2pi .* grid)) .+ covariates.z .* transpose(grid .^ 2) .+
+    (group .== "b") .* transpose(cospi.(grid)) .+
+    0.3 .* cos.(1.7u) .* transpose(sinpi.(grid)) .+ 0.1 .* sin.(u .* transpose(1:31))
+y = GridFunctionalData(values, grid)
+fos = StatsAPI.fit(FunctionOnScalarRegression, covariates, y)
+(fos.lambda, fos.edf, fos.settings.design_columns)
+```
+
+```@example fos
+bands = coefficient_bands(fos)       # intercept, z, groupb, groupc
+StatsAPI.predict(fos, (; z=[0.5], group=["c"]); interval=:confidence).se
+```
+
+The model is the scalar-term model of refund's `pffr`: working-independent
+Gaussian errors, a penalized spline for each coefficient function and one
+smoothing parameter each. `pffr` is the default reference because it is the
+refund fit that selects smoothing parameters by REML (fosr does not; see the
+audit below). The coefficient basis follows fosr instead of `pffr`: 15 cubic
+B-splines with equally spaced knots on the response domain and the integrated
+squared second derivative penalty. This is the package's B-spline basis and
+roughness penalty, the same space and penalty as mgcv's `bs` basis with
+`m=c(3,2)`. `basis=:pffr` uses `pffr`'s own defaults instead: mgcv P-spline
+bases ([`PSplineBasis`](@ref)) with 20 cubic functions for the intercept and 5
+for every other coefficient, first-order difference penalties, and knots on
+the range of the observation times widened by 0.1%, as mgcv places them (for
+a grid response, the range of the whole grid, which is the same unless an end
+point is missing for every curve). Any basis, or one basis per coefficient
+(sharing one domain), can be supplied with `basis`; for a grid response its
+domain must contain the whole grid, since fitted curves and default bands are
+returned there, and `penalty_order` changes the penalty; for a `PSplineBasis` it is
+the order of the coefficient differences. Every column of `x_i` gets its own
+coefficient function: a factor contributes one varying coefficient per
+non-reference level.
+
+```@example fos
+pffr_style = StatsAPI.fit(FunctionOnScalarRegression, covariates, y; basis=:pffr)
+(nbasis.(pffr_style.bases), pffr_style.lambda)
+```
+
+| Choice | Default and source |
+|:--|:--|
+| Intercept | `intercept=true`: `pffr`'s functional intercept, fosr's intercept column |
+| Factors | Treatment contrasts against the first sorted level, R `model.matrix` (fosr's formula interface) |
+| Smoothing parameters | `lambda=nothing`: one per coefficient chosen by `criterion=:REML`, `pffr`'s `method="REML"` with a smoothing parameter per term |
+| Shared smoothing parameter | `shared_lambda=false`; `true` uses one λ for every coefficient, fosr's `multi.sp=FALSE` |
+| Criterion | `criterion=:REML`; `:GCV` is mgcv's `GCV.Cp`, which every fosr fit actually uses |
+| Coefficient basis (grid and irregular responses) | `basis=nothing`: 15 cubic B-splines on the response domain, fosr's `nbasis=15`, `norder=4`; `basis=:pffr`: `pffr`'s `bs.int = list(bs="ps", k=20, m=c(2,1))` and `bs.yindex = list(bs="ps", k=5, m=c(2,1))` |
+| Coefficient basis (basis responses) | The response basis, fosr's `fdobj` route; supplying `basis` throws |
+| Penalty | `penalty_order=nothing`: derivative order `norder-2` for B-splines (fosr `pen.order=2`, mgcv `bs` `m=c(3,2)`), the basis's `difference_order` for P-splines (mgcv `ps` `m[2]`), harmonic acceleration for Fourier, order 0 for monomials |
+| Observation weights | Unit weights at the observed points, as in `pffr` and fosr (a likelihood for pointwise observations, not a quadrature) |
+| Basis-response loss | L2 through the exact Gram matrix `G`: pseudo-observations `G^(1/2)c_i`, fosr's `respmat = C J^(1/2)` |
+| Coefficient covariance | `covariance=:cluster`, refund 0.1.40 `pffr`'s default `sandwich="cluster"` (not the posterior covariance; see below) |
+| Interval distribution | Normal |
+| Interval grid | The response grid for grid responses (fosr's `argvals`); otherwise `max(51, 10*nbasis+1)` equally spaced points |
+
+The smoothing parameters, their statuses, the criterion value, the error
+variance `sigma2` (mgcv's scale estimate, the residual sum of squares over
+`N - edf`), the effective degrees of freedom `edf` of each coefficient
+function, the solver settings and all choices above are stored on the fit and
+shown by `show`. `dof` is the total EDF and `dof_residual` the number of
+observations minus that EDF. `fitted` returns curves on the full response grid
+(grid), at the observation times (irregular) or in the response basis;
+`residuals` keeps the observed points of the response, so missing grid values
+stay missing. `predict(fos, z)` returns `BasisFunctionalData` in the
+coefficient basis when all coefficients share one basis, and curves on a grid
+(`GridFunctionalData`) when they do not, as with `basis=:pffr`.
+
+### Residual correlation
+
+Errors of one curve are usually correlated. The point estimate assumes
+working independence, as `pffr` and fosr's OLS fit do; `covariance` chooses
+how the uncertainty accounts for the correlation:
+
+| `covariance` | Covariance of the coefficients | Reference |
+|:--|:--|:--|
+| `:cluster` (default) | `N/(N-1) A⁻¹(Σ_i X_iᵀr_i r_iᵀX_i)A⁻¹ + Vp - Ve`, residuals clustered by curve | refund 0.1.40 `pffr(sandwich="cluster")` |
+| `:bayesian` | `Vp = A⁻¹σ²`, the posterior covariance under independent errors | `pffr(sandwich="none")`, mgcv `Vp` |
+| `:frequentist` | `Ve = A⁻¹XᵀXA⁻¹σ²` under independent errors | mgcv `Ve` |
+| `:pooled` | `A⁻¹(Σ_i X_iᵀΣ̂X_i)A⁻¹`, with `Σ̂` the residual covariance | fosr's OLS covariance `GinvXT (I ⊗ Σ̂) GinvXTᵀ` |
+
+Here `A = XᵀX + S_λ` and `N` is the number of curves. `:cluster` needs no
+common grid and is robust to any within-curve correlation.
+
+The default departs from the posterior covariance `Vp` (mgcv's default, and
+the covariance originally specified for these bands). refund 0.1.40 made the
+cluster sandwich `pffr`'s default because `Vp` treats the points of one curve
+as independent observations: with correlated residual curves, as functional
+data nearly always have, `Vp` understates the uncertainty of the coefficient
+functions and the bands undercover. `covariance=:bayesian` gives `Vp`. `:pooled` assumes
+one residual covariance for all curves and needs a complete common grid or a
+basis response. The field `residual_covariance` holds `Σ̂`, the covariance of
+the residual curves divided by `n` (fosr's `(n-1)/n` times `cov`), on the
+response grid, or of the residual coefficients for basis responses. For
+irregular and incomplete grids it is a `0×0` matrix: estimating it requires
+smoothing, for example `fit(FPCA, residuals(fos))`.
+
+Refitting with the residual structure, as fosr's `method="GLS"` (a whitening
+refit by the estimated residual covariance) and `method="mix"` (residual
+functional principal components as random effects) do, is not offered. refund
+0.1.40 removed `pffr`'s GLS variant (`pffr_gls`) because it gave poorly
+calibrated inference and recommends the cluster sandwich instead; fosr's GLS
+route also inherits the helper defects listed in the audit. Intervals condition
+on the selected smoothing parameters. `interval=:prediction` adds the error
+variance `sigma2`.
+
+### Fixed smoothing parameters
+
+Supplying `lambda` keeps it fixed. A basis response with supplied `lambda`
+follows fda 6.3.0 `fRegress` with scalar covariates and a fixed `fdPar`
+penalty (`method=:fRegress`, chosen automatically). Each coefficient function
+uses the response basis, and the coefficients solve
 
 ```math
 \bigl(X^\top X \otimes G + \operatorname{blockdiag}(\lambda_k R_k)\bigr)\, b
@@ -330,26 +465,26 @@ basis, and the coefficients solve
 ```
 
 with exact Gram matrix `G` and penalty matrices `R_k` from the package's
-bases.
+bases. These are the normal equations of the penalized basis-response fit, so
+the coefficients agree with `method=:penalized` at the same λ; the covariance
+follows `fRegress.stderr` instead.
 
-```@example fos
+```@example fosfixed
 using FunctionalDataAnalysis
 import StatsAPI
 basis = BSplineBasis(4, (0.0, 1.0), 7)
 u = 2pi .* (1:30) ./ 30
 z = cos.(u)
 coefs = 1 .+ z .* transpose(sin.(1:7) ./ 2) .+ 0.1 .* sin.(3u) .* transpose(cos.(1:7))
-fos = StatsAPI.fit(FunctionOnScalarRegression, z, BasisFunctionalData(coefs, basis); lambda=1e-4)
-intercept, slope = coefficient_functions(fos)
-bands = coefficient_bands(fos)          # pointwise intervals, intercept first
-StatsAPI.predict(fos, [0.5, -0.5])      # BasisFunctionalData
+fixed = StatsAPI.fit(FunctionOnScalarRegression, z, BasisFunctionalData(coefs, basis); lambda=1e-4)
+intercept, slope = coefficient_functions(fixed)
+bands = coefficient_bands(fixed)        # pointwise intervals, intercept first
+StatsAPI.predict(fixed, [0.5, -0.5])    # BasisFunctionalData
 ```
 
 | Choice | Default and source |
 |:--|:--|
-| Intercept | `intercept=true`, the constant `fRegress.formula` adds |
-| Coefficient basis | The response basis, `fRegress.formula`'s default for scalar covariates; other bases are not offered |
-| Penalty | `lambda=0` (`fdPar`'s default), one value or one per coefficient, fixed |
+| Penalty | `lambda` supplied, one value or one per coefficient; `fdPar`'s default is `lambda=0` |
 | Penalty operator | `penalty_order=nothing`: `fdPar`'s default, order `norder-2` for B-splines, harmonic acceleration for Fourier, order 0 for monomials |
 | Residual coefficient covariance | `residual_covariance=:residual`: `E'E/(n-q)` from coefficient residuals (`fRegress.stderr` requires it from the user) |
 | Interval distribution | Student t with `n-q` degrees of freedom for the estimate; normal for a supplied covariance |
@@ -359,10 +494,12 @@ Standard errors follow `fRegress.stderr`,
 `Var(b) = C^(-1) (X'X ⊗ G Σ_c G) C^(-1)`, where `Σ_c` is the covariance of one
 response's basis coefficients (`y2cMap*SigmaE*y2cMap'` in fda). A symmetric
 positive semidefinite `nbasis × nbasis` matrix may be supplied instead of the
-residual estimate; `n-q` ignores the penalty. `predict(fos, z;
+residual estimate; `n-q` ignores the penalty. `predict(fixed, z;
 interval=:confidence)` gives `fRegress.stderr`'s fitted-curve standard errors;
 `:prediction` adds `φ(t)'Σ_c φ(t)` for a new response curve. `fitted` and
-`residuals` are exact `BasisFunctionalData` in the response basis.
+`residuals` are exact `BasisFunctionalData` in the response basis. Grid and
+irregular responses with a supplied `lambda` use the penalized fit at that
+fixed λ, with its covariance options.
 
 ## Reference source audit and validation
 
@@ -373,8 +510,12 @@ The audited sources are [fdapace 0.6.0](https://cran.r-project.org/src/contrib/f
 (`fregre.pc.R`, `fdata2pc.R`, `predict.fregre.fd.r`, `inprod.fdata.R`,
 `ops.fda.usc.R`) and [fda 6.3.0](https://cran.r-project.org/src/contrib/fda_6.3.0.tar.gz)
 (`fRegress.fd`, `fRegress.double`, `fRegress.formula`, `fRegress.stderr`,
-`fRegressArgCheck`, `fdPar`, `inprod`, `bsplinepen`, `times.fd`). The reference
-generators use R 4.5.1.
+`fRegressArgCheck`, `fdPar`, `inprod`, `bsplinepen`, `times.fd`), together
+with [refund 0.1.40](https://cran.r-project.org/src/contrib/refund_0.1.40.tar.gz)
+(`pffr`, `pffr_prepare`, `apply_sandwich_correction`, `gam_sandwich_cluster`,
+`assemble_cluster_sandwich`, `build_cluster_id`, `pffr_gls`, `fosr`, `amc`,
+`lofocv`, `lw.test`) and mgcv 1.9-3 (`smooth.construct.bs.smooth.spec`,
+`smooth.construct.ps.smooth.spec` and `gam` with `paraPen`). The reference generators use R 4.5.1.
 
 `FLM` fits marginal FPCA without changing its defaults, concatenates `xiEst`
 and scalar columns, then calls `lm`. Sparse predictors therefore use PACE CE
@@ -420,9 +561,45 @@ change its covariance by up to about 8% in the reference fixtures. Fitted
 curves are projected onto the response basis on 501 points by `smooth.basis`;
 the package's fitted coefficients are exact.
 
+`pffr` with scalar terms builds `s(yindex)` for the intercept (a centered smooth
+plus the parametric constant, which together span the uncentered spline
+space with the same penalty) and `s(yindex, by=x)` for each numeric covariate,
+then calls `gam` with `method="REML"`. A factor `g` becomes `s(yindex, by=g)`:
+one smooth per level, each under mgcv's centering constraint and without a
+factor main effect, so level differences that are constant in `t` are not
+modelled. The package codes factors by treatment contrasts instead, and the
+fixture passes the dummy columns to `pffr` as numeric covariates. mgcv scales
+each penalty by its `S.scale` before applying `sp`, so `sp/S.scale` is the
+smoothing parameter of the exact penalty used here. `pffr`'s default bases
+are mgcv `ps` smooths with knots built from the range of `yind`; the
+package's [`PSplineBasis`](@ref) reproduces mgcv's knot placement exactly.
+refund 0.1.40 changed
+`pffr`'s default to `sandwich="cluster"`:
+`N/(N-1) Vp M Vp + Vp - Ve` with `M` the outer products of the curve-summed
+score contributions `X_iᵀr_i/σ²`; it removed `pffr_gls`.
+
+fosr's default `method="OLS"` with `lambda=NULL` chooses one shared λ by
+leave-one-function-out CV (`lofocv`, searched by `optimize` with `tol=0.01` up
+to a GCV-based `maxlam`). Its fits run through the helper `amc`, which has two
+defects that make fosr unsuitable as the default reference: it passes only the
+first penalty to `gam` (`paraPen` receives `S.[[1]]`), so with fosr's
+`multi.sp=TRUE` (the default for `method="GLS"` and `"mix"`) only the
+intercept function is penalized; and it never forwards `gam.method`, so every
+λ that fosr estimates with `gam` uses mgcv's default `GCV.Cp`, whatever
+`gam.method` says. With `multi.sp=FALSE` and `max.iter=0`, fosr returns the
+penalized OLS fit with a shared λ chosen by GCV and the covariance
+`GinvXT (I ⊗ Σ̂) GinvXTᵀ`, where `Σ̂ = (n-1)/n cov(residual curves)`; this is the
+package's `shared_lambda=true, criterion=:GCV, covariance=:pooled` fit. For
+basis responses fosr uses `J^(1/2)` (from `svd` of the Gram matrix) as both
+design and response transform, which is the package's L2 loss. Its `lofocv`
+weights each held-out curve's error by a trapezoidal weight of the time grid
+indexed by the curve number, not by time point.
+
 Recreate the small fixtures from the repository root with
 `Rscript test/reference/regression_m7.R` (fdapace 0.6.0 and fda.usc 2.2.0) and
-`Rscript test/reference/regression_m7b.R` (fdapace 0.6.0 and fda 6.3.0).
+`Rscript test/reference/regression_m7b.R` (fdapace 0.6.0 and fda 6.3.0) and
+`Rscript test/reference/regression_m7e.R` (refund 0.1.40, mgcv 1.9-3 and
+fda 6.3.0).
 `test/regression.jl` compares scalar-response coefficient functions, scalar
 coefficients, fitted values, residuals, residual variance, R², held-out
 predictions and conditional intervals at relative error below `1e-8`. It also
@@ -440,6 +617,29 @@ nonuniform-grid, basis and sparse conditional-expectation examples.
   recomputed in R with exact `bsplinepen` (or exact Gauss–Legendre) matrices,
   together with the `fRegress.stderr` covariance, pointwise standard errors
   and predictions using exact inner products.
+
+`test/regression_fosr.jl` compares penalized function-on-scalar fits of 40
+dense curves with a numeric covariate and a three-level factor at relative
+error below `1e-8`, at the smoothing parameters R selected:
+
+- `pffr` (REML, one λ per coefficient, mgcv `bs` basis with the package's
+  knots): coefficient functions, their standard errors under
+  `covariance=:bayesian` (`Vp`), `:frequentist` (`Ve`) and `:cluster`, fitted
+  curves, predictions, EDF per coefficient, total EDF and the scale;
+- `pffr` with its default `ps` bases (`basis=:pffr`): the same quantities, with
+  standard errors under `covariance=:bayesian` and `:cluster`;
+- fosr with a grid response (GCV, shared λ) and with a cubic B-spline basis
+  response: coefficient functions, the standard errors under
+  `covariance=:pooled` (fosr's residual-covariance sandwich), fitted
+  curves or coefficients, total EDF and the GCV score; and fosr's OLS fit at a
+  fixed λ.
+
+Separately, the criterion the package minimizes is no larger at its own
+selection than at R's (equal up to rounding of the score when mgcv reaches
+the same optimum). mgcv's REML score differs from the package's by a constant
+that depends on the parametrization of the intercept, so REML scores are not
+compared directly. Irregular and incomplete-grid fits are checked against the
+same observations on a grid.
 
 Analytic checks cover noise-free surfaces, bootstrap intervals that collapse
 when every resample refits the same model, a replay of the bootstrap draws,
