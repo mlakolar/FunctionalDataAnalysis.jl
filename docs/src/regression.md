@@ -92,8 +92,9 @@ no optimization solver or runtime dependency is added.
 | Choice | Default and source |
 |:--|:--|
 | Regression model | Gaussian OLS with intercept, fdapace 0.6.0 `FLM`/`GetBR2New` |
-| FPCA per covariate | A fresh `fit(FPCA, x_j)`, using that covariate's existing defaults |
+| FPCA per covariate and functional response | A fresh `fit(FPCA, x_j)` with that dataset's defaults, except `method=:face` on complete grids (a departure, below) |
 | Component selection | `selection=:fpca`, keeping each marginal FPCA's selection, as `FLM` does |
+| Regression-selection range | Leading counts from 1 to each FPCA's own selected count, `selection.cap` (a departure, below) |
 | Fresh FPCA component rule | `FVE(0.99)`, fdapace 0.6.0 `SetOptions.R` |
 | Scalar covariates | None; explicit vector or matrix when included |
 | Supplied fit/options/count | `fpca=nothing`, `fpca_options=(;)`, `ncomponents=nothing`: keep the marginal defaults |
@@ -103,6 +104,60 @@ no optimization solver or runtime dependency is added.
 | Prediction evaluator | `nothing`: native FPCA scoring contract, with exact evaluation of basis curves for raw fits |
 | Coefficient interval grid | Each fitted FPCA work grid; a display choice, not a new inner product |
 | Coefficient interval method | `method=:conditional`; `:bootstrap` reproduces fdapace `FLMCI` (`B=999`, its `R`) |
+
+### [FPC defaults that depart from fdapace](@id regression-fpc-departures)
+
+fdapace 0.6.0 `FLM` fits each dense covariate with its unsmoothed dense FPCA
+(sample covariance). `FPCRegression` instead fits a complete common-grid
+covariate (`GridFunctionalData` without missing values) with FACE,
+`method=:face`, which smooths the covariance before FVE selection. In the
+[regression study](@ref regression-method-choice), noisy curves on a 101-point grid
+made the dense route keep 40–63 noise-dominated components under
+`FVE(0.99)`; the median relative error of `β̂` was 3.8–11.6 for leading and
+smooth coefficients, against 0.15–0.71 for penalized regression.
+
+| Covariate or response | Fresh FPCA route | `settings.fpca_method_source` |
+|:--|:--|:--|
+| Complete grid, more than `35 + p` points | `method=:face`, 35 knot intervals | `:regression_default` |
+| Complete grid, `p + 2` to `35 + p` points | `method=:face`, `length(grid) - p - 1` knot intervals | `:short_grid_knots` |
+| Complete grid, fewer than `p + 2` points | throws; name a `method` | |
+| Grid with missing values, irregular | PACE (`:auto`) | `:fpca_default` |
+| Basis | basis route | `:fpca_default` |
+| Any, with `method` in `fpca_options` | as named | `:fpca_options` |
+| Supplied `fpca` | the supplied fit | `:supplied` |
+
+FACE's default basis has 35 equal knot intervals of degree `p=3` splines and
+needs more than `35 + p` grid points. On a shorter complete grid the
+regression default uses `knots = length(grid) - p - 1`, the most intervals
+the grid supports, so every complete grid is smoothed. `face` settings in
+`fpca_options` win: `(; face=(; knots=10))` fixes the intervals and
+`(; face=(; p=2))` changes the degree used in the rule. If the default FACE
+fit fails (for example, equal knot intervals on a strongly clustered grid make
+the spline design rank deficient), the error names the default and the
+overrides. `fpca_options=(; method=:dense)` restores fdapace's route. Dense- or
+PACE-only options (such as `presmooth` or bandwidths) without a `method` throw
+rather than switching route silently. `settings.fpca_method` records each
+covariate's route and `settings.fpca_knots` its FACE knot intervals
+(`nothing` for other routes). `fit(FPCA, x)` itself is unchanged.
+
+The FPCA of a functional response follows the same rule, for the same reason
+(noise components kept by `FVE(0.99)` on the dense route), through
+`response_fpca_options`. It is recorded in `settings.response_fpca_method`,
+`settings.response_fpca_method_source` and `settings.response_fpca_knots`
+(a one-entry vector). `response_fpca_options=(; method=:dense)` restores
+fdapace's response route.
+
+Regression selection (`AIC()`, `BIC()`, `:loocv`) searches leading counts
+from 1 up to the count each covariate's FPCA selects with its own selector:
+`FVE(0.99)` by default, `fpca_options.ncomponents` when given, or a supplied
+fit's retained count. The cap is stored in `selection.cap` and shown. In the
+study, searching every retained component (up to `n-2` on the dense route)
+let BIC choose about 70 components at `n=100`, with median relative `β̂`
+errors of 44.5–106 for leading and smooth coefficients.
+`fpca_options=(; ncomponents=FVE(1))` restores a search over all retained
+components.
+
+### FPCA options
 
 `fpca_options=(; max_k=5)` passes settings to FPCA. For different settings per
 predictor, pass a tuple of named tuples. All smoothing, noise and eigenanalysis
@@ -121,15 +176,18 @@ fit; for supplied fits it may retain or truncate the available harmonics using
 a fixed count or FVE. It cannot recover discarded eigenfunctions.
 
 Optional regression selection uses `selection=AIC()`, `BIC()` or `:loocv`.
-Use `fpca_options=(; max_k=...)` to limit fresh candidate bases. AIC and BIC
+Candidates are capped by each FPCA's own selection, as described above; set
+`fpca_options=(; ncomponents=...)` or `max_k` to change the cap. AIC and BIC
 minimize `n*log(RSS/n) + c*dof`, with `c=2` or `log(n)`. The additive Gaussian
 likelihood constant is omitted. LOOCV minimizes mean squared held-out response
-error and refits FPCA in every fold, so it costs `n` FPCA fits per covariate
-for each candidate count tuple; keep `max_k` small with several covariates.
+error and refits FPCA in every fold, with the route of the full-data fit, so
+it costs `n` FPCA fits per covariate for each candidate count tuple; keep the
+cap small with several covariates.
 Supplied fits are rejected for LOOCV
 because the procedure that produced them is not recoverable in general.
-Selection searches all positive leading-component counts, jointly across
-predictors. It records candidate counts, criteria, failures and the winner.
+Selection searches every leading-component count tuple up to the caps, jointly
+across predictors. It records candidate counts, criteria, failures, the caps
+and the winner.
 Nonestimable candidates receive infinite criterion with an explicit reason;
 if none is estimable, fitting throws. Exact ties choose the first
 lexicographic count. Candidate search can be expensive with many predictors.
@@ -215,7 +273,8 @@ intercept function `μ_Y(s) + B_{0·}ψ(s)'` is
 
 | Choice | Default and source |
 |:--|:--|
-| Response reduction | Fresh `fit(FPCA, y)` with its defaults, including `FVE(0.99)`: fdapace `optnsListY=list()` |
+| Covariate FPCA | As for a scalar response, including the FACE default on complete grids |
+| Response reduction | Fresh `fit(FPCA, y)` with its defaults, including `FVE(0.99)` (fdapace `optnsListY=list()`), except FACE on complete grids ([departures](@ref regression-fpc-departures)) |
 | Coefficients | One OLS per response score sharing the design, fdapace `GetBR2New` |
 | `r2` | `1 - Σ_k RSS_k / Σ_k TSS_k` on response scores, `GetBR2New`'s `R2` |
 | `coef`, `vcov`, `stderror` | `p × K_Y` matrix; `Cov(vec B) = SigmaE ⊗ (D'D)^(-1)`, with `SigmaE = E'E/(n-p)` |
@@ -520,7 +579,11 @@ with [refund 0.1.40](https://cran.r-project.org/src/contrib/refund_0.1.40.tar.gz
 `smooth.construct.ps.smooth.spec` and `gam` with `paraPen`). The reference generators use R 4.5.1.
 
 `FLM` fits marginal FPCA without changing its defaults, concatenates `xiEst`
-and scalar columns, then calls `lm`. Sparse predictors therefore use PACE CE
+and scalar columns, then calls `lm`. Its dense predictors therefore use the
+unsmoothed dense FPCA, which the package replaces by FACE on complete grids,
+for covariates and a functional response
+([departures](@ref regression-fpc-departures)); the dense golden tests pass
+`method=:dense` explicitly. Sparse predictors use PACE CE
 scores through the ordinary FPCA route. Held-out curves use `predict.FPCA`
 with the training component count. `fregre.pc` defaults to `l=1:3`, `lambda=0`
 and unit observation weights. The package follows fdapace's FVE default because
@@ -758,7 +821,7 @@ effective degrees of freedom (intercept and scalar coefficients included),
 `edf_terms` the effective degrees of freedom of each functional term, and
 `sigma2` mgcv's `RSS/(n - dof)`.
 
-### Choosing a regression method
+### [Choosing a regression method](@id regression-method-choice)
 
 Both fits return a tuple of coefficient functions, `coef`, `vcov`,
 `fitted`, `residuals`, `predict` and `coefficient_bands`, so downstream code
@@ -798,10 +861,15 @@ with 200 replicates per cell. The study records:
 - time, allocations and failures.
 
 Neither method offers simultaneous bands. The study instead reports how
-often the pointwise band covers all of `β`. Note that on noisy dense curves
-the default dense FPCA does not smooth, so `FVE(0.99)` also keeps
-noise-dominated components. Use `selection=BIC()`, `ncomponents`, or a
-smoothing FPCA (`fpca_options=(; method=:face)`) to control the count.
+often the pointwise band covers all of `β`.
+
+The results below were obtained with the earlier FPC defaults: dense
+covariates used the unsmoothed dense FPCA, and BIC searched every retained
+component. They are the reason for the current FACE default and selection
+cap ([FPC defaults that depart from fdapace](@ref regression-fpc-departures)).
+`fpca_options=(; method=:dense)` reproduces the "FPC default" column, and adding
+`ncomponents=FVE(1)` to those options with `selection=BIC()` reproduces the
+uncapped "FPC with BIC" column.
 
 Results from USC Discovery (Julia 1.13.2, 14,400 fits, no failures) are in
 [`benchmark/regression/results`](https://github.com/mlakolar/FunctionalDataAnalysis.jl/tree/master/benchmark/regression/results).
