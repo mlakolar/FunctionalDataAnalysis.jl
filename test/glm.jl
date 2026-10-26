@@ -343,7 +343,7 @@ end
             y = ref(case, "y")
             zs, zn = scalar ? (z, znew) : (nothing, nothing)
             f = StatsAPI.fit(FPCRegression, x1, y; scalar_covariates=zs, ncomponents=3,
-                fpca_options=(; max_k=3), family, link)
+                fpca_options=(; method=:dense, max_k=3), family, link)
             @test f.family === family
             # Both packages center the scores, so the intercepts agree.
             @test _glm_rel([StatsAPI.coef(f)[1]], ref(case, "intercept")) < 1e-8
