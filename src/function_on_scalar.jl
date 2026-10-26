@@ -275,8 +275,9 @@ function _fos_table_matrix(columns, coding::_FOSCoding, ::Type{T}) where {T}
     reduce(hcat, blocks)
 end
 
-# Prediction design with the fitted coding.
-function _fos_new_design(f::FunctionOnScalarRegression{T}, z) where {T}
+# Prediction design with the fitted coding (function-on-scalar and pffr fits).
+function _fos_new_design(f, z)
+    T = eltype(f.coefficients)
     coding = f.coding
     scalars = if coding.kind === :table
         z isa _RegressionScalars && throw(ArgumentError(
@@ -547,15 +548,7 @@ function _fos_penalized(X::Matrix{T}, coding, y, intercept, lambda, criterion, s
     elseif covariance === :frequentist
         Ve
     elseif covariance === :cluster
-        meat = zeros(T, K, K)
-        row = 0
-        for v in last.(observations)
-            rows = row+1:row+length(v)
-            u = transpose(view(D, rows, :))*pls.residuals[rows]
-            meat .+= u .* transpose(u)
-            row += length(v)
-        end
-        n/(n - 1) .* (inverse*meat*inverse) .+ (Vp .- Ve)
+        _fos_cluster_covariance(D, pls, length.(last.(observations)))
     else
         common === nothing && throw(ArgumentError(
             "covariance=:pooled needs a complete common grid or a basis response"))
@@ -591,6 +584,22 @@ function _fos_penalized(X::Matrix{T}, coding, y, intercept, lambda, criterion, s
             rank_tol=solver.rank_tol))
     FunctionOnScalarRegression(bases, b, V, X, deepcopy(y), fitted_values, residual_values,
         sigma_hat, lambdas, edf, Vector{Any}(orders), intercept, coding, settings)
+end
+
+# refund 0.1.40 pffr sandwich="cluster": N/(N-1) A⁻¹ (Σ_i D_iᵀr_i r_iᵀD_i) A⁻¹ +
+# Vp - Ve, clustering the stacked rows of D by curve (`counts` rows each).
+function _fos_cluster_covariance(D::Matrix{T}, pls, counts) where {T}
+    n = length(counts)
+    inverse = pls.vcov_bayesian ./ pls.sigma2
+    meat = zeros(T, size(D, 2), size(D, 2))
+    row = 0
+    for count in counts
+        rows = row+1:row+count
+        u = transpose(view(D, rows, :))*pls.residuals[rows]
+        meat .+= u .* transpose(u)
+        row += count
+    end
+    n/(n - 1) .* (inverse*meat*inverse) .+ (pls.vcov_bayesian .- pls.vcov_frequentist)
 end
 
 function _fos_fitted(y::GridFunctionalData{S}, bases, ranges, b::Vector{T}, X, D, residual_curves, counts) where {S,T}

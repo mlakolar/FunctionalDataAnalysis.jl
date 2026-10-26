@@ -43,7 +43,7 @@ export FittedBands, MeanBands, fitted_bands, mean_bands, band_data, band_plot
 export datasets, load_dataset
 export FPCRegression, coefficient_functions, coefficient_bands, pointwise_r2
 export ConcurrentRegression, FunctionOnScalarRegression
-export ThinPlateRegressionBasis, PenalizedFunctionalRegression
+export ThinPlateRegressionBasis, PenalizedFunctionalRegression, PenalizedFunctionOnFunctionRegression
 
 include("interface.jl")
 include("quadrature.jl")
@@ -82,6 +82,7 @@ include("regression.jl")
 include("concurrent_regression.jl")
 include("function_on_scalar.jl")
 include("pfr.jl")
+include("pffr.jl")
 include("plot_data.jl")
 include("recipes.jl")
 include("compat_naming.jl")
