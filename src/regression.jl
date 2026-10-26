@@ -437,9 +437,11 @@ end
 
 """
     coefficient_functions(f::FPCRegression)
+    coefficient_functions(f::PenalizedFunctionalRegression)
 
 Return a tuple with one coefficient per functional covariate. For a scalar
-response these are copied `BasisFunctionalData` coefficient functions; evaluate
+response (FPC or penalized fits) these are copied `BasisFunctionalData`
+coefficient functions in FPC or spline bases; evaluate
 them using `evaluate(beta, t)`. For a functional response each entry is a
 named tuple `(; grid, response_grid, values)` holding `beta_j(t,s)` on the
 covariate FPCA work grid (rows, `t`) and response FPCA work grid (columns,
