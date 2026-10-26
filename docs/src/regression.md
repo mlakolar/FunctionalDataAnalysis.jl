@@ -2,9 +2,10 @@
 
 The package fits Gaussian functional regression models by two routes. FPC
 regression has no smoothing parameter: β is expanded in leading FPCs.
-[`PenalizedFunctionalRegression`](@ref) and penalized
-[`FunctionOnScalarRegression`](@ref) expand β in a spline basis and select
-their smoothing parameters by REML (default) or GCV through
+[`PenalizedFunctionalRegression`](@ref), penalized
+[`FunctionOnScalarRegression`](@ref) and
+[`PenalizedFunctionOnFunctionRegression`](@ref) expand β in a spline basis and
+select their smoothing parameters by REML (default) or GCV through
 [`PenalizedLeastSquares`](@ref). Concurrent regression records the bandwidths it
 uses on the fit.
 
@@ -13,6 +14,7 @@ uses on the fit.
 | Scalar | Functional (and scalar) | `y = α + Σ∫β_j X_j + zᵀγ + ε` | [`FPCRegression`](@ref) on FPC scores | fdapace `FLM`, fda.usc `fregre.pc` |
 | Scalar | Functional (and scalar) | same | [`PenalizedFunctionalRegression`](@ref), penalized splines with REML | refund `pfr` with `lf()` |
 | Functional | Functional (and scalar) | `Y(s) = μ(s) + Σ∫β_j(s,t)X_j(t)dt + zᵀγ(s) + ε(s)` | [`FPCRegression`](@ref) with a functional response | fdapace `FLM` |
+| Functional | Functional (and scalar, numeric or factor) | same | [`PenalizedFunctionOnFunctionRegression`](@ref), tensor-product penalized splines with REML | refund `pffr` with `ff()` |
 | Functional | Functional at the same time (and scalar) | `Y(t) = β₀(t) + Σβ_j(t)X_j(t) + zᵀγ(t) + ε(t)` | [`ConcurrentRegression`](@ref), kernel smoothing | fdapace `FCReg` (formerly `ConcurReg`) |
 | Functional | Scalar only (numeric or factor) | `Y(t) = Σ x_k β_k(t) + ε(t)` | [`FunctionOnScalarRegression`](@ref), penalized splines with REML (fixed-λ basis expansion when λ is supplied) | refund `pffr`, `fosr`; fda `fRegress` |
 
@@ -886,6 +888,192 @@ StatsAPI.dof(::PenalizedFunctionalRegression)
 StatsAPI.dof_residual(::PenalizedFunctionalRegression)
 StatsAPI.r2(::PenalizedFunctionalRegression)
 StatsAPI.stderror(::PenalizedFunctionalRegression)
+```
+
+## Penalized function-on-function regression
+
+`PenalizedFunctionOnFunctionRegression` fits functional responses on
+functional and scalar covariates with penalized splines, as refund's
+`pffr(Y ~ z + ff(X1) + ff(X2))` (Ivanescu, Staicu, Scheipl and Greven 2015;
+Scheipl, Staicu and Greven 2015):
+
+```math
+Y_i(s) = \beta_0(s) + \sum_k z_{ik}\beta_k(s) +
+\sum_j \sum_t L_{jt} X_{ij}(t)\,\beta_j(t,s) + \epsilon_i(s),
+\qquad \beta_j(t,s) = \sum_{a,b} \theta_{jab} B_a(t) B_b(s).
+```
+
+Each surface `β_j` is a tensor product of cubic P-splines with two smoothing
+parameters, one per direction. The intercept and scalar-term functions are
+those of [`FunctionOnScalarRegression`](@ref) with `basis=:pffr`. Every
+smoothing parameter is chosen by REML on the stacked observations
+`(i, s)` through [`PenalizedLeastSquares`](@ref), and the default covariance is
+`pffr`'s cluster sandwich, which allows for correlated errors within a curve.
+
+```@example pffr
+using FunctionalDataAnalysis, LinearAlgebra, Random
+import StatsAPI
+rng = Xoshiro(11)
+tgrid = collect(range(0, 1; length=30))
+sgrid = collect(range(0, 1; length=25))
+modes = hcat(sinpi.(tgrid), cospi.(tgrid), sinpi.(2 .* tgrid), cospi.(2 .* tgrid))
+X = randn(rng, 60, 4) * transpose(modes) .+ 0.05 .* randn(rng, 60, 30)
+z = randn(rng, 60)
+surface_true(t, s) = cospi(t - s) * (1 + s)
+Y = transpose(1 .+ sinpi.(2 .* sgrid)) .+ z .* transpose(1 .- 2 .* sgrid .^ 2) .+
+    X * (quadrature_weights(tgrid) .* surface_true.(tgrid, transpose(sgrid))) .+
+    0.1 .* randn(rng, 60, 25)
+x = GridFunctionalData(X, tgrid)
+y = GridFunctionalData(Y, sgrid)
+pffr = StatsAPI.fit(PenalizedFunctionOnFunctionRegression, x, y; scalar_covariates=z)
+(pffr.lambda, pffr.edf, pffr.settings.sigma2)
+```
+
+`lambda` lists the intercept, the scalar coefficient, then the `t` and `s`
+directions of the surface; `edf` the effective degrees of freedom of the
+intercept, the scalar coefficient and the surface.
+
+```@example pffr
+bands = coefficient_bands(pffr)
+surface = only(bands.functional)   # (; grid, response_grid, estimate, se, lower, upper, ...)
+slope = bands.scalar[2]            # pointwise band for the coefficient function of z
+curves = StatsAPI.predict(pffr, x[1:3]; scalar_covariates=z[1:3])
+(size(surface.estimate), surface.settings.covariance, size(curves.values))
+```
+
+The same data fitted by FPC function-on-function regression
+([`FPCRegression`](@ref) with a functional response) give a surface in the
+leading covariate and response FPCs. With covariates spanned by four smooth
+modes, both recover the surface; the penalized fit does not depend on how
+much of the surface lies in the leading covariate modes.
+
+```@example pffr
+fpc = StatsAPI.fit(FPCRegression, x, y; scalar_covariates=z)
+relative_error(s) = norm(s.values - surface_true.(s.grid, transpose(s.response_grid))) /
+    norm(surface_true.(s.grid, transpose(s.response_grid)))
+(penalized=relative_error(only(coefficient_functions(pffr).functional)),
+    fpc=relative_error(only(coefficient_functions(fpc))), fpc_components=ncomponents(fpc))
+```
+
+### [Defaults and their sources](@id pffr-defaults)
+
+| Choice | Default and source |
+|:--|:--|
+| Surface basis | `k=(5, 5)`: cubic P-splines in `t` and `s` with first-order difference penalties, refund `ff()`'s `splinepars = list(bs="ps", m=list(c(2,1), c(2,1)), k=c(5,5))` with `basistype="te"` |
+| Surface penalties | mgcv `te`: each margin reparameterized to function values at `k` equally spaced points of its range and normalized to unit largest eigenvalue; `λ` refers to these unscaled penalties (mgcv's `sp` divided by `S.scale`) |
+| Knots | mgcv `ps` knots on the covariate grid range and on the range of the observation times (the whole grid for a grid response) |
+| Intercept and scalar terms | `basis=:pffr`: P-splines with 20 functions for the intercept and 5 per scalar term, `pffr`'s `bs.int` and `bs.yindex` |
+| Integration | `integration=:quadrature` (refund's `"trapezoidal"`); **departs** from `ff()`'s `"simpson"`, for the reason given for [`PenalizedFunctionalRegression`](@ref) (refund's Simpson weights divide by the number of points instead of intervals); `:refund_simpson` reproduces it |
+| Criterion | `criterion=:REML`, `pffr(method="REML")`; `:GCV` is mgcv `"GCV.Cp"` |
+| Covariance | `covariance=:cluster`, `pffr`'s default `sandwich="cluster"`; `:bayesian` (`Vp`, `sandwich="none"`) and `:frequentist` (`Ve`) |
+| Coefficient bands | Pointwise normal, `alpha=0.05`, on the covariate grid and the response grid (40 equally spaced points for an irregular response, `coef.pffr`'s `n2=40`) |
+| Prediction | Curves on the response grid, or on the sorted observation times of an irregular response (`predict.pffr`'s stored `yind`) |
+| Covariates | Complete grid data as observed; `presmooth`, `presmooth_options` and `grid` as for [`PenalizedFunctionalRegression`](@ref) |
+
+`k` takes one integer for both directions, a tuple `(k_t, k_s)`, or a vector
+with one entry per functional covariate. Fixed `lambda` is a vector with one
+value per penalty in the order of `lambda` above. `scalar_covariates` accepts a
+vector, a matrix or a Tables.jl table with treatment-coded factors, as
+[`FunctionOnScalarRegression`](@ref) does. Every choice is stored in
+`settings`, the per-term records `terms` (grid, weights, marginal bases,
+penalties, presmoother, processed curves and identifiability diagnostics) and
+shown by `show`.
+
+### [Responses on grids and at irregular times](@id pffr-responses)
+
+A grid response may have missing values, and an `IrregularFunctionalData`
+response is `pffr`'s `ydata`: the model is fitted at the observed points with
+unit weights, so each observed value is one row of the stacked problem.
+`fitted` returns curves on the whole grid for a grid response and at the
+observation times for an irregular one; `residuals` keeps missing grid values
+missing. Basis responses throw (`pffr` takes no `fd` objects); convert them
+with `to_grid`. The stacked design is dense, with one row per observed value
+and `20 + 5q + Σ_j k_t k_s` columns for `q` scalar covariates. refund switches
+from `gam` to `bam` above 10⁵ observations; the package always solves the
+same penalized least squares problem.
+
+### [Uncertainty](@id pffr-uncertainty)
+
+`vcov(fit)` is the covariance chosen by `covariance`. The cluster sandwich
+`n/(n-1) A⁻¹ (Σ_i D_iᵀr_i r_iᵀD_i) A⁻¹ + Vp - Ve` (with `n` curves,
+`A = DᵀD + S_λ`, and the rows `D_i` and residuals `r_i` of curve `i`) accounts for correlation of the errors
+within a curve; `Vp` treats the points of one curve as independent. Surface
+bands use the variance `(B(t) ⊗ B(s))ᵀ V (B(t) ⊗ B(s))` of each point.
+Prediction intervals add the error variance `settings.sigma2` (mgcv's
+`sig2`). Bands and intervals are pointwise; smoothing parameters and
+presmoothed covariates are treated as fixed. `dof` is the total effective
+degrees of freedom and `dof_residual` the number of observed values minus
+`dof`.
+
+### [refund and mgcv source audit for pffr](@id pffr-audit)
+
+The audited sources are refund 0.1.40 (`pffr`, `pffr_prepare`,
+`pffr_process_ff_terms`, `pffr_configure_algorithm`, `ff`,
+`compute_integration_weights`, `trace_lv`, the arguments of `coef.pffr`) and
+mgcv 1.9-3 (`smoothCon`, `smooth.construct.tensor.smooth.spec`,
+`smooth.construct.ps.smooth.spec`). Findings:
+
+- `pffr` stacks the response in long format (one row per observed value) and
+  rewrites `ff(X)` as `te(X.smat, X.tmat, by=L.X)` with matrix arguments:
+  `X.smat` repeats the covariate grid, `X.tmat` the response index of the row
+  and `L.X` the weighted curve, so mgcv's summation convention gives
+  `Σ_t L_t X_i(t) f(t, s)`. It then calls `gam(method="REML")`.
+- `ff()` defaults to `integration="simpson"` with refund's formula
+  `(t_J - t_1)/J/3 · [1, 4, 2, …, 1]`, switching to `"trapezoidal"` on grids
+  that are not equidistant. `limits` (historical models) switch to Riemann
+  sums; they are not supported here.
+- mgcv `te` reparameterizes each one-dimensional margin to function values
+  at equally spaced points of the margin's data range (skipped with a
+  warning when the evaluation matrix is near singular, which the package
+  mirrors) and divides each marginal penalty by its largest eigenvalue before
+  forming `S_t ⊗ I` and `I ⊗ S_s`. `smoothCon` then scales each penalty by
+  `‖S‖₁/‖X‖∞²` from the unweighted basis, before the `by` weights.
+- With a numeric matrix `by` variable, mgcv adds no centering constraint
+  unless the row sums of `L.X` (the integrals `∫X_i`) are constant; the
+  package throws in that case, as the surface is then confounded with the
+  intercept.
+- `ff(check.ident=TRUE)` warns when the covariate's effective rank (99.5% of
+  its squared singular values) is at most 4 or below `k_t`, and replaces the
+  term by a constrained `ti()` smooth when the null space of `X` overlaps the
+  integration-weighted null space of the `t` penalty (overlap above 0.95) and
+  the term's design has log10 condition number above 6. The package stores
+  the three diagnostics on the term and throws where refund would constrain.
+- The functional intercept is a parametric constant plus a centered smooth;
+  the package's uncentered P-spline spans the same space with the same
+  penalty, so fits agree, but the REML score differs by a constant that does
+  not depend on `λ`. The tensor penalties are applied in the original
+  B-spline coordinates, `S_t ⊗ G_s` and `G_t ⊗ S_s` with `G = B(u)ᵀB(u)` at
+  the reparameterization points `u`, which adds another `λ`-free constant.
+
+### [Validation](@id pffr-validation)
+
+Recreate the fixtures with `Rscript test/reference/regression_m7f.R` (R 4.5.1,
+refund 0.1.40, mgcv 1.9-3). `test/regression_pffr.jl` compares, at relative
+error below `1e-8` and at refund's selected smoothing parameters:
+`pffr(Y ~ ff(X))` with trapezoidal weights (the package default),
+`pffr(Y ~ z + ff(X))` with refund's default Simpson weights
+(`integration=:refund_simpson`), and the first model with an irregular
+response (`ydata`). The quantities are the surface on a 9 × 11 grid, its
+standard errors under `Vp`, `Ve` and the cluster sandwich, the intercept and
+scalar coefficient functions and their standard errors, per-term and total
+EDF, `σ²`, fitted values and predictions for new curves. Because the REML
+scores differ by a constant, the change in the score between refund's
+smoothing parameters and twice them is compared instead, and the package's
+own optimum is checked to be no worse under its criterion. The irregular fit
+is also checked against the same points on a grid with missing values. No R
+installation is needed to use the package or run its tests.
+
+```@docs
+PenalizedFunctionOnFunctionRegression
+StatsAPI.predict(::PenalizedFunctionOnFunctionRegression, ::Any)
+StatsAPI.coef(::PenalizedFunctionOnFunctionRegression)
+StatsAPI.vcov(::PenalizedFunctionOnFunctionRegression)
+StatsAPI.stderror(::PenalizedFunctionOnFunctionRegression)
+StatsAPI.nobs(::PenalizedFunctionOnFunctionRegression)
+StatsAPI.dof(::PenalizedFunctionOnFunctionRegression)
+StatsAPI.dof_residual(::PenalizedFunctionOnFunctionRegression)
+StatsAPI.fitted(::PenalizedFunctionOnFunctionRegression)
+StatsAPI.residuals(::PenalizedFunctionOnFunctionRegression)
 ```
 
 ## FPC regression reference

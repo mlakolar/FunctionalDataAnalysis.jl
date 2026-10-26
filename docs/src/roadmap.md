@@ -120,6 +120,10 @@
   selects one smoothing parameter per coefficient by REML, accepts factors,
   and offers cluster-robust, posterior and pooled-residual covariances. The
   mgcv P-spline basis `PSplineBasis` reproduces `pffr`'s default bases.
-  Penalized function-on-function regression follows.
+  Penalized function-on-function regression
+  (`PenalizedFunctionOnFunctionRegression`, refund `pffr` with `ff()` terms)
+  fits tensor-product P-spline surfaces with one REML smoothing parameter per
+  direction, alongside scalar terms, for grid and irregular responses.
+  Exponential-family responses follow.
 - Milestone 8: depth, outliers, and clustering.
 - Milestone 9: registration.
