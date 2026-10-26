@@ -43,6 +43,7 @@ using .GoldenTestHelpers
     include("bands_coverage_smoke.jl")
     include("regression.jl")
     include("regression_functional.jl")
+    include("pfr.jl")
     include("kernelsmoothing_agreement.jl")
     include("validation.jl")
     include("shared_helpers.jl")

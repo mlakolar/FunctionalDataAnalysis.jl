@@ -442,6 +442,190 @@ when every resample refits the same model, a replay of the bootstrap draws,
 and orthonormal-basis least squares. No R installation is required to use
 the package or run its tests.
 
+## Penalized scalar-on-function regression
+
+`PenalizedFunctionalRegression` fits the same Gaussian model with each
+coefficient function expanded in a spline basis and penalized for roughness,
+as refund's `pfr(y ~ z + lf(X1) + lf(X2), method="REML")`
+(Goldsmith, Bobb, Crainiceanu, Caffo and Reich 2011):
+
+```math
+y_i = \alpha + z_i^\top\gamma + \sum_j \sum_t L_{jt} X_{ij}(t)\,
+B_j(t)^\top b_j + \epsilon_i,
+\qquad \text{penalty } \sum_j \lambda_j b_j^\top S_j b_j .
+```
+
+`L_jt` are integration weights on the covariate grid, `B_j` a basis and `S_j`
+its penalty. Each functional covariate has its own smoothing parameter,
+chosen by REML through [`PenalizedLeastSquares`](@ref) (the solver of the
+[Penalized fitting](penalized.md) page). The intercept and scalar covariates
+are unpenalized.
+
+```@example regression
+using Random
+rng = Xoshiro(7)
+grid = collect(range(0, 1; length=40))
+shapes = hcat(ones(40), grid, sinpi.(grid), cospi.(grid), sinpi.(2 .* grid), cospi.(2 .* grid))
+X = randn(rng, 80, 6) * transpose(shapes) .+ 0.05 .* randn(rng, 80, 40)
+z = randn(rng, 80)
+y = 1 .+ 0.5 .* z .+ X * (quadrature_weights(grid) .* sinpi.(2 .* grid)) .+ 0.1 .* randn(rng, 80)
+x = GridFunctionalData(X, grid)
+penalized = StatsAPI.fit(PenalizedFunctionalRegression, x, y; scalar_covariates=z)
+(penalized.lambda, penalized.edf_terms, penalized.sigma2, StatsAPI.coef(penalized)[1:2])
+```
+
+```@example regression
+bands = only(coefficient_bands(penalized))   # Vc, as refund's coef.pfr
+(bands.settings.covariance, extrema(bands.estimate - sinpi.(2 .* bands.grid)))
+```
+
+### Defaults and their sources
+
+| Choice | Default and source |
+|:--|:--|
+| Basis | `ThinPlateRegressionBasis(grid, 10)`: refund `lf()` passes its `...` to `mgcv::s`, whose default is `bs="tp"` with `k=10` |
+| Penalty | `∫β''²` (thin plate order `m=2`), rescaled as mgcv `smoothCon(scale.penalty=TRUE)`; `penalty_scale` is stored |
+| Criterion | `criterion=:REML`, refund `pfr(method="REML")`; `:GCV` is mgcv `"GCV.Cp"` |
+| Integration | `integration=:quadrature` (trapezoidal, refund's `"trapezoidal"`); **departs** from refund's `"simpson"`, see below |
+| Presmoothing | `presmooth=nothing`, refund `presmooth=NULL` |
+| B-spline presmoother | `presmooth_options=(; nbasis=10)`, refund `create.prep.func` |
+| Coefficient bands | Normal pointwise, `covariance=nothing` = `Vc` when available, else `Vp` (refund `coef.pfr(useVc=TRUE)`); `alpha=0.05` |
+| Band grid | refund `coef.pfr`'s `ndefault`: the covariate grid when it has fewer than five distinct spacings (at most 101 points), else 101 equally spaced points |
+| Prediction intervals | `interval=:none`; requested intervals use `Vp` (mgcv `predict.gam`) and normal quantiles |
+
+A [`BSplineBasis`](@ref) or any other basis covering the grid can be supplied
+with `basis=...`, penalized by `penalty(basis, penalty_order)` (default
+order 2). Pass a tuple of options for several covariates, for example
+`k=(10, 6)` or `presmooth=(nothing, :fpca)`. Fixed `lambda` (one value per
+covariate, in units of the rescaled penalties like mgcv's `sp`) skips
+selection. Every choice is stored in `settings` and the per-term `terms`
+records (grid, weights, basis, penalty, scale, presmoother and processed
+training curves), and is shown by `show`.
+
+**Integration weights.** refund's `"simpson"` weights are
+`(t_J - t_1)/J/3 * [1, 4, 2, 4, …, 2, 1]`. They divide by the number of points
+`J` instead of the `J-1` intervals and are not Simpson's rule when `J-1` is
+odd, so every `β` is inflated by about `J/(J-1)` (5% on 21 points). The
+package therefore integrates with the grid's stored trapezoidal weights, the
+same weights it uses for every other inner product and identical to refund's
+`integration="trapezoidal"`. `integration=:refund_simpson` and `:riemann`
+reproduce refund's two other formulas exactly, and a weight vector may be
+supplied.
+
+### Sparse, noisy and basis covariates
+
+Grid covariates with missing values and irregular covariates need a
+presmoother, as in refund, where `lf(presmooth=)` reconstructs curves before
+fitting. `:bspline` fits cubic B-splines per curve by least squares, with
+interior knots at quantiles of the grid as R's
+`splines::bs(df=nbasis, intercept=TRUE)`. `:interpolate` interpolates
+observed values linearly and holds them constant beyond the first and last
+observation (R `approx(rule=2)`). `:fpca` fits the package's FPCA (PACE for
+sparse data, with `presmooth_options` passed to `fit(FPCA, ...)`) and uses its
+reconstruction `mean + scores × eigenfunctions` on the FPCA work grid or a
+supplied `grid`; refund uses its own `fpca.sc`, `fpca.face` or `fpca.ssvd`
+here, so this option is not numerically comparable to refund. New subjects are
+presmoothed with the stored presmoother: projected onto the training FPCA, or
+smoothed per curve. Basis covariates are evaluated exactly on a required
+`grid`. Only the presmoothed curves enter the regression: as in refund,
+presmoothing and FPCA uncertainty are not propagated to the covariances or
+bands.
+
+### Uncertainty
+
+`vcov(fit; type=:bayesian)` is the posterior covariance `(XᵀX + S_λ)⁻¹σ²`
+(mgcv `Vp`), `:frequentist` is mgcv `Ve`, and `:corrected` is mgcv's `Vc`.
+`Vc` adds a first-order term `J V_ρ Jᵀ`, with `J = ∂b̂/∂log λ` and `V_ρ` the
+inverse Hessian of the REML criterion over `(log λ, log σ²)`, and the
+second-order Cholesky-derivative correction of Wood, Pya and Säfken (2016),
+both as in mgcv 1.9-3 `gam.fit3.post.proc`. It exists only after REML
+selection, and `settings.corrected_covariance` says whether it was computed
+(`:mgcv_Vc`). When a smoothing parameter is effectively infinite,
+`XᵀX + S_λ` is numerically singular and the derivatives with respect to
+`log λ` carry no information, so `Vc` is not formed
+(`:unavailable_infinite_lambda`); the same holds if the Cholesky
+factorization fails (`:unavailable_not_positive_definite`). Bands and
+intervals then default to `Vp`. mgcv still reports a `Vc` in these cases. Bands are pointwise normal intervals. refund offers no
+simultaneous bands for `pfr`, and none are returned. `dof` is the total
+effective degrees of freedom (intercept and scalar coefficients included),
+`edf_terms` the effective degrees of freedom of each functional term, and
+`sigma2` mgcv's `RSS/(n - dof)`.
+
+### Choosing between FPC and penalized regression
+
+Both fits return a tuple of coefficient functions, `coef`, `vcov`,
+`fitted`, `residuals`, `predict` and `coefficient_bands`, so downstream code
+can use either. FPC regression truncates to leading components of the
+covariate and conditions on the FPCA; it suits strongly smooth covariates
+whose leading modes carry the signal, and sparse designs through PACE scores.
+Penalized regression lets the response choose the smoothness of `β` through
+REML, does not tie `β` to the leading covariate modes, accounts for smoothing
+parameter uncertainty in its bands, and is the better choice when `β` has
+features in directions of small covariate variance or when several dense
+covariates need separate smoothness.
+
+### refund and mgcv source audit
+
+The audited sources are refund 0.1-40 (`pfr.R`, `lf.R`, `create.prep.func.R`,
+`coefficients.pfr.R`, `predict.pfr.R`) and mgcv 1.9-3
+(`smooth.construct.tp.smooth.spec`, `tprs.c`, `smoothCon`, `gam.fit3.post.proc`,
+`Vb.corr`, `vcorr`, `dchol`). Findings:
+
+- `pfr` rewrites each `lf(X)` as `s(X.tmat, by=L.X)` with matrix arguments, so
+  the term is `Σₜ L_t X(t) f(t)` (mgcv's summation convention) and calls
+  `gam(method="REML")`. A centering constraint is added only when the row
+  sums of `L*X` are constant; the package throws instead, because the term is
+  then confounded with the intercept.
+- mgcv computes the penalty scale from the unweighted basis at the grid,
+  before the `by` weights are applied, and rescales thin plate columns to unit
+  root mean square.
+- The thin plate basis uses `η(r)=|r|³/12`, the `k` eigenvalues of largest
+  magnitude by Lanczos iteration (tolerance `eps^0.7`) and a Householder
+  absorption of `Tᵀδ = 0`. On grids symmetric about their mean (every uniform
+  grid) the absorption depends on entries that are zero in exact arithmetic,
+  so mgcv's columns there depend on rounding in its eigenvectors. The function
+  space, the penalty, `β`, fitted values, `Vp` and `Ve` do not; mgcv's `Vc`
+  does, through its Cholesky-based second-order term.
+- `lf()` integration weights are as described above; `predict.pfr` reuses
+  the training weights and presmoother for new curves on the training grid.
+- `coef.pfr` uses `Vc` by default and returns standard errors only;
+  `fpca.ssvd` presmoothing cannot predict new curves (refund warns).
+
+### Validation
+
+Recreate the fixture with `Rscript test/reference/refund_m7_pfr.R` (R 4.5.1,
+refund 0.1-40, mgcv 1.9-3). `test/pfr.jl` compares, at relative error below
+`1e-8`: the thin plate basis and penalty (up to column signs) on three point
+sets, including the untruncated case; and, for one functional covariate, two
+functional covariates, GCV, and B-spline presmoothing (the package's
+trapezoidal default against refund's `integration="trapezoidal"`), and for
+refund's default `integration="simpson"` on a uniform grid (through
+`integration=:refund_simpson`), each with a scalar covariate, the intercept and
+scalar coefficients, fitted values, `σ²`, the criterion, per-term and total
+EDF, `β` and its `Vp` standard errors on refund's default grid, and held-out
+predictions with standard errors. These comparisons are made at refund's
+selected smoothing parameters, and the package's own optimum is checked to be
+no worse under the criterion. mgcv's `Vc` standard errors are compared on the
+grids that are not symmetric about their mean, where mgcv's basis is
+deterministic. No R installation is needed to use the package or run its
+tests.
+
+```@docs
+PenalizedFunctionalRegression
+ThinPlateRegressionBasis
+StatsAPI.predict(::PenalizedFunctionalRegression, ::Any)
+StatsAPI.vcov(::PenalizedFunctionalRegression)
+StatsAPI.coef(::PenalizedFunctionalRegression)
+StatsAPI.fitted(::PenalizedFunctionalRegression)
+StatsAPI.residuals(::PenalizedFunctionalRegression)
+StatsAPI.dof(::PenalizedFunctionalRegression)
+StatsAPI.dof_residual(::PenalizedFunctionalRegression)
+StatsAPI.r2(::PenalizedFunctionalRegression)
+StatsAPI.stderror(::PenalizedFunctionalRegression)
+```
+
+## FPC regression reference
+
 ```@docs
 FPCRegression
 ConcurrentRegression

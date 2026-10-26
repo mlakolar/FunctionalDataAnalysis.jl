@@ -111,6 +111,8 @@
   prediction and conditional pointwise intervals. See [Regression](regression.md).
   The Gaussian multi-penalty REML/GCV solver [`PenalizedLeastSquares`](penalized.md),
   validated against mgcv 1.9-3, also gives `PenalizedSpline` REML selection.
-  Penalized regression on it is a subsequent task.
+  Penalized scalar-on-function regression (`PenalizedFunctionalRegression`,
+  refund `pfr` with `lf()` terms) uses that solver with mgcv's thin plate
+  regression spline basis and smoothing-parameter-corrected bands.
 - Milestone 8: depth, outliers, and clustering.
 - Milestone 9: registration.
