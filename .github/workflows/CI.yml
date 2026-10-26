@@ -7,6 +7,10 @@ on:
     pull_request:
     workflow_dispatch:
         inputs:
+            dataset_download:
+                description: Run only the fresh full-dataset release download smoke
+                type: boolean
+                default: false
             coverage_study:
                 description: Run only the band coverage regression or larger study
                 type: choice
@@ -17,9 +21,15 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
     cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 
+env:
+    JULIA_NUM_THREADS: '1'
+    OPENBLAS_NUM_THREADS: '1'
+    OMP_NUM_THREADS: '1'
+    MKL_NUM_THREADS: '1'
+
 jobs:
     test:
-        if: github.event_name != 'workflow_dispatch' || inputs.coverage_study == 'none'
+        if: github.event_name != 'workflow_dispatch' || (inputs.coverage_study == 'none' && !inputs.dataset_download)
         name: Julia ${{ matrix.julia-version }} - ${{ matrix.os }}
         runs-on: ${{ matrix.os }}
         permissions:
@@ -53,7 +63,7 @@ jobs:
                   fail_ci_if_error: false
 
     docs:
-        if: github.event_name != 'workflow_dispatch' || inputs.coverage_study == 'none'
+        if: github.event_name != 'workflow_dispatch' || (inputs.coverage_study == 'none' && !inputs.dataset_download)
         name: Documentation
         runs-on: ubuntu-latest
         permissions:
@@ -73,9 +83,74 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+    jet:
+        if: github.event_name != 'workflow_dispatch' || (inputs.coverage_study == 'none' && !inputs.dataset_download)
+        name: Bounded JET baseline
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        permissions:
+            actions: write
+            contents: read
+        steps:
+            - uses: actions/checkout@v7
+            - uses: julia-actions/setup-julia@v3
+              with:
+                  version: '1.13.2'
+            - uses: julia-actions/cache@v3
+            - name: Check reviewed JET baseline against dependency masters
+              shell: bash
+              run: julia --color=yes scripts/test_master.jl --jet 2>&1 | tee jet.log
+            - name: Retain full diagnostics
+              if: always()
+              uses: actions/upload-artifact@v7
+              with:
+                  name: jet-${{ github.run_id }}
+                  path: jet.log
+
+    threaded-smoke:
+        if: github.event_name != 'workflow_dispatch' || (inputs.coverage_study == 'none' && !inputs.dataset_download)
+        name: Golden smoke (Julia 4, BLAS 1)
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        permissions:
+            actions: write
+            contents: read
+        env:
+            JULIA_NUM_THREADS: '4'
+        steps:
+            - uses: actions/checkout@v7
+            - uses: julia-actions/setup-julia@v3
+              with:
+                  version: '1'
+            - uses: julia-actions/cache@v3
+            - name: Run existing goldens and former-smoother comparisons
+              run: julia --color=yes scripts/test_master.jl --threaded-smoke
+
+    dataset-download:
+        name: Fresh dataset download smoke
+        if: github.event_name == 'workflow_dispatch' && inputs.dataset_download
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@v7
+            - uses: julia-actions/setup-julia@v3
+              with:
+                  version: '1'
+            - name: Download and validate the shipped full dataset artifact
+              shell: bash
+              run: julia --color=yes scripts/test_master.jl --dataset-smoke 2>&1 | tee dataset-download.log
+            - name: Retain download and reference checks
+              if: always()
+              uses: actions/upload-artifact@v7
+              with:
+                  name: dataset-download-${{ github.run_id }}
+                  path: dataset-download.log
+
     coverage-study:
         name: Band coverage study
-        if: github.event_name == 'workflow_dispatch' && inputs.coverage_study != 'none'
+        if: github.event_name == 'workflow_dispatch' && inputs.coverage_study != 'none' && !inputs.dataset_download
         runs-on: ubuntu-latest
         permissions:
             actions: write
