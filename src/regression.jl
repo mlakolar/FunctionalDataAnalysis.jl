@@ -5,9 +5,11 @@ const _RegressionScalars = Union{AbstractVector{<:Union{Missing,Real}},AbstractM
     FPCRegression
     fit(FPCRegression, x, y; scalar_covariates=nothing, fpca=nothing,
         fpca_options=(;), ncomponents=nothing, selection=:fpca,
+        family=:gaussian, link=nothing,
         response_fpca=nothing, response_fpca_options=(;), response_ncomponents=nothing)
 
-Gaussian regression on leading FPCA scores. `x` is one univariate functional
+Regression on leading FPCA scores: Gaussian least squares by default, or a
+generalized linear model for a scalar response. `x` is one univariate functional
 dataset, a tuple/vector of them, or `MultivariateFunctionalData`. `y` is a
 finite response vector, or one univariate functional dataset (grid, irregular
 or basis) for function-on-function regression. Scalar covariates are an
@@ -19,6 +21,26 @@ For a scalar response the model is `y = intercept + Z*gamma + sum(scores_j*b_j) 
 score coefficients in covariate order. `dof` is their count and
 `dof_residual = nobs-dof`. `sigma2` is residual sum of squares / residual dof.
 Rank-deficient designs, saturated models and constant responses throw.
+
+`family` (`:gaussian`, `:binomial`, `:poisson`) and `link` (`nothing` for the
+canonical link; the links of [`PenalizedLeastSquares`](@ref)) fit
+`g(E y) = intercept + Z*gamma + sum(scores_j*b_j)` by maximum likelihood (IRLS
+to convergence), as fda.usc 2.2.0 `fregre.glm` does with a
+`create.pc.basis` basis through R's `glm`. Then `vcov` is the inverse Fisher
+information times the dispersion (one for binomial and Poisson, the Pearson
+statistic over `dof_residual` for the Gaussian family), as `summary.glm`;
+`sigma2` is that dispersion, `fitted` the means and `residuals` `y - mu`;
+`deviance`/`null_deviance` are stored and `r2` is the deviance explained
+`1 - D/D0` (fda.usc reports `1 - sum(e^2)/sum((y - mean(y))^2)` with working
+residuals `e`, which is not a goodness-of-fit measure for a GLM). Binomial
+responses must be 0 or 1 and Poisson responses nonnegative integers. `AIC()` and
+`BIC()` use R's `AIC()`/`BIC()` for `glm` (the Gaussian dispersion counts as a
+parameter); `selection=:loocv` and functional responses need the Gaussian
+identity link. fdapace `FLM` is Gaussian only. IRLS (the penalized IRLS of
+[`PenalizedLeastSquares`](@ref) with no penalty) stops when the Newton
+decrement falls below `1e-12*(1 + deviance)` and throws after 200 iterations; `settings`
+records `irls_tol`, `irls_maxiter` and the iterations of the final fit
+(`irls_iterations`, zero for least squares).
 
 For a functional response, `y` is reduced to its own leading FPCA scores
 `eta_ik` and each response score is regressed on the same design, as fdapace
@@ -88,6 +110,10 @@ struct FPCRegression{T<:AbstractFloat,B,S,O,A<:AbstractVecOrMat{T}}
     residual_covariance::Matrix{T}
     sigma2::T
     r_squared::T
+    deviance::T
+    null_deviance::T
+    family::Symbol
+    link::Symbol
     counts::Vector{Int}
     nscalar::Int
     selection::S
@@ -218,6 +244,72 @@ function _regression_ols(design::Matrix{T}, y::AbstractVecOrMat{T}) where {T}
         residual_covariance, tolerance)
 end
 
+# Least squares (Gaussian identity link) or a GLM by IRLS, with the deviance
+# and null deviance (RSS and TSS for least squares).
+function _regression_estimate(design::Matrix{T}, y::Vector{T}, fam::_GLMFamily) where {T}
+    if _glm_identity(fam)
+        ols = _regression_ols(design, y)
+        n = length(y)
+        return merge(ols, (; eta=ols.fitted_values, deviance=ols.rss,
+            null_deviance=sum(abs2, y .- sum(y) / n), irls_iterations=0))
+    end
+    _regression_glm(design, y, fam)
+end
+
+const _FPC_IRLS_TOL = 1e-12
+const _FPC_IRLS_MAXITER = 200
+
+# Unpenalized GLM on the score design (R glm / fda.usc fregre.glm): IRLS to the
+# maximum likelihood estimate with the package's penalized IRLS (no penalty),
+# covariance (XᵀW_F X)⁻¹ times the dispersion (one for binomial and Poisson,
+# the Pearson statistic over n - p for the Gaussian family), as summary.glm.
+function _regression_glm(design::Matrix{T}, y::Vector{T}, fam::_GLMFamily) where {T}
+    n, p = size(design)
+    n > p || throw(ArgumentError("regression requires more subjects than coefficients for positive residual degrees of freedom"))
+    qrfit = qr(design, ColumnNorm())
+    R = Matrix(qrfit.R)
+    tolerance = max(n,p) * eps(T) * maximum(abs, diag(R))
+    all(d -> abs(d) > tolerance, diag(R)) || throw(ArgumentError(
+        "regression design is rank deficient; remove redundant scalar covariates or FPC scores"))
+    w = ones(T, n)
+    problem = _PIRLSProblem{T}(design, y, w, fam, n, p, Matrix{T}[], Vector{Int}[],
+        _PenaltyGroup{T}[], collect(1:p), _pls_rank_tol(nothing, T), _glm_saturated(fam, y, w),
+        zeros(T, p), Ref(false), T(_FPC_IRLS_TOL), _FPC_IRLS_MAXITER)
+    fitted = _pirls_fit(problem, design, zeros(T, p, p), zeros(T, p); warm=false)
+    fitted === nothing && throw(ArgumentError(
+        "GLM IRLS did not converge; for binomial data check that the classes are not separated by the scores"))
+    state = fitted.state
+    b = state.beta
+    wf = _pirls_values(state, Val(:wf))
+    information = cholesky(Symmetric(transpose(design) * (wf .* design)); check=false)
+    issuccess(information) || throw(ArgumentError("GLM Fisher information is not positive definite"))
+    unscaled = inv(information)
+    pearson = sum(o -> o.pearson, state.obs)
+    dispersion = _glm_scale_known(fam) ? one(T) : pearson / (n - p)
+    covariance = Matrix(Symmetric(unscaled .* dispersion))
+    mu = _pirls_values(state, Val(:mu))
+    all(isfinite, b) && all(isfinite, covariance) || throw(ArgumentError(
+        "regression coefficients and covariance must be finite; rescale the inputs"))
+    (; b, fitted_values=mu, residual_values=y - mu, rss=sum(abs2, y - mu), sigma2=dispersion,
+        covariance, unscaled, residual_covariance=fill(dispersion, 1, 1), tolerance,
+        eta=state.eta, deviance=state.dev, null_deviance=_glm_null_deviance(fam, y, w),
+        irls_iterations=fitted.iterations)
+end
+
+# -2 log-likelihood plus `multiplier` per parameter: AIC (2) or BIC (log n).
+# Least squares keeps the milestone's n log(RSS/n) + k p; GLMs use R's
+# AIC()/BIC() for glm (the Gaussian dispersion counts as a parameter).
+function _regression_information(estimate, y::Vector{T}, fam::_GLMFamily, p, multiplier::T) where {T}
+    n = length(y)
+    _glm_identity(fam) && return n * log(estimate.rss / n) + multiplier * p
+    if _glm_scale_known(fam)
+        # The saturated log-likelihood is the deviance's reference.
+        loglik = _glm_saturated(fam, y, ones(T, n)) - estimate.deviance / 2
+        return -2loglik + multiplier * p
+    end
+    -2 * (-n / 2 * (log(2 * T(pi) * estimate.deviance / n) + 1)) + multiplier * (p + 1)
+end
+
 # Exact leave-one-subject-out prediction: every fold estimates its own FPCA.
 function _regression_cv(curves, y, z, options, counts)
     n = length(y)
@@ -251,8 +343,11 @@ end
 
 Base.@constprop :aggressive function fit(::Type{FPCRegression}, x, y::AbstractVector{<:Real};
         scalar_covariates=nothing, fpca=nothing, fpca_options=(;),
-        ncomponents=nothing, selection=:fpca)
+        ncomponents=nothing, selection=:fpca, family::Symbol=:gaussian, link=nothing)
     curves, supplied, options, rules = _regression_arguments(x, fpca, fpca_options, ncomponents, selection)
+    fam = _glm_family(family, link)
+    selection === :loocv && !_glm_identity(fam) && throw(ArgumentError(
+        "selection=:loocv targets squared prediction error and needs the Gaussian identity link; use AIC() or BIC()"))
     n = nobs(first(curves))
     Base.require_one_based_indexing(y)
     length(y) == n || throw(DimensionMismatch("response length must equal the functional covariate subject count"))
@@ -270,13 +365,14 @@ Base.@constprop :aggressive function fit(::Type{FPCRegression}, x, y::AbstractVe
     T = _floattype(promote_type(eltype(y),scalar_type,map(eltype,projected)...))
     response = Vector{T}(y)
     all(isfinite,response) || throw(ArgumentError("response must remain finite after conversion"))
+    _glm_check_response(fam, response, ones(T, length(response)))
     _fit_regression_scores(curves,response,scalar_covariates,models,projected,
-        supplied,options,rules,selection)
+        supplied,options,rules,selection,fam)
 end
 
 # Bind the regression precision independently of keyword-dependent FPCA routes.
 function _fit_regression_scores(curves,response::Vector{T},scalar_covariates,models,
-        projected,supplied,options,rules,selection) where {T}
+        projected,supplied,options,rules,selection,fam::_GLMFamily) where {T}
     n, p = length(response), length(models)
     search = selection !== :fpca
     total = sum(abs2,response .- sum(response)/n)
@@ -299,10 +395,10 @@ function _fit_regression_scores(curves,response::Vector{T},scalar_covariates,mod
     for (i,counts) in enumerate(candidates)
         try
             design = _regression_design(z,projected,counts,T)
-            candidate_ols = _regression_ols(design,response)
+            candidate = _regression_estimate(design,response,fam)
             values[i] = selection === :loocv ? _regression_cv(curves,response,z,options,Tuple(counts)) :
-                selection isa AIC ? n*log(candidate_ols.rss/n)+2size(design,2) :
-                selection isa BIC ? n*log(candidate_ols.rss/n)+log(T(n))*size(design,2) : zero(T)
+                selection isa AIC ? _regression_information(candidate,response,fam,size(design,2),T(2)) :
+                selection isa BIC ? _regression_information(candidate,response,fam,size(design,2),log(T(n))) : zero(T)
             (isnan(values[i]) || values[i] == Inf) && throw(ArgumentError(
                 "regression selection criterion overflowed; rescale the inputs"))
         catch err
@@ -317,7 +413,7 @@ function _fit_regression_scores(curves,response::Vector{T},scalar_covariates,mod
     chosen = valid[argmin(values[valid])]
     counts = copy(candidates[chosen])
     design = _regression_design(z,projected,counts,T)
-    ols = _regression_ols(design,response)
+    ols = _regression_estimate(design,response,fam)
     offset = 1+size(z,2)
     starts = cumsum(vcat(offset,counts))
     beta = map(models,ntuple(identity,Val(length(models)))) do f,j
@@ -329,15 +425,21 @@ function _fit_regression_scores(curves,response::Vector{T},scalar_covariates,mod
     tuning = (; rule=criterion, candidates=deepcopy(candidates), values=copy(values),
         failures=copy(reasons), chosen, refit_fpca=selection === :loocv,
         tie_rule=:lexicographic_first)
+    least_squares = _glm_identity(fam)
     settings = (; fpca_source=map(f -> f === nothing ? :fitted : :supplied,supplied),
         fpca_options=deepcopy(options), ncomponents=deepcopy(rules),
         rank_tolerance=T(ols.tolerance), intercept=true,
-        covariance=:conditional_OLS, residual_variance=:RSS_over_residual_dof,
+        covariance=least_squares ? :conditional_OLS : :conditional_fisher_information,
+        residual_variance=least_squares ? :RSS_over_residual_dof :
+            _glm_scale_known(fam) ? :known_one : :pearson_over_residual_dof,
         coefficient_order=:intercept_scalars_functional_scores,
-        reference="fdapace 0.6.0 FLM; fda.usc 2.2.0 fregre.pc / fregre.pc.cv")
+        irls_tol=T(_FPC_IRLS_TOL), irls_maxiter=_FPC_IRLS_MAXITER,
+        irls_iterations=Int(ols.irls_iterations),
+        reference=least_squares ? "fdapace 0.6.0 FLM; fda.usc 2.2.0 fregre.pc / fregre.pc.cv" :
+            "fda.usc 2.2.0 fregre.glm on create.pc.basis; stats glm")
     FPCRegression(models,nothing,beta,ols.b,ols.covariance,design,response,ols.fitted_values,
-        ols.residual_values,ols.residual_covariance,ols.sigma2,one(T)-ols.rss/total,counts,
-        size(z,2),tuning,settings)
+        ols.residual_values,ols.residual_covariance,ols.sigma2,one(T)-ols.deviance/ols.null_deviance,
+        ols.deviance,ols.null_deviance,fam.family,fam.link,counts,size(z,2),tuning,settings)
 end
 function fit(::Type{FPCRegression},x,y::AbstractVector;kwargs...)
     Base.require_one_based_indexing(y)
@@ -351,7 +453,9 @@ end
 Base.@constprop :aggressive function fit(::Type{FPCRegression}, x, y::_RegressionCurve;
         scalar_covariates=nothing, fpca=nothing, fpca_options=(;),
         ncomponents=nothing, selection=:fpca, response_fpca=nothing,
-        response_fpca_options=(;), response_ncomponents=nothing)
+        response_fpca_options=(;), response_ncomponents=nothing, family::Symbol=:gaussian, link=nothing)
+    _glm_identity(_glm_family(family, link)) || throw(ArgumentError(
+        "functional responses support only family=:gaussian with the identity link"))
     curves, supplied, options, rules = _regression_arguments(x, fpca, fpca_options, ncomponents, selection)
     selection === :fpca || throw(ArgumentError(
         "functional responses support only selection=:fpca; fdapace FLM selects components by FPCA"))
@@ -430,9 +534,10 @@ function _fit_regression_functional(response::Matrix{T},scalar_covariates,models
         r_squared=:fdapace_GetBR2New_score_scale,
         coefficient_order=:intercept_scalars_functional_scores_by_response_component,
         reference="fdapace 0.6.0 FLM with a functional response")
+    rss = sum(abs2,ols.residual_values)
     FPCRegression(models,response_model,beta,ols.b,ols.covariance,design,response,
         ols.fitted_values,ols.residual_values,ols.residual_covariance,ols.sigma2,
-        one(T)-sum(abs2,ols.residual_values)/total,counts,size(z,2),tuning,settings)
+        one(T)-rss/total,rss,total,:gaussian,:identity,counts,size(z,2),tuning,settings)
 end
 
 """
@@ -454,7 +559,7 @@ FPC scores: a vector for a scalar response, or a matrix with one column per
 response FPC for a functional response.
 """
 coef(f::FPCRegression) = copy(f.coefficients)
-"""Return the conditional OLS covariance of `vec(coef(f))`."""
+"""Return the conditional covariance of `vec(coef(f))`: OLS, or the scaled inverse Fisher information for exponential-family fits."""
 vcov(f::FPCRegression) = copy(f.covariance)
 """
     fitted(f::FPCRegression; grid=nothing)
@@ -491,9 +596,13 @@ nobs(f::FPCRegression) = size(f.response, 1)
 dof(f::FPCRegression) = length(f.coefficients)
 """Return `nobs(f)` minus the number of design columns, the residual degrees of freedom."""
 dof_residual(f::FPCRegression) = nobs(f)-size(f.design, 2)
-"""Return the centered coefficient of determination (score scale for functional responses)."""
+"""
+Return the centered coefficient of determination `1 - RSS/TSS` (score scale
+for functional responses), or for an exponential-family fit the deviance
+explained `1 - D/D₀`, which reduces to it for the Gaussian identity link.
+"""
 r2(f::FPCRegression) = f.r_squared
-"""Return conditional OLS coefficient standard errors with the shape of `coef`."""
+"""Return coefficient standard errors (conditional OLS, or the scaled inverse Fisher information for exponential-family fits) with the shape of `coef`."""
 stderror(f::FPCRegression) = reshape(sqrt.(max.(diag(f.covariance),
     zero(eltype(f.covariance)))), size(f.coefficients))
 """Return a copied vector of selected FPC counts, one per functional covariate."""
@@ -537,16 +646,19 @@ function _regression_tcritical(df::Int, alpha)
     sqrt(df*y/x)
 end
 
+# Student-t intervals with an estimated scale (least squares, and the Gaussian
+# family as summary.glm), normal (Wald) intervals for binomial and Poisson.
 function _regression_intervals(f,estimate,variance,alpha,target)
     a = _band_alpha(alpha)
-    critical = _regression_tcritical(dof_residual(f),a)
+    normal = f.family !== :gaussian
+    critical = normal ? sqrt(2)*SpecialFunctions.erfinv(1-a) : _regression_tcritical(dof_residual(f),a)
     se = sqrt.(max.(variance,zero(eltype(variance))))
     width = critical .* se
     lower,upper = estimate-width,estimate+width
     all(isfinite,lower) && all(isfinite,upper) || throw(ArgumentError("regression interval endpoints must be finite"))
     (;estimate=copy(estimate),se,lower,upper,alpha=a,critical_value=critical,
-        settings=(;target,distribution=:student_t,dof=dof_residual(f),
-            covariance=:conditional_OLS,fpca_uncertainty=false,
+        settings=(;target,scale=:link,distribution=normal ? :normal : :student_t,dof=dof_residual(f),
+            covariance=f.settings.covariance,fpca_uncertainty=false,
             score_uncertainty=false,selection_uncertainty=false))
 end
 
@@ -562,7 +674,10 @@ end
 
 Pointwise intervals for each coefficient function. `method=:conditional`
 (default) gives Student-t intervals conditional on the fitted FPCA and selected
-score design, as in fda.usc 2.2.0 `fregre.pc`'s ordinary linear model. Return a
+score design, as in fda.usc 2.2.0 `fregre.pc`'s ordinary linear model; for an
+exponential-family fit they are link-scale Wald intervals from the scaled
+inverse Fisher information (normal quantiles for binomial and Poisson,
+Student-t with `dof_residual` for the Gaussian family). Return a
 tuple of named tuples with `grid`, `estimate`, `se`, `lower`, `upper`, `alpha`,
 `critical_value` and `settings`; functional responses add `response_grid` and
 return surfaces (covariate grid in rows). `grid=nothing` uses each FPCA's work
@@ -696,7 +811,8 @@ function _regression_refit(f::_ScalarFPCRegression, curves, response, z, index)
     fit(FPCRegression, map(c -> _regression_resample(c,index), curves),
         _regression_resample(response,index);
         scalar_covariates=z === nothing ? nothing : z[index,:],
-        fpca_options=f.settings.fpca_options, ncomponents=f.settings.ncomponents)
+        fpca_options=f.settings.fpca_options, ncomponents=f.settings.ncomponents,
+        family=f.family, link=f.link)
 end
 function _regression_refit(f::_FunctionalFPCRegression, curves, response, z, index)
     fit(FPCRegression, map(c -> _regression_resample(c,index), curves),
@@ -824,9 +940,17 @@ end
 
 """
     predict(f::FPCRegression, x; scalar_covariates=nothing, evaluator=nothing,
-        interval=:none, alpha=0.05, grid=nothing)
+        type=:response, interval=:none, alpha=0.05, grid=nothing)
 
 Predict new responses using stored FPCA fits and component counts.
+For a scalar response `type=:response` (default, fda.usc
+`predict.fregre.glm`) returns means and `type=:link` the linear predictor;
+they coincide for least squares. Exponential-family intervals are computed on
+the link scale (normal quantiles for binomial and Poisson, Student-t for the
+Gaussian family, whose dispersion is estimated) and with `type=:response`
+the estimate and endpoints are mapped through the inverse link (`se` stays on
+the link scale; `settings.scale` records the scale); `:prediction` intervals
+need the Gaussian identity link.
 `interval=:none` returns a vector (scalar response) or `GridFunctionalData`
 of predicted curves `mean_Y + D*B*psi'` (functional response) on the response
 FPCA work grid or a supplied `grid`. `:confidence` and `:prediction` return
@@ -848,22 +972,26 @@ No mean, covariance or eigenfunction is refitted. Exact training observations
 reuse the stored training scores, including FACE completion and preprocessing.
 """
 Base.@constprop :aggressive function predict(f::FPCRegression,x;scalar_covariates=nothing,evaluator=nothing,
-        interval=:none,alpha=0.05,grid=nothing)
+        type::Symbol=:response,interval=:none,alpha=0.05,grid=nothing)
     interval in (:none,:confidence,:prediction) || throw(ArgumentError("interval must be :none, :confidence, or :prediction"))
+    type in (:link,:response) || throw(ArgumentError("type must be :link or :response"))
     design = _regression_newdesign(f,x,scalar_covariates,evaluator)
-    _regression_predict(f,design,interval,alpha,grid)
+    _regression_predict(f,design,interval,alpha,grid,type)
 end
 
-Base.@constprop :aggressive function _regression_predict(f::_ScalarFPCRegression,design,interval,alpha,grid)
+Base.@constprop :aggressive function _regression_predict(f::_ScalarFPCRegression,design,interval,alpha,grid,type)
     grid === nothing || throw(ArgumentError("grid requires a functional response"))
     estimate = design*f.coefficients
     all(isfinite,estimate) || throw(ArgumentError("regression predictions must be finite"))
-    interval === :none && return estimate
+    fam = _GLMFamily(f.family,f.link)
+    interval === :none && return type === :link ? estimate : _glm_response_values(fam,estimate)
+    interval === :prediction && !_glm_identity(fam) && throw(ArgumentError(
+        "prediction intervals need a Gaussian response with the identity link; use interval=:confidence"))
     variance = vec(sum((design*f.covariance).*design;dims=2))
     interval === :prediction && (variance .+= f.sigma2)
-    _regression_intervals(f,estimate,variance,alpha,interval)
+    _glm_scale_intervals(fam,_regression_intervals(f,estimate,variance,alpha,interval),type)
 end
-Base.@constprop :aggressive _regression_predict(f::_FunctionalFPCRegression,design,interval,alpha,grid) =
+Base.@constprop :aggressive _regression_predict(f::_FunctionalFPCRegression,design,interval,alpha,grid,type) =
     _regression_functional_intervals(f,design,interval,alpha,grid)
 
 Base.@constprop :aggressive function _regression_functional_intervals(f,design,interval,alpha,grid)
@@ -881,21 +1009,25 @@ Base.@constprop :aggressive function _regression_functional_intervals(f,design,i
 end
 
 """
-    fitted_bands(f::FPCRegression; alpha=0.05, interval=:confidence, grid=nothing)
+    fitted_bands(f::FPCRegression; alpha=0.05, interval=:confidence, grid=nothing,
+        type=:response)
 
-Pointwise conditional Student-t intervals for the training responses.
+Pointwise conditional intervals for the training responses (Student-t for
+least squares; for exponential-family fits as in `predict`, on the scale
+`type`).
 `interval=:confidence` describes the mean response; `:prediction` also includes
 independent response noise. Returns the same interval fields as `predict`;
 functional responses use the response grid (or `grid`). The FPCA, scores and
 component selection are fixed; see `coefficient_bands`.
 """
-function fitted_bands(f::FPCRegression;alpha=0.05,interval=:confidence,grid=nothing)
+function fitted_bands(f::FPCRegression;alpha=0.05,interval=:confidence,grid=nothing,type::Symbol=:response)
     interval in (:confidence,:prediction) || throw(ArgumentError("interval must be :confidence or :prediction"))
-    _regression_predict(f,f.design,interval,alpha,grid)
+    type in (:link,:response) || throw(ArgumentError("type must be :link or :response"))
+    _regression_predict(f,f.design,interval,alpha,grid,type)
 end
 
 function Base.show(io::IO,f::FPCRegression)
-    print(io,"FPCRegression(n=",nobs(f),", ncomponents=",f.counts)
+    print(io,"FPCRegression(n=",nobs(f),", family=",f.family,", link=",f.link,", ncomponents=",f.counts)
     f isa _FunctionalFPCRegression && print(io,", response_ncomponents=",size(f.coefficients,2))
     print(io,", scalar_covariates=",f.nscalar,", sigma2=",f.sigma2,", R2=",f.r_squared,
         ", selection=",f.selection,", settings=",f.settings,

@@ -1,7 +1,7 @@
 # Penalized fitting
 
-[`PenalizedLeastSquares`](@ref) is the Gaussian engine behind penalized
-regression. It minimizes
+[`PenalizedLeastSquares`](@ref) is the engine behind penalized regression.
+For a Gaussian response with the identity link it minimizes
 
 ```math
 \|W^{1/2}(y - X\beta)\|^2 + \sum_{j=1}^{M} \lambda_j \beta^\top S_j \beta
@@ -12,7 +12,10 @@ positive semidefinite penalties `S_j`. Each penalty acts on a block of columns
 and may be rank deficient. Several penalties may act on the same block, as for
 the two marginal roughness penalties of a tensor-product coefficient. Columns in
 no penalty are unpenalized. The smoothing parameters `λ_j` are fixed, or chosen
-by REML (the default) or GCV.
+by REML (the default) or GCV. Binomial, Poisson and non-identity Gaussian
+responses are fitted by penalized iteratively reweighted least squares with
+Laplace-approximate REML, GCV or UBRE; see
+[Exponential-family responses](@ref penalized-glm).
 
 ```@example penalized
 using FunctionalDataAnalysis
@@ -50,6 +53,69 @@ dimension of the null space of `S_λ`. With the scale `φ` unknown:
 default follows refund (`pfr` and `pffr` call `gam` with `method="REML"`); GCV
 is the criterion of fda. Profiling out `φ` gives the same minimizer and minimum
 as mgcv, which carries `log φ` as an extra Newton parameter.
+
+## [Exponential-family responses](@id penalized-glm)
+
+`family=:binomial`, `:poisson` or `:gaussian` with a `link` (canonical by
+default) replaces the residual sum of squares with the deviance `D(β)`, as
+mgcv 1.9-3 `gam(family=...)`:
+
+```@example penalized
+u = mod.(0.7548776662466927 .* (1:60), 1)          # deterministic uniforms
+p = 1 ./ (1 .+ exp.(-(0.5 .* z .+ 2 .* sin.(2pi .* t))))
+yb = Float64.(u .< p)
+logistic = StatsAPI.fit(PenalizedLeastSquares, X, yb; family=:binomial,
+    penalties=[penalty(basis, 2) => 2:13])
+(logistic.link, logistic.lambda, logistic.edf_total, logistic.criterion_value)
+```
+
+| Family | Links (first is canonical, the default) | Scale | Responses |
+| --- | --- | --- | --- |
+| `:gaussian` | `:identity`, `:log`, `:inverse` | estimated | finite; positive for `:log`, nonzero for `:inverse` |
+| `:binomial` | `:logit`, `:probit`, `:cloglog` | one | proportions in `[0, 1]`; `weights` are integer trials, `weights .* y` integer successes |
+| `:poisson` | `:log`, `:identity`, `:sqrt` | one | nonnegative integers |
+
+The coefficients minimize the penalized deviance `Dₚ(β) = D(β) + βᵀS_λβ`.
+Penalized IRLS (mgcv `gam.fit3`) takes Newton steps on `Dₚ`, whose Hessian is
+`2H` with `H = XᵀWₙX + S_λ` and Newton weights `Wₙ = D''(η)/2`. For canonical
+links these are the Fisher weights `W_F = w h'(η)²/V(μ)`; for other links they
+are mgcv's `alpha`-weighted ones, and a step falls back to Fisher scoring when
+the Newton Hessian is not positive definite (as `gam.fit3` does). Steps are
+halved while `Dₚ` does not decrease or the fit leaves the family's domain. The
+first fit starts from R's family starting means (`mustart`) with one Fisher
+step; later fits, during smoothing parameter selection, start from the
+previous coefficients. Iterations stop once the Newton decrement `gᵀH⁻¹g` is at
+most `irls_tol = 1e-12` times `1 + Dₚ`, after which one last step is taken.
+
+| `criterion` | Criterion minimized | mgcv |
+| --- | --- | --- |
+| `:REML` (default) | `Dₚ/(2φ) - ℓₛ + log|H|/2 - log|S_λ|₊/2 - Mₚ/2 log(2πφ)` | `method="REML"` |
+| `:GCV` (estimated scale) | `n D/(n - τ)²` | `method="GCV.Cp"` |
+| `:UBRE` (known scale) | `D/n + 2τ/n - 1` | `method="GCV.Cp"` |
+
+`ℓₛ` is the saturated log-likelihood (mgcv `fix.family.ls`), so the REML value
+equals mgcv's `gcv.ubre`. `φ = 1` for the binomial and Poisson families; for
+the Gaussian family `φ` is profiled out at `Dₚ/(n - Mₚ)`, which gives mgcv's
+minimum (mgcv carries `log φ` as an extra Newton parameter). `τ` is the trace
+of the influence matrix computed with Fisher weights. The gradient and Hessian
+on `log λ` are exact: they include `dβ/dρⱼ = -H⁻¹λⱼSⱼβ` and the first and second
+derivatives of the weights with respect to `η` (Wood 2011, section 3), and the
+Newton search of the next section is unchanged. The criterion's Hessian at the
+optimum is stored in `settings.hessian`.
+
+After selection, `Vp = (XᵀW_F X + S_λ)⁻¹ φ̂`, `Ve`, `edf` and the scale use the
+final Fisher weights, as mgcv's `gam.fit3.post.proc`; `φ̂` (`sigma2`) is one
+for the binomial and Poisson families and the Pearson statistic over `n - τ`
+for the Gaussian family (mgcv's default `scale.est`). `fitted` returns the
+means `μ`, `residuals` the response-scale residuals `y - μ`,
+`linear_predictors` the linear predictor and `deviance` the deviance;
+`predict(fit, X; type=:link)` (mgcv's default) or `type=:response`. Classes
+that an unpenalized direction separates make the deviance decrease without
+bound. Where mgcv and `glm` warn that fitted probabilities are numerically 0
+or 1 (or Poisson rates numerically 0, within `10eps`), the package rejects the
+fit instead: such smoothing parameters are inadmissible during selection, and
+a fit that cannot avoid them throws, as does IRLS that does not converge
+within `irls_maxiter` iterations.
 
 ## Optimization and numerical stability
 
@@ -144,6 +210,18 @@ numerically against `gam` fits.
   is `min.sp + sp`. Bounds are thus approached but never attained, whereas
   [`PenalizedLeastSquares`](@ref) reports a binding bound exactly. mgcv has no
   upper bounds.
+- For exponential-family responses (`gam.fit3`, `gdi`): non-canonical links
+  use Newton weights `alpha · w h'²/V` in the IRLS and in `log|H|` of the REML
+  score, but the trace `τ` in GCV and UBRE, `edf`, `Vp`, `Ve` and the Pearson
+  scale use the Fisher weights `w h'²/V` at the final fit; IRLS falls back to
+  Fisher weights when the Newton system is not positive definite. The REML
+  score adds `-ls[1]` (saturated log-likelihood): zero for Bernoulli data,
+  `Σ w dpois(y, y, log=TRUE)` for Poisson and `Σ dbinom(round(w y), round(w),
+  y, log=TRUE)` for binomial data (non-integer data are silently rounded or
+  give `-Inf`; the package throws instead). With unknown scale and REML, mgcv
+  optimizes `log φ` with the smoothing parameters even when all `sp` are fixed.
+  Initial smoothing parameters (`initial.spg`) use Fisher weights at the
+  family's `mustart`.
 - `newton` stops on a gradient tolerance of `conv.tol = 1e-6` relative to the
   score scale. Our default `tol = 1e-8` is tighter; a flat direction moves on
   until the criterion stops decreasing, where mgcv leaves a large finite `sp`.
@@ -172,13 +250,36 @@ julia --project=. test/reference/mgcv_m7_inputs.jl
 Rscript test/reference/mgcv_m7.R
 ```
 
+`test/glm.jl` validates penalized IRLS against mgcv 1.9-3
+`gam(family=..., method="REML")` and `method="GCV.Cp"` with the same `paraPen`
+designs: Bernoulli responses (logit and probit links) and binomial
+proportions with trial weights, Poisson counts with one penalty and with two
+penalties on disjoint blocks (one of whose smoothing parameters diverges under
+REML), and a positive Gaussian response with the log link. At mgcv's smoothing
+parameters, `β`, the means, the linear predictor, `edf`, the deviance,
+`sigma2`, the REML scale, the criterion and the upper triangle of `Vp` agree to
+relative error below `1e-8`; the package's own optimum is no worse than mgcv's
+under the criterion (within `8eps`). mgcv's tolerances were tightened for the
+references (`epsilon=1e-12`, `conv.tol=1e-10`) so that its own fits are
+converged well below that tolerance. Separately, the criterion derivatives for
+every family and link are checked against finite differences, the solution
+against the penalized score equations, and the Gaussian identity link through
+the IRLS path against the closed-form solver. Recreate the references with
+
+```sh
+Rscript test/reference/mgcv_m7g.R
+```
+
 ## Relation to other packages
 
 MixedModels.jl fits REML for Gaussian mixed models, but each random-effect
 term carries one variance parameter, so it cannot place two penalties with
 separate smoothing parameters on one coefficient block. The inner problem here
-is a linear solve, and the outer problem a small smooth optimization with
-exact Hessians; neither needs proximal or coordinate-descent methods.
+is a linear solve (a sequence of them for penalized IRLS), and the outer
+problem a small smooth optimization with exact Hessians; neither needs
+proximal or coordinate-descent methods. GLM.jl fits unpenalized GLMs only,
+and is not a dependency: the same IRLS serves the unpenalized FPC GLM of
+[`FPCRegression`](@ref).
 
 ## Penalized splines with REML
 

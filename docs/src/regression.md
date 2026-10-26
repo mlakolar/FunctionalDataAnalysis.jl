@@ -691,7 +691,8 @@ bands = only(coefficient_bands(penalized))   # Vc, as refund's coef.pfr
 |:--|:--|
 | Basis | `ThinPlateRegressionBasis(grid, 10)`: refund `lf()` passes its `...` to `mgcv::s`, whose default is `bs="tp"` with `k=10` |
 | Penalty | `∫β''²` (thin plate order `m=2`), rescaled as mgcv `smoothCon(scale.penalty=TRUE)`; `penalty_scale` is stored |
-| Criterion | `criterion=:REML`, refund `pfr(method="REML")`; `:GCV` is mgcv `"GCV.Cp"` |
+| Criterion | `criterion=:REML`, refund `pfr(method="REML")`; `:GCV` (Gaussian) or `:UBRE` (binomial, Poisson) is mgcv `"GCV.Cp"` |
+| Family | `family=:gaussian`, `link=nothing` (canonical), refund `pfr`'s `gam` default; see [Exponential-family responses](@ref regression-glm) |
 | Integration | `integration=:quadrature` (trapezoidal, refund's `"trapezoidal"`); **departs** from refund's `"simpson"`, see below |
 | Presmoothing | `presmooth=nothing`, refund `presmooth=NULL` |
 | B-spline presmoother | `presmooth_options=(; nbasis=10)`, refund `create.prep.func` |
@@ -1075,6 +1076,129 @@ StatsAPI.dof_residual(::PenalizedFunctionOnFunctionRegression)
 StatsAPI.fitted(::PenalizedFunctionOnFunctionRegression)
 StatsAPI.residuals(::PenalizedFunctionOnFunctionRegression)
 ```
+
+## [Exponential-family responses](@id regression-glm)
+
+Both scalar-response routes accept `family=:binomial` (0/1 responses),
+`family=:poisson` (counts) or `family=:gaussian` with a non-identity `link`,
+for the model `g(E yᵢ) = ηᵢ = α + zᵢᵀγ + Σⱼ ∫ Xᵢⱼ(t) βⱼ(t) dt`. `link=nothing`
+selects the canonical link (logit, log, identity); the other links are those
+listed for [`PenalizedLeastSquares`](@ref). Coefficient functions, their
+bands and standard errors are on the link scale.
+
+```@example regression
+η = 0.5 .+ 0.3 .* z .+ 2 .* X * (quadrature_weights(grid) .* sinpi.(2 .* grid))
+# Poisson counts: arrivals of a unit-rate process before time exp(η).
+counts = [count(<(exp(e)), cumsum(randexp(rng, 100))) for e in η]
+poisson = StatsAPI.fit(PenalizedFunctionalRegression, x, counts; scalar_covariates=z,
+    family=:poisson)
+(poisson.lambda, poisson.edf_terms, StatsAPI.r2(poisson))
+```
+
+```@example regression
+fpc_poisson = StatsAPI.fit(FPCRegression, x, counts; scalar_covariates=z, family=:poisson)
+(ncomponents(fpc_poisson), StatsAPI.r2(fpc_poisson),
+    StatsAPI.predict(fpc_poisson, x; scalar_covariates=z, type=:link)[1:3])
+```
+
+- **FPC route.** [`FPCRegression`](@ref) fits a GLM on the leading FPC scores
+  (and scalar covariates) by IRLS to the maximum likelihood estimate, as
+  fda.usc 2.2.0 `fregre.glm` does through R's `glm` with a
+  `create.pc.basis` basis; fdapace `FLM` is Gaussian only. `vcov` is
+  `(XᵀW_F X)⁻¹` times the dispersion (one for binomial and Poisson, the
+  Pearson statistic over `n - p` for the Gaussian family), as `summary.glm`.
+  Intervals are Wald intervals on the link scale with normal quantiles for
+  binomial and Poisson and Student-t quantiles when the Gaussian dispersion
+  is estimated. `AIC()` and `BIC()` selection uses R's `AIC()`/`BIC()` for
+  `glm`; `:loocv` (held-out squared error) needs the Gaussian identity link.
+  Scores that separate binomial classes (fitted probabilities numerically 0
+  or 1, where `glm` warns) make the fit throw. The FPCA, scores and component
+  choice are conditioned on, as for least squares; `coefficient_bands(...; method=:bootstrap)` refits the FPCA and the
+  GLM in every replicate.
+- **Penalized route.** [`PenalizedFunctionalRegression`](@ref) fits the
+  penalized model of refund 0.1-40 `pfr(y ~ z + lf(X), family=..., method="REML")`
+  by penalized IRLS with Laplace-approximate REML (or UBRE / GCV), through
+  the extended [`PenalizedLeastSquares`](@ref) solver, which validates
+  against mgcv 1.9-3 `gam` (see [Penalized fitting](@ref penalized-glm)).
+  `coefficient_bands` defaults to mgcv's `Vc` after REML selection, as
+  refund's `coef.pfr`, computed from the Fisher-weighted Hessian, the
+  implicit derivatives `dβ/d log λ` and the Laplace REML Hessian.
+- **Shared interface.** `predict(f, x; type=:response)` returns means and
+  `type=:link` the linear predictor. `interval=:confidence` computes the
+  interval for `η` and, with `type=:response`, maps the estimate and both
+  endpoints through the inverse link, so the interval stays inside the
+  response range (`se` stays on the link scale; `settings.scale` records the
+  scale). Prediction intervals for a new response (`interval=:prediction`)
+  are defined only for the Gaussian identity link and throw otherwise.
+  `fitted_bands(f; type)` does the same for the training subjects. `fitted`
+  returns means and `residuals` the response-scale residuals `y - μ`; `r2`
+  is the deviance explained `1 - D/D₀`, which reduces to `1 - RSS/TSS` for
+  least squares. `sigma2` is the dispersion.
+
+| Choice | Default and source |
+|:--|:--|
+| Family and link | `family=:gaussian`, `link=nothing` (canonical): the defaults of `glm`, `gam` and `fregre.glm` |
+| Penalized criterion | `:REML`, refund `pfr(method="REML")`; `:UBRE` for known scale and `:GCV` for estimated scale are mgcv `"GCV.Cp"` |
+| Prediction scale | `type=:response`: fda.usc `predict.fregre.glm` and the declared default of refund `predict.pfr` (see below) |
+| FPC GLM dispersion | one (binomial, Poisson); Pearson statistic over `n - p` (Gaussian), `summary.glm` |
+| Penalized scale | one (binomial, Poisson); Pearson statistic over `n - τ` (Gaussian), mgcv `scale.est` |
+| FPC GLM intervals | link-scale Wald: normal (known scale) or Student-t with `n - p` degrees of freedom (Gaussian), as `summary.glm` |
+| Penalized intervals | link-scale normal, `Vc` for coefficient bands, `Vp` for predictions (refund `coef.pfr`, mgcv `predict.gam`) |
+| IRLS tolerance | Newton decrement at most `1e-12 (1 + Dₚ)`, at most 200 iterations: a package choice, tighter than `glm`'s `epsilon=1e-8` and mgcv's `1e-7` |
+
+### Source audit
+
+- fda.usc 2.2.0 `fregre.glm` builds the design from `fdata2model.penalty`
+  (intercept, scalar covariates, then the PC scores of `create.pc.basis`) and
+  calls `glm()` without passing a `control`, so the fit stops at `glm`'s
+  default `epsilon=1e-8`; on the validation fixtures its coefficients are
+  about `6e-8` (relative) from the converged estimate. Its `r2` is
+  `1 - sum(e²)/sum((y - ȳ)²)` with the working residuals `e` of the final
+  IRLS iteration, which is not a goodness-of-fit measure for a GLM; the
+  package reports the deviance explained instead. `predict.fregre.glm`
+  projects new curves with `fdata2basis` and the stored `vs.list` and passes
+  `type="response"` (its default) to `predict.glm`.
+- R's `glm.fit` returns the weights of the start of its last iteration;
+  `summary.glm` uses them for `cov.unscaled`. The package evaluates the
+  Fisher information at the converged estimate.
+- refund 0.1-40 `pfr` passes `family` and `control` to mgcv's `gam`. Its
+  `predict.pfr` declares `type="response"` but forwards only the arguments
+  present in `match.call()` to `predict.gam`, whose default is
+  `type="link"`; called without `type`, it returns the linear predictor. The
+  package follows the declared default, `type=:response`, which also matches
+  fda.usc.
+- mgcv's weight conventions for non-canonical links (Newton weights in the
+  IRLS and the REML log-determinant, Fisher weights in `τ`, `edf`, `Vp`, the
+  scale and `Vc`) are recorded on the [Penalized fitting](@ref penalized-glm)
+  page; `Vb.corr` ignores the weight derivatives in the second-order `Vc` term.
+
+### Validation
+
+`test/glm.jl` compares, at relative error below `1e-8`:
+
+- the penalized solver with mgcv 1.9-3 for six binomial, Poisson and
+  Gaussian-log designs under REML and GCV/UBRE (see
+  [Penalized fitting](@ref penalized-glm));
+- `PenalizedFunctionalRegression` with refund 0.1-40 `pfr(family=)` for
+  binomial (REML and UBRE), Poisson and Gaussian-log responses with a scalar
+  covariate and refund's `integration="trapezoidal"`: the intercept and scalar
+  coefficients, means, linear predictors, scale, criterion, total EDF,
+  deviance (and with it the deviance explained), `β` and its `Vp` and `Vc`
+  standard errors on refund's default grid, and held-out predictions on both
+  scales with link-scale standard errors, at refund's selected smoothing
+  parameters; the package's optimum is no worse under the criterion;
+- `FPCRegression` with the converged `glm` estimate on fda.usc 2.2.0
+  `fregre.glm`'s own three-component design for binomial, Poisson (with a
+  scalar covariate) and Gaussian-log responses: the intercept, means,
+  deviance, null deviance, dispersion, `β`, its standard errors, held-out
+  predictions on both scales with link-scale standard errors, and R's AIC and
+  BIC.
+
+Recreate the references with `Rscript test/reference/mgcv_m7g.R`,
+`Rscript test/reference/refund_m7g_pfr.R` and
+`Rscript test/reference/fdausc_m7g.R` (R 4.5.1; mgcv 1.9-3, refund 0.1-40,
+fda.usc 2.2.0). No R installation is needed to use the package or run its
+tests.
 
 ## FPC regression reference
 
