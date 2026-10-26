@@ -193,6 +193,13 @@ end
         # A failed Cholesky factorization yields no Vc rather than an error.
         @test FunctionalDataAnalysis._pfr_corrected_covariance([ones(5) zeros(5)], ones(5),
             [ones(1, 1)], [[2]], [0.0], [1.0, 0.0], 1.0, 1) === (nothing, nothing)
+        # refund 0.1-40 ndefault halves fine regular grids until at most 101
+        # points: ndefault(seq(0, 1, length=201)) is 100 and
+        # ndefault(seq(0, 2, length=301)) is 75 in R.
+        @test FunctionalDataAnalysis._pfr_default_grid(collect(range(0, 1; length=201))) ==
+            collect(range(0, 1; length=100))
+        @test FunctionalDataAnalysis._pfr_default_grid(collect(range(0, 2; length=301))) ==
+            collect(range(0, 2; length=75))
     end
 
     @testset "Recovery, bands, prediction and shared interface" begin

@@ -7,13 +7,19 @@
     fit(PenalizedFunctionalRegression, x, y; scalar_covariates=nothing,
         k=nothing, basis=nothing, penalty_order=nothing, integration=:quadrature,
         presmooth=nothing, presmooth_options=(;), grid=nothing,
-        criterion=:REML, lambda=nothing)
+        family=:gaussian, link=nothing, criterion=:REML, lambda=nothing)
 
-Gaussian penalized scalar-on-function regression
+Penalized scalar-on-function regression
 
-    yᵢ = α + zᵢᵀγ + Σⱼ ∫ Xᵢⱼ(t) βⱼ(t) dt + εᵢ,
+    g(E yᵢ) = ηᵢ = α + zᵢᵀγ + Σⱼ ∫ Xᵢⱼ(t) βⱼ(t) dt,
 
-the model of refund 0.1-40 `pfr(y ~ z + lf(X1) + lf(X2), method="REML")`.
+the model of refund 0.1-40 `pfr(y ~ z + lf(X1) + lf(X2), method="REML")`
+(Gaussian responses with the identity link by default) and of
+`pfr(..., family=binomial)` and similar for exponential-family responses.
+`family` (`:gaussian`, `:binomial` with 0/1 responses, `:poisson`) and `link`
+(`nothing` for the canonical link) are those of
+[`PenalizedLeastSquares`](@ref), which fits the model by penalized IRLS with
+Laplace-approximate REML, as mgcv 1.9-3 `gam` does for refund.
 Each `βⱼ` is expanded in a basis `Bⱼ`, the integral is a weighted sum over the
 covariate grid, `Σₜ Lⱼₜ Xᵢⱼ(t) Bⱼ(t)`, and `βⱼ` has its own smoothing parameter
 `λⱼ` on a roughness penalty. Scalar covariates (a finite vector or matrix,
@@ -54,9 +60,10 @@ per functional covariate. Defaults and sources:
 - `grid=nothing`: the curves' grid for grid data, the FPCA work grid for
   `:fpca` on irregular data; required for basis data and for `:bspline` or
   `:interpolate` on irregular data.
-- `criterion=:REML` (refund `method="REML"`) or `:GCV` (mgcv `"GCV.Cp"`);
-  fixed `lambda` (one finite nonnegative value per functional covariate)
-  skips selection.
+- `criterion=:REML` (refund `method="REML"`), or mgcv's `"GCV.Cp"`: `:GCV`
+  for the Gaussian family (unknown scale) and `:UBRE` for the binomial and
+  Poisson families (known scale); fixed `lambda` (one finite nonnegative value
+  per functional covariate) skips selection.
 
 A functional term whose integrals `Σₜ LₜXᵢ(t)` are equal for every subject is
 confounded with the intercept and throws (mgcv would add a centering
@@ -74,9 +81,17 @@ smoothing parameter is effectively infinite (then `XᵀX + S_λ` is numerically
 singular and the λ-derivatives are meaningless) and
 `:unavailable_not_positive_definite` when its Cholesky factorization fails;
 without `Vc`, bands and intervals default to `Vp`.
+For exponential-family fits `Vp`, `Ve` and `Vc` use the final Fisher
+weights and `Vc` the smoothing parameter Hessian of the Laplace REML (over
+`log λ`, and `log φ` for the Gaussian family), as mgcv's `gam.fit3.post.proc`.
 `dof` is the total effective degrees of freedom (intercept included) and
-`dof_residual` is `nobs - dof`; `sigma2` is mgcv's scale estimate
-`RSS/dof_residual`. `r2` is the ordinary `1 - RSS/TSS`.
+`dof_residual` is `nobs - dof`; `sigma2` is mgcv's scale estimate (`RSS/dof_residual`
+for the identity link, one for binomial and Poisson, Pearson over
+`dof_residual` otherwise). `r2` is mgcv's deviance explained `1 - D/D₀` (`D₀`
+the deviance of the intercept-only model), which is the ordinary
+`1 - RSS/TSS` for the Gaussian identity link. `fitted` returns the means and
+`residuals` the response-scale residuals `y - μ`; `pls.linear_predictors`
+holds `η`.
 
 Fields include `pls` (the [`PenalizedLeastSquares`](@ref) fit), `lambda`,
 `edf_terms`, `penalty_scale`, `sigma2`, `terms` (grids, integration weights,
@@ -323,11 +338,7 @@ function _pfr_corrected_covariance(X::Matrix{T}, y::Vector{T}, penalties, column
         beta, sigma2, null_dimension) where {T}
     n, p = size(X)
     M = length(lambda)
-    full = map(penalties, columns) do S, c
-        out = zeros(T, p, p)
-        out[c, c] .= S
-        out
-    end
+    full = _pfr_full_penalties(penalties, columns, p, T)
     H = Matrix(Symmetric(transpose(X) * X + sum(lambda .* full)))
     factor = cholesky(Symmetric(H); check=false)
     issuccess(factor) || return nothing, nothing
@@ -349,6 +360,49 @@ function _pfr_corrected_covariance(X::Matrix{T}, y::Vector{T}, penalties, column
         hess[j, M+1] = hess[M+1, j] = -g[j] / (2 * phi)
     end
     hess[M+1, M+1] = Dp / (2 * phi)
+    _pfr_vc(factor, db, hess, lambda, full, sigma2)
+end
+
+function _pfr_full_penalties(penalties, columns, p, ::Type{T}) where {T}
+    map(penalties, columns) do S, c
+        out = zeros(T, p, p)
+        out[c, c] .= S
+        out
+    end
+end
+
+# The same correction for an exponential-family REML fit (gam.fit3.post.proc):
+# H = XᵀW_F X + S_λ with the final Fisher weights, dβ/dρ from the solver's
+# implicit (Newton) derivatives, and the REML Hessian over log λ (known scale)
+# or over (log λ, log φ) at the REML scale φ (Gaussian family).
+function _pfr_glm_corrected_covariance(X::Matrix{T}, pls, final, penalties, columns) where {T}
+    p = size(X, 2)
+    lambda = pls.lambda
+    M = length(lambda)
+    full = _pfr_full_penalties(penalties, columns, p, T)
+    wf = _pirls_values(final.state, Val(:wf))
+    H = Matrix(Symmetric(transpose(X) * (wf .* X) + sum(lambda .* full)))
+    factor = cholesky(Symmetric(H); check=false)
+    issuccess(factor) || return nothing, nothing
+    if pls.settings.scale === :known
+        hess = copy(final.hessian)
+    else
+        phi = pls.reml_scale
+        hess = zeros(T, M + 1, M + 1)
+        hess[1:M, 1:M] .= final.hess_Dp ./ (2 * phi) .+ final.hess_logdet ./ 2 .- final.hessian_penalty ./ 2
+        hess[1:M, M+1] .= hess[M+1, 1:M] .= -final.grad_Dp ./ (2 * phi)
+        hess[M+1, M+1] = final.Dp / (2 * phi)
+    end
+    _pfr_vc(factor, final.db, hess, lambda, full, pls.sigma2)
+end
+
+# Vc = Vp + db Vρ dbᵀ + scale * Σⱼₖ Vr[j,k] dR⁻¹ⱼ dR⁻¹ₖᵀ (mgcv Vb.corr), with Vρ
+# the pseudo-inverse of the smoothing parameter Hessian (scale row dropped)
+# and Vr its inverse regularized by a weak prior (mgcv 1/10).
+function _pfr_vc(factor, db::Matrix{T}, hess::Matrix{T}, lambda, full, sigma2) where {T}
+    M = length(lambda)
+    p = size(db, 1)
+    Hinv = inv(factor)
     decomposition = eigen(Symmetric(hess))
     values, vectors = decomposition.values, decomposition.vectors
     inverse_root = T[v > 0 ? 1 / sqrt(v) : zero(T) for v in values]
@@ -385,13 +439,14 @@ end
 
 function fit(::Type{PenalizedFunctionalRegression}, x, y; scalar_covariates=nothing,
         k=nothing, basis=nothing, penalty_order=nothing, integration=:quadrature,
-        presmooth=nothing, presmooth_options=(;), grid=nothing, criterion::Symbol=:REML,
-        lambda=nothing)
+        presmooth=nothing, presmooth_options=(;), grid=nothing, family::Symbol=:gaussian,
+        link=nothing, criterion::Symbol=:REML, lambda=nothing)
     curves = _regression_inputs(x)
     n, q = nobs(first(curves)), length(curves)
     y = _pfr_response(y)
     length(y) == n || throw(DimensionMismatch("response length must equal the functional covariate subject count"))
-    criterion in (:REML, :GCV) || throw(ArgumentError("criterion must be :REML or :GCV"))
+    fam = _glm_family(family, link)
+    criterion = _pls_criterion(criterion, fam)
     ks = _regression_each(k, q, "k")
     bases = _regression_each(basis, q, "basis")
     orders = _regression_each(penalty_order, q, "penalty_order")
@@ -408,14 +463,16 @@ function fit(::Type{PenalizedFunctionalRegression}, x, y; scalar_covariates=noth
     all(isfinite, response) || throw(ArgumentError("response must remain finite after conversion"))
     total = sum(abs2, response .- sum(response) / n)
     isfinite(total) && total > 0 || throw(ArgumentError("response must have finite positive variation"))
+    _glm_check_response(fam, response, ones(T, n))
     z = _regression_scalars(scalar_covariates, n, T)
     terms = ntuple(j -> _pfr_term(curves[j], ks[j], bases[j], orders[j], rules[j], smoothers[j],
         options[j], grids[j], T), Val(length(curves)))
-    _pfr_fit(terms, response, z, total, criterion, lambda)
+    _pfr_fit(terms, response, z, total, criterion, lambda, fam)
 end
 
 # Bind the model types independently of the keyword-dependent term types.
-function _pfr_fit(terms::Tuple, response::Vector{T}, z::Matrix{T}, total::T, criterion, lambda) where {T}
+function _pfr_fit(terms::Tuple, response::Vector{T}, z::Matrix{T}, total::T, criterion, lambda,
+        fam::_GLMFamily) where {T}
     n, q = length(response), length(terms)
     blocks = map(term -> _pfr_block(term, term.values), terms)
     design = hcat(ones(T, n), z, blocks...)
@@ -428,8 +485,9 @@ function _pfr_fit(terms::Tuple, response::Vector{T}, z::Matrix{T}, total::T, cri
         lambda isa AbstractVector{<:Real} && length(lambda) == q ||
             throw(DimensionMismatch("lambda must be a real vector with one value per functional covariate ($q)"))
     end
-    pls = fit(PenalizedLeastSquares, design, response; penalties=[S => c for (S, c) in zip(penalties, columns)],
-        criterion, lambda)
+    pls, final = _pls_fit(design, response; penalties=[S => c for (S, c) in zip(penalties, columns)],
+        weights=nothing, family=fam.family, link=fam.link, criterion, lambda, lower=nothing,
+        upper=nothing, rank_tol=nothing, tol=1e-8, maxiter=200, irls_tol=1e-12, irls_maxiter=200)
     beta = map((term, j) -> BasisFunctionalData(reshape(pls.coef[columns[j]], 1, :), deepcopy(term.basis)),
         terms, ntuple(identity, Val(length(terms))))
     corrected = nothing
@@ -441,8 +499,10 @@ function _pfr_fit(terms::Tuple, response::Vector{T}, z::Matrix{T}, total::T, cri
         if any(==(:effectively_infinite), pls.lambda_status)
             corrected_status = :unavailable_infinite_lambda
         else
-            corrected, correction = _pfr_corrected_covariance(design, response, penalties, columns,
-                pls.lambda, pls.coef, pls.sigma2, pls.null_space_dimension)
+            corrected, correction = _glm_identity(fam) ?
+                _pfr_corrected_covariance(design, response, penalties, columns,
+                    pls.lambda, pls.coef, pls.sigma2, pls.null_space_dimension) :
+                _pfr_glm_corrected_covariance(design, pls, final, penalties, columns)
             if corrected === nothing
                 corrected_status = :unavailable_not_positive_definite
             else
@@ -451,8 +511,11 @@ function _pfr_fit(terms::Tuple, response::Vector{T}, z::Matrix{T}, total::T, cri
             end
         end
     end
-    rss = sum(abs2, pls.residuals)
-    settings = (; criterion, lambda_source=lambda === nothing ? :selected : :fixed,
+    # Deviance explained (mgcv dev.expl); 1 - RSS/TSS for the Gaussian identity.
+    explained = _glm_identity(fam) ? one(T) - sum(abs2, pls.residuals) / total :
+        one(T) - pls.deviance / _glm_null_deviance(fam, response, ones(T, length(response)))
+    settings = (; family=fam.family, link=fam.link, scale=pls.settings.scale, criterion,
+        lambda_source=lambda === nothing ? :selected : :fixed,
         lambda_status=copy(pls.lambda_status), intercept=true,
         coefficient_order=:intercept_scalars_functional_basis,
         integration=map(t -> t.integration, terms),
@@ -462,7 +525,7 @@ function _pfr_fit(terms::Tuple, response::Vector{T}, z::Matrix{T}, total::T, cri
         smoothing_parameter_hessian=hessian,
         reference="refund 0.1-40 pfr/lf; mgcv 1.9-3 gam(method=\"REML\")")
     PenalizedFunctionalRegression(pls, terms, beta, design, response, size(z, 2), copy(pls.lambda),
-        T[t.penalty_scale for t in terms], copy(pls.edf_penalty), pls.sigma2, one(T) - rss / total,
+        T[t.penalty_scale for t in terms], copy(pls.edf_penalty), pls.sigma2, explained,
         corrected, settings)
 end
 
@@ -487,9 +550,9 @@ function vcov(f::PenalizedFunctionalRegression; type::Symbol=:bayesian)
     end
     copy(f.corrected_covariance)
 end
-"""Return copied fitted scalar responses from a penalized functional regression."""
+"""Return copied fitted means `h(η)` (the fitted responses for the identity link)."""
 fitted(f::PenalizedFunctionalRegression) = fitted(f.pls)
-"""Return copied response-minus-fitted residuals from a penalized functional regression."""
+"""Return copied response-scale residuals `y - μ` from a penalized functional regression."""
 residuals(f::PenalizedFunctionalRegression) = residuals(f.pls)
 """Return the number of subjects in a penalized functional regression."""
 nobs(f::PenalizedFunctionalRegression) = length(f.response)
@@ -497,7 +560,7 @@ nobs(f::PenalizedFunctionalRegression) = length(f.response)
 dof(f::PenalizedFunctionalRegression) = f.pls.edf_total
 """Return `nobs(f) - dof(f)`, the residual effective degrees of freedom."""
 dof_residual(f::PenalizedFunctionalRegression) = nobs(f) - dof(f)
-"""Return the ordinary coefficient of determination `1 - RSS/TSS`."""
+"""Return the deviance explained `1 - D/D₀` (mgcv `dev.expl`; `1 - RSS/TSS` for the Gaussian identity link)."""
 r2(f::PenalizedFunctionalRegression) = f.r_squared
 """Return coefficient standard errors from `vcov(f; type)`."""
 stderror(f::PenalizedFunctionalRegression; type::Symbol=:bayesian) =
@@ -518,7 +581,7 @@ function _pfr_intervals(estimate, variance, alpha, target, covariance, sigma2)
     lower, upper = estimate - critical .* se, estimate + critical .* se
     all(isfinite, lower) && all(isfinite, upper) || throw(ArgumentError("interval endpoints must be finite"))
     (; estimate=copy(estimate), se, lower, upper, alpha=a, critical_value=critical,
-        settings=(; target, distribution=:normal, covariance, sigma2,
+        settings=(; target, scale=:link, distribution=:normal, covariance, sigma2,
             presmoothing_uncertainty=false, simultaneous=false))
 end
 
@@ -538,13 +601,16 @@ end
         covariance=nothing)
 
 Pointwise normal intervals `β̂ⱼ(t) ± z₁₋α/₂ se(t)` for each coefficient
-function, from the posterior covariance of its basis coefficients.
+function (on the link scale for exponential-family fits), from the posterior
+covariance of its basis coefficients.
 `covariance=nothing` follows refund 0.1-40 `coef.pfr(useVc=TRUE)`: mgcv's
 smoothing-parameter-corrected `Vc` when available (REML selection), else
 `Vp`; pass `:bayesian`, `:frequentist` or `:corrected` to choose. The choice is
 recorded in `settings.covariance`. `grid=nothing` uses refund's default
-coordinates (the covariate grid when it has fewer than five distinct
-spacings and at most 101 points, otherwise 101 equally spaced points); one
+coordinates: with fewer than five distinct spacings, equally spaced points
+at the smallest spacing (the covariate grid itself when it is regular), their
+number halved, rounding half to even, until it is at most 101 (a regular
+201-point grid gives 100 points); otherwise 101 equally spaced points. One
 grid, or a tuple of grids, may be supplied. Refund offers no simultaneous
 bands for `pfr`, and none are returned. Presmoothing is treated as fixed.
 """
@@ -586,49 +652,67 @@ end
 
 """
     predict(f::PenalizedFunctionalRegression, x; scalar_covariates=nothing,
-        interval=:none, alpha=0.05, covariance=:bayesian)
+        type=:response, interval=:none, alpha=0.05, covariance=:bayesian)
 
 Predict scalar responses for new subjects, as refund 0.1-40 `predict.pfr`:
 new curves are presmoothed with the fitted presmoother (projected on the
 stored FPCA for `:fpca`), weighted by the stored integration weights on the
 fitted grid and multiplied by the fitted basis. Grid curves without a
 presmoother must use the fitted grid; basis curves are evaluated on it.
-`interval=:confidence` or `:prediction` returns normal intervals from
-`vcov(f; type=covariance)` (default `Vp`, as mgcv `predict.gam`), the latter
-adding `sigma2` for a new response, with the fields of
+`type=:response` (refund's default) returns means `μ = h(η)`, `type=:link`
+the linear predictor `η`; they coincide for the Gaussian identity link.
+`interval=:confidence` returns normal intervals for `η` from
+`vcov(f; type=covariance)` (default `Vp`, as mgcv `predict.gam`); with
+`type=:response` the estimate and both endpoints are mapped through the
+inverse link (`se` stays on the link scale, `settings.scale` records the
+scale). `interval=:prediction` adds `sigma2` for a new Gaussian response and
+is available only for the Gaussian identity link. The fields are those of
 [`coefficient_bands`](@ref) except `grid`.
 """
 Base.@constprop :aggressive function predict(f::PenalizedFunctionalRegression, x; scalar_covariates=nothing,
-        interval=:none, alpha=0.05, covariance::Symbol=:bayesian)
+        type::Symbol=:response, interval=:none, alpha=0.05, covariance::Symbol=:bayesian)
     interval in (:none, :confidence, :prediction) ||
         throw(ArgumentError("interval must be :none, :confidence, or :prediction"))
+    type in (:link, :response) || throw(ArgumentError("type must be :link or :response"))
     design = _pfr_newdesign(f, x, scalar_covariates)
-    estimate = design * f.pls.coef
-    all(isfinite, estimate) || throw(ArgumentError("regression predictions must be finite"))
-    interval === :none && return estimate
+    eta = design * f.pls.coef
+    all(isfinite, eta) || throw(ArgumentError("regression predictions must be finite"))
+    fam = _GLMFamily(f.settings.family, f.settings.link)
+    interval === :none && return type === :link ? eta : _glm_response_values(fam, eta)
+    _pfr_check_interval(fam, interval)
     choice = _pfr_covariance_choice(f, covariance)
     variance = vec(sum((design * vcov(f; type=choice)) .* design; dims=2))
     interval === :prediction && (variance .+= f.sigma2)
-    _pfr_intervals(estimate, variance, alpha, interval, choice, f.sigma2)
+    _glm_scale_intervals(fam, _pfr_intervals(eta, variance, alpha, interval, choice, f.sigma2), type)
+end
+
+function _pfr_check_interval(fam, interval)
+    interval === :prediction && !_glm_identity(fam) && throw(ArgumentError(
+        "prediction intervals need a Gaussian response with the identity link; use interval=:confidence"))
 end
 
 """
     fitted_bands(f::PenalizedFunctionalRegression; alpha=0.05, interval=:confidence,
-        covariance=:bayesian)
+        covariance=:bayesian, type=:response)
 
 Pointwise normal intervals for the training responses, as in `predict`.
 """
 function fitted_bands(f::PenalizedFunctionalRegression; alpha=0.05, interval=:confidence,
-        covariance::Symbol=:bayesian)
+        covariance::Symbol=:bayesian, type::Symbol=:response)
     interval in (:confidence, :prediction) || throw(ArgumentError("interval must be :confidence or :prediction"))
+    type in (:link, :response) || throw(ArgumentError("type must be :link or :response"))
+    fam = _GLMFamily(f.settings.family, f.settings.link)
+    _pfr_check_interval(fam, interval)
     choice = _pfr_covariance_choice(f, covariance)
     variance = vec(sum((f.design * vcov(f; type=choice)) .* f.design; dims=2))
     interval === :prediction && (variance .+= f.sigma2)
-    _pfr_intervals(f.pls.fitted, variance, alpha, interval, choice, f.sigma2)
+    _glm_scale_intervals(fam, _pfr_intervals(f.pls.linear_predictors, variance, alpha, interval,
+        choice, f.sigma2), type)
 end
 
 function Base.show(io::IO, f::PenalizedFunctionalRegression)
     print(io, "PenalizedFunctionalRegression(n=", nobs(f), ", terms=", length(f.terms),
+        ", family=", f.settings.family, ", link=", f.settings.link,
         ", scalar_covariates=", f.nscalar, ", criterion=", f.settings.criterion,
         ", lambda=", f.lambda, ", status=", f.settings.lambda_status,
         ", penalty_scale=", f.penalty_scale, ", edf=", f.edf_terms, ", total edf=", dof(f),
