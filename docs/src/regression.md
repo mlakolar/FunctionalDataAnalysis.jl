@@ -1,17 +1,21 @@
 # Regression
 
-The package fits four Gaussian functional regression models. None of them
-selects a smoothing parameter automatically; penalized models with automatic
-smoothing are planned separately.
+The package fits Gaussian functional regression models by two routes. FPC
+regression has no smoothing parameter: β is expanded in leading FPCs.
+[`PenalizedFunctionalRegression`](@ref) expands β in a spline basis and selects
+its smoothing parameters by REML (default) or GCV through
+[`PenalizedLeastSquares`](@ref). Concurrent regression records the bandwidths it
+uses on the fit.
 
 | Response | Covariates | Model | Estimator | Reference |
 |:--|:--|:--|:--|:--|
 | Scalar | Functional (and scalar) | `y = α + Σ∫β_j X_j + zᵀγ + ε` | [`FPCRegression`](@ref) on FPC scores | fdapace `FLM`, fda.usc `fregre.pc` |
+| Scalar | Functional (and scalar) | same | [`PenalizedFunctionalRegression`](@ref), penalized splines with REML | refund `pfr` with `lf()` |
 | Functional | Functional (and scalar) | `Y(s) = μ(s) + Σ∫β_j(s,t)X_j(t)dt + zᵀγ(s) + ε(s)` | [`FPCRegression`](@ref) with a functional response | fdapace `FLM` |
 | Functional | Functional at the same time (and scalar) | `Y(t) = β₀(t) + Σβ_j(t)X_j(t) + zᵀγ(t) + ε(t)` | [`ConcurrentRegression`](@ref), kernel smoothing | fdapace `FCReg` (formerly `ConcurReg`) |
 | Functional | Scalar only | `Y(t) = Σ x_k β_k(t) + ε(t)` | [`FunctionOnScalarRegression`](@ref), fixed-λ basis expansion | fda `fRegress` |
 
-All four estimators follow the StatsAPI interface: `fit`, `predict`, `coef`,
+All estimators follow the StatsAPI interface: `fit`, `predict`, `coef`,
 `fitted`, and, where the model defines them, `residuals`, `vcov`, `stderror`,
 `nobs`, `dof` and `dof_residual`. Each one stores every tuning choice on the
 fit and shows it with `show`.
@@ -551,7 +555,7 @@ effective degrees of freedom (intercept and scalar coefficients included),
 `edf_terms` the effective degrees of freedom of each functional term, and
 `sigma2` mgcv's `RSS/(n - dof)`.
 
-### Choosing between FPC and penalized regression
+### Choosing a regression method
 
 Both fits return a tuple of coefficient functions, `coef`, `vcov`,
 `fitted`, `residuals`, `predict` and `coefficient_bands`, so downstream code
@@ -563,6 +567,66 @@ REML, does not tie `β` to the leading covariate modes, accounts for smoothing
 parameter uncertainty in its bands, and is the better choice when `β` has
 features in directions of small covariate variance or when several dense
 covariates need separate smoothness.
+
+The [regression study](https://github.com/mlakolar/FunctionalDataAnalysis.jl/tree/master/benchmark/regression)
+compares three fits with their default settings:
+
+- `fit(FPCRegression, x, y)`;
+- the same fit with `selection=BIC()`;
+- `fit(PenalizedFunctionalRegression, x, y)`, with `presmooth=:fpca` for
+  sparse curves.
+
+Covariates are simulated with `simulate_kl` from nine Fourier components
+with eigenvalues `1/k²`. They are observed with noise either on a dense grid
+or at 2–10 random times per curve. The coefficient `β(t)` takes three forms:
+
+- aligned with the two leading eigenfunctions;
+- equal to the trailing eigenfunction, which `FVE(0.99)` drops in
+  population;
+- a smooth bump unrelated to the eigenfunctions (Reiss and Ogden 2007).
+
+The other factors are `n ∈ {100, 500}` and a population R² of 0.8 or 0.5,
+with 200 replicates per cell. The study records:
+
+- relative error of `β̂`;
+- prediction error on held-out subjects;
+- pointwise coverage of the default 95% bands;
+- component counts or effective degrees of freedom;
+- time, allocations and failures.
+
+Neither method offers simultaneous bands. The study instead reports how
+often the pointwise band covers all of `β`. Note that on noisy dense curves
+the default dense FPCA does not smooth, so `FVE(0.99)` also keeps
+noise-dominated components. Use `selection=BIC()`, `ncomponents`, or a
+smoothing FPCA (`fpca_options=(; method=:face)`) to control the count.
+
+Results from USC Discovery (Julia 1.13.2, 14,400 fits, no failures) are in
+[`benchmark/regression/results`](https://github.com/mlakolar/FunctionalDataAnalysis.jl/tree/master/benchmark/regression/results).
+Median relative errors of `β̂`:
+
+| Covariates | `β` | n | FPC default | FPC with BIC | Penalized |
+|:--|:--|---:|---:|---:|---:|
+| Dense | leading | 100 | 6.0–11.6 | 51–106 | 0.49–0.54 |
+| Dense | leading | 500 | 4.3–8.5 | 0.06–0.08 | 0.15–0.49 |
+| Dense | smooth | 100 | 5.1–10.5 | 44–89 | 0.34–0.71 |
+| Dense | smooth | 500 | 3.8–7.6 | 0.20–0.44 | 0.21–0.32 |
+| Dense | trailing | 500 | 0.68–1.25 | 0.13–0.15 | 1.0 |
+| Sparse | leading | 100–500 | 0.27–0.95 | 0.15–0.44 | 0.55–0.65 |
+| Sparse | smooth | 100–500 | 0.42–0.92 | 0.46–0.61 | 0.45–0.84 |
+| Sparse | trailing | 100–500 | 1.0 | 1.0 | 1.0 |
+
+Ranges span the two noise levels. On noisy dense curves with the defaults,
+penalized regression is the safe choice: the default FPC fit keeps 40–63
+noise-dominated components. BIC selection fixes that at n=500, where it is the
+most accurate. At n=100, though, BIC chooses around 70 components out of
+fewer than 100 and fails badly. Penalized regression shrinks a coefficient
+equal to a high-frequency eigenfunction to zero (error 1), and no method
+recovers it from sparse curves. Prediction error differs much less than
+coefficient error. Pointwise coverage of the 95% bands is close to nominal
+only for the default FPC fit, whose bands are very wide. Coverage is 27–95%
+for BIC-selected FPC and for penalized fits on smooth or leading
+coefficients, and under 8% where the penalty shrinks a trailing
+coefficient, because the bands do not include smoothing bias.
 
 ### refund and mgcv source audit
 

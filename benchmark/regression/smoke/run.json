@@ -1,0 +1,70 @@
+{
+  "run_id": "20261026-regression-local-smoke",
+  "purpose": "Validate the three-route regression study harness on two tiny cells; no study evidence or method recommendation.",
+  "kind": "development",
+  "status": "validated_local_smoke",
+  "created_utc": "2026-10-26T01:20:15.642163+00:00",
+  "source": {
+    "base_revision": "2d0342c03d8bdcc6e0dcd02bc22e9effa19fa3f1",
+    "changes": "The accompanying task diff supplies the harness and docs note. The loop controller assigns the final source commit.",
+    "sha256": {
+      "benchmark/regression/common.jl": "e5b81b94beb547cfb05f1acff4b93dd3f31c40488e45d56af1cca6cab1f8c14f",
+      "benchmark/regression/run.jl": "629898bbfaa134b56b895138e7bdaae2e4b2e7de6f7e43440afb8163bf4ae109",
+      "benchmark/regression/check.jl": "b66a11fa8929015e5f86d7d51650505087fe1f5e592243cf6233eaadee53871d",
+      "benchmark/regression/configs.py": "fe3829c9de9c730cf87ad7dcc1bc4e6e44196bddee0c5ffa7b88499bfcd1514d",
+      "benchmark/regression/configurations.csv": "e9fe7d2acb4db15593b7e9bb5ee0dce7696a49fb8a178c879610b5868127f84a",
+      "benchmark/regression/summarize.py": "9a307a5500eef4899cfcd226562e323f87582b96e37d9e70894226236fd90659",
+      "benchmark/regression/work_units.py": "86dec3ae6f222d4f712eb22db9a70d4d190b7f2f649cb15627cbffaccd6d9bcd",
+      "benchmark/regression/worker.sh": "d7741d2ec91cccf6e5c7fe177cdd62e7aec28ba7e01939141f199fe6cfa7c65e",
+      "benchmark/regression/discovery.sbatch": "df83fc02356e44c2cb4515d006e9ad3b362f26a476d43efba2cde20a1c20f189",
+      "benchmark/regression/test_harness.py": "4f47695b81c50bc857442d5602da9cff681d5c57edbce6b62bd1793a0595d193",
+      "benchmark/regression/README.md": "c9d7d7c6135e8804dfc43fae627eb40a787cd4642d5a7d03371bb38071fe1a7d",
+      "docs/src/regression.md": "e85df4c7e85f813eae2109a2d10884a7593fca26fa42e3ad668d2bbab41ddf7c"
+    }
+  },
+  "environment": {
+    "julia": "1.13.2",
+    "platform": "arm64-apple-darwin27.0.0",
+    "FunctionalDataAnalysis": "0.1.0",
+    "KernelSmoothing": "0.1.0",
+    "KernelSmoothing_source": "https://github.com/mlakolar/KernelSmoothing.jl",
+    "KernelSmoothing_ref": "master",
+    "KernelSmoothing_commit": "357e26152026a3e1fb427acd221f5981c968722e",
+    "julia_threads": 1,
+    "blas_threads": 1
+  },
+  "configuration": "benchmark/regression/smoke/configurations.csv",
+  "recreation": {
+    "working_directory": "repository root",
+    "command": [
+      "julia --project=. benchmark/regression/check.jl",
+      "(cd benchmark/regression && python3 -B -m unittest test_harness)",
+      "python3 -B benchmark/regression/configs.py /tmp/regression-smoke.csv --smoke",
+      "julia --project=. benchmark/regression/run.jl /tmp/regression-smoke.csv 1 /tmp/regression-smoke/cell-001.csv",
+      "julia --project=. benchmark/regression/run.jl /tmp/regression-smoke.csv 2 /tmp/regression-smoke/cell-002.csv",
+      "python3 -B benchmark/regression/summarize.py /tmp/regression-smoke.csv /tmp/regression-smoke /tmp/regression-smoke-summary"
+    ]
+  },
+  "outputs": [
+    "cell-001.csv",
+    "cell-001.replicates.csv",
+    "cell-001.failures.csv",
+    "cell-002.csv",
+    "cell-002.replicates.csv",
+    "cell-002.failures.csv",
+    "summary.csv",
+    "summary.md"
+  ],
+  "validation": {
+    "harness_checks": "check.jl: 121 passed; no regression fits",
+    "python_checks": "test_harness.py: 12 passed (work lists, committed grid, launcher syntax, 8 summary scenarios: baseline, missing row, duplicate row, wrong seed, mismatched paired grid, wrong aggregate, missing failure diagnostic, missing cell)",
+    "smoke": "2 cells, 2 replicates per cell, three routes; 12 successes, 0 failures",
+    "summary": "6 route rows; aggregates, seeds, paired grids, versions and complete coverage validated",
+    "configuration_grid": "Generated CSV exactly recreated; 24 cells and 14400 production fits",
+    "full_package_suite": "Not run; controller responsibility",
+    "docs_build": "Not run; controller responsibility",
+    "Discovery": "Not submitted; full study runs on Discovery"
+  },
+  "jobs": [],
+  "retention": "Keep these small smoke outputs and recreation recipe."
+}

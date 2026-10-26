@@ -62,12 +62,12 @@ a penalty, prediction uses that selected penalty for new curves.
 
 ## Choosing a route
 
-The [scaling benchmark](https://github.com/mlakolar/FunctionalDataAnalysis.jl/tree/main/benchmark/scaling)
+The [scaling benchmark](https://github.com/mlakolar/FunctionalDataAnalysis.jl/tree/master/benchmark/scaling)
 compares dense FPCA with dense FACE on long grids, and PACE with sparse FACE
 on sparsely observed curves: three Fourier components, two noise levels and
 200 replicates per cell, one CPU per fit on USC Discovery (AMD EPYC 7513,
 Julia 1.13.2). Results are in
-[`benchmark/scaling/results`](https://github.com/mlakolar/FunctionalDataAnalysis.jl/tree/main/benchmark/scaling/results).
+[`benchmark/scaling/results`](https://github.com/mlakolar/FunctionalDataAnalysis.jl/tree/master/benchmark/scaling/results).
 Mean time per fit:
 
 | n | m | Dense FPCA | Dense FACE |
