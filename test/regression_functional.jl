@@ -180,6 +180,45 @@ end
         @test band_data(interval).target == :coefficient
         conditional = only(coefficient_bands(noisy))
         @test conditional.settings.distribution == :student_t
+
+        # Basis covariates resample their coefficient rows; the noise-free
+        # response again collapses every replicate onto the estimate.
+        basisfit = StatsAPI.fit(FPCRegression, to_basis(x, MonomialBasis((0.0, 1.0), 2)), response)
+        basisband = only(coefficient_bands(basisfit; method=:bootstrap, B=3, rng=Random.Xoshiro(3)))
+        @test basisband.lower ≈ basisband.estimate atol=1e-10
+        @test basisband.upper ≈ basisband.estimate atol=1e-10
+        # Sparse covariates: only subject 1 is observed at t = 0, so resamples
+        # without it lose part of the observed range and are redrawn (FLMCI).
+        sparse = to_irregular(x)
+        sparse = IrregularFunctionalData([i == 1 ? sparse[i][1] : sparse[i][1][2:end] for i in 1:16],
+            [i == 1 ? sparse[i][2] : sparse[i][2][2:end] for i in 1:16])
+        # Replay the draws to pick a seed (independent of the Julia version's
+        # stream) whose two accepted resamples follow at least one rejection.
+        function rejections(seed)
+            replay, accepted, rejected = Random.Xoshiro(seed), 0, 0
+            while accepted < 2
+                1 in rand(replay, 1:16, 16) ? (accepted += 1) : (rejected += 1)
+            end
+            rejected
+        end
+        seed = findfirst(s -> rejections(s) > 0, 1:100)
+        @test seed !== nothing
+        sparsefit = StatsAPI.fit(FPCRegression, sparse, response .+ e; ncomponents=1)
+        sparseband = only(coefficient_bands(sparsefit; method=:bootstrap, B=2, rng=Random.Xoshiro(seed)))
+        @test all(isfinite, sparseband.se) && all(sparseband.lower .<= sparseband.upper)
+        @test sparseband.settings.range_check == :all_functional_variables
+        # A replicate whose refit fails is reported with its number, not dropped:
+        # resamples without subject 1 have a constant response.
+        spike = [1.0; zeros(15)]
+        spiked = StatsAPI.fit(FPCRegression, x, spike; fpca_options=(; method=:dense))
+        failure = try
+            coefficient_bands(spiked; method=:bootstrap, B=50, rng=Random.Xoshiro(1))
+            nothing
+        catch err
+            err
+        end
+        @test failure isa ArgumentError
+        @test occursin("regression bootstrap replicate", failure.msg)
     end
 
     @testset "Functional response validation" begin
@@ -331,6 +370,23 @@ end
         @test StatsAPI.predict(f, to_irregular(x1); scalar_covariates=z,
             evaluator=NoInterpolation()).values ≈ StatsAPI.fitted(f).values
         @test_throws ArgumentError StatsAPI.predict(f, x1; scalar_covariates=z, evaluator=:linear)
+        # Basis covariates are evaluated on the fitted grid without an evaluator.
+        basisx = BasisFunctionalData(randn(Random.Xoshiro(2), 20, 3), FourierBasis((0, 1), 3))
+        @test StatsAPI.predict(f, basisx; scalar_covariates=z).values ≈
+            transpose(f.intercept) .+ evaluate(basisx, cgrid) .* transpose(f.coefficients[1, :]) .+
+            z .* transpose(f.coefficients[2, :])
+        # Resamples without subject 1 have a constant scalar covariate, so the
+        # replicate's covariance is singular and the failure names the replicate.
+        spiked = StatsAPI.fit(ConcurrentRegression, x1, y; scalar_covariates=[1.0; zeros(19)],
+            mean_bandwidth=0.15, covariance_bandwidth=0.2)
+        failure = try
+            coefficient_bands(spiked; B=50, rng=Random.Xoshiro(1))
+            nothing
+        catch err
+            err
+        end
+        @test failure isa ArgumentError
+        @test occursin("concurrent bootstrap replicate", failure.msg)
     end
 end
 
@@ -451,6 +507,9 @@ end
         @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, z, y;
             residual_covariance=-Matrix(1.0I, 5, 5))
         @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, z, y; residual_covariance=:sample)
+        # No default penalty order exists for other bases.
+        fpcy = BasisFunctionalData(Y[:, 1:2], FPCBasis(collect(range(0.0, 2.0; length=5)), randn(rng, 5, 2)))
+        @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, z, fpcy)
         @test_throws DimensionMismatch StatsAPI.predict(f, z[:, 1])
         @test_throws ArgumentError StatsAPI.predict(f, nothing)
         @test_throws ArgumentError StatsAPI.predict(f, z; interval=:band)

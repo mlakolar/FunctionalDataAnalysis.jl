@@ -71,6 +71,9 @@ end
         reversefit = StatsAPI.fit(SmoothedCrossCovariance, y, x, m2, m1;
             grid1=g2, grid2=g1, bandwidth=(.8,.55), kernel, exclude_same_time)
         @test reversefit.surface ≈ transpose(c.surface) rtol=1e-12
+        transposed = FunctionalDataAnalysis._cross_transpose(c)
+        @test transposed.bandwidth == reversefit.bandwidth
+        @test transposed.surface == transpose(c.surface)
         for field in ("grid1", "grid2", "bandwidth", "kernel", "weighting", "exclude_same_time",
                 "binning", "degree", "design", "folds", "selection", "mean1", "mean2")
             @test occursin(field * "=", sprint(show, c))
