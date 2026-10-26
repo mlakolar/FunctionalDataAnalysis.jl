@@ -400,7 +400,7 @@ end
     function fos_checks(f, golden; native=true)
         mat(q) = _m7b_matrix(golden, q)
         ref(q) = _m7b_vector(golden, q)
-        k = nbasis(f.basis)
+        k = nbasis(f.bases[1])
         native && @test _m7b_relative(StatsAPI.coef(f), vec(mat("native_beta_coef"))) < 1e-8
         native && @test _m7b_relative(StatsAPI.fitted(f).coefs, mat("native_fitted_coef")) < 1e-8
         @test _m7b_relative(StatsAPI.coef(f), vec(mat("beta_coef"))) < 1e-8
@@ -412,7 +412,7 @@ end
         for (j, band) in enumerate(bands)
             @test _m7b_relative(band.se, mat("beta_se")[:, j]) < 1e-8
             @test _m7b_relative(band.estimate,
-                basis_matrix(f.basis, grid) * mat("beta_coef")[:, j]) < 1e-8
+                basis_matrix(f.bases[1], grid) * mat("beta_coef")[:, j]) < 1e-8
             @test abs(band.critical_value / critical - 1) < 1e-8
         end
         znew = mat("new_covariates")[:, 2:3]
@@ -422,13 +422,13 @@ end
         @test _m7b_relative(confidence.se, transpose(mat("prediction_se"))) < 1e-8
         @test _m7b_relative(prediction.se.^2,
             transpose(mat("prediction_se")).^2 .+ transpose(ref("residual_variance"))) < 1e-8
-        @test StatsAPI.predict(f, znew).coefs * transpose(basis_matrix(f.basis, grid)) ≈ confidence.estimate
+        @test StatsAPI.predict(f, znew).coefs * transpose(basis_matrix(f.bases[1], grid)) ≈ confidence.estimate
     end
 
     @testset "Polynomial B-spline: fRegress itself is exact" begin
         basis = BSplineBasis(5, (0.0, 1.0), 5)
         golden, y, z = fos_inputs("fos_polynomial", basis)
-        f = @inferred StatsAPI.fit(FunctionOnScalarRegression, z, y)
+        f = @inferred StatsAPI.fit(FunctionOnScalarRegression, z, y; lambda=0)
         fos_checks(f, golden)
         @test f.penalty_order == fill(3, 3)
         @test f.lambda == zeros(3)
@@ -447,7 +447,7 @@ end
         @test _m7b_relative(StatsAPI.coef(penalized),
             vec(_m7b_matrix(penalized_golden, "native_beta_coef"))) > 0.1
         # A supplied coefficient covariance uses normal critical values.
-        supplied = StatsAPI.fit(FunctionOnScalarRegression, z, y;
+        supplied = StatsAPI.fit(FunctionOnScalarRegression, z, y; lambda=0,
             residual_covariance=_m7b_matrix(golden, "residual_covariance"))
         @test StatsAPI.vcov(supplied) ≈ StatsAPI.vcov(f)
         @test coefficient_bands(supplied)[1].critical_value ≈ 1.959963984540054 rtol=1e-12
@@ -466,7 +466,7 @@ end
         f = StatsAPI.fit(FunctionOnScalarRegression, z, y; lambda=1e-2, penalty_order=1)
         fos_checks(f, golden; native=false)
         @test f.settings.penalty_source == :supplied
-        @test StatsAPI.fit(FunctionOnScalarRegression, z, y).penalty_order == fill(2, 3)
+        @test StatsAPI.fit(FunctionOnScalarRegression, z, y; lambda=0).penalty_order == fill(2, 3)
     end
 
     @testset "Analytic least squares and validation" begin
@@ -475,40 +475,41 @@ end
         z = randn(rng, 12, 2)
         Y = randn(rng, 12, 5)
         y = BasisFunctionalData(Y, basis)
-        f = StatsAPI.fit(FunctionOnScalarRegression, z, y)
+        f = StatsAPI.fit(FunctionOnScalarRegression, z, y; lambda=0)
         X = hcat(ones(12), z)
         # An orthonormal basis separates the coefficients: ordinary least squares.
         @test reshape(StatsAPI.coef(f), 5, 3) ≈ transpose(X \ Y)
         @test f.penalty_order == fill(:harmonic_acceleration, 3)
         @test StatsAPI.fit(FunctionOnScalarRegression, z, BasisFunctionalData(Y[:, 1:3],
-            MonomialBasis((0.0, 1.0), 2))).penalty_order == zeros(Int, 3)
-        meanonly = StatsAPI.fit(FunctionOnScalarRegression, nothing, y)
+            MonomialBasis((0.0, 1.0), 2)); lambda=0).penalty_order == zeros(Int, 3)
+        meanonly = StatsAPI.fit(FunctionOnScalarRegression, nothing, y; lambda=0)
         @test vec(StatsAPI.coef(meanonly)) ≈ vec(sum(Y; dims=1) / 12)
         @test StatsAPI.predict(meanonly, zeros(2, 0)).coefs ≈ repeat(sum(Y; dims=1) / 12, 2)
-        noint = StatsAPI.fit(FunctionOnScalarRegression, z, y; intercept=false)
+        noint = StatsAPI.fit(FunctionOnScalarRegression, z, y; intercept=false, lambda=0)
         @test reshape(StatsAPI.coef(noint), 5, 2) ≈ transpose(z \ Y)
         grid = to_grid(y, collect(range(0.0, 2.0; length=9)))
-        @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, z, grid)
+        @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, z, grid; lambda=0, method=:fRegress)
         @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, nothing, y; intercept=false)
         @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, z, y; intercept=1)
         @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, z, y; lambda=-1)
         @test_throws DimensionMismatch StatsAPI.fit(FunctionOnScalarRegression, z, y; lambda=[1, 2])
-        @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, z, y; penalty_order=-1)
+        @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, z, y; lambda=0, penalty_order=-1)
         @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, z,
-            BasisFunctionalData(Y, BSplineBasis(4, (0.0, 2.0), 5)); penalty_order=:harmonic_acceleration)
-        @test_throws DimensionMismatch StatsAPI.fit(FunctionOnScalarRegression, z[1:11, :], y)
-        @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, hcat(z, z), y)
-        @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, fill(NaN, 12), y)
-        @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, z[1:3, :], y[1:3])
-        @test_throws DimensionMismatch StatsAPI.fit(FunctionOnScalarRegression, z, y;
+            BasisFunctionalData(Y, BSplineBasis(4, (0.0, 2.0), 5)); lambda=0, penalty_order=:harmonic_acceleration)
+        @test_throws DimensionMismatch StatsAPI.fit(FunctionOnScalarRegression, z[1:11, :], y; lambda=0)
+        @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, hcat(z, z), y; lambda=0)
+        @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, fill(NaN, 12), y; lambda=0)
+        @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, z[1:3, :], y[1:3]; lambda=0)
+        @test_throws DimensionMismatch StatsAPI.fit(FunctionOnScalarRegression, z, y; lambda=0,
             residual_covariance=Matrix(1.0I, 4, 4))
-        @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, z, y;
+        @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, z, y; lambda=0,
             residual_covariance=triu(ones(5, 5)))
-        @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, z, y;
+        @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, z, y; lambda=0,
             residual_covariance=-Matrix(1.0I, 5, 5))
-        @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, z, y; residual_covariance=:sample)
+        @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, z, y; lambda=0, residual_covariance=:sample)
         # No default penalty order exists for other bases.
         fpcy = BasisFunctionalData(Y[:, 1:2], FPCBasis(collect(range(0.0, 2.0; length=5)), randn(rng, 5, 2)))
+        @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, z, fpcy; lambda=0)
         @test_throws ArgumentError StatsAPI.fit(FunctionOnScalarRegression, z, fpcy)
         @test_throws DimensionMismatch StatsAPI.predict(f, z[:, 1])
         @test_throws ArgumentError StatsAPI.predict(f, nothing)

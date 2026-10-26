@@ -116,5 +116,10 @@
   regression spline basis and smoothing-parameter-corrected bands.
   A simulation harness in `benchmark/regression/` compares FPC and
   penalized scalar-on-function regression and their band coverage.
+  Penalized function-on-scalar regression on it (refund `pffr` and `fosr`)
+  selects one smoothing parameter per coefficient by REML, accepts factors,
+  and offers cluster-robust, posterior and pooled-residual covariances. The
+  mgcv P-spline basis `PSplineBasis` reproduces `pffr`'s default bases.
+  Penalized function-on-function regression follows.
 - Milestone 8: depth, outliers, and clustering.
 - Milestone 9: registration.
