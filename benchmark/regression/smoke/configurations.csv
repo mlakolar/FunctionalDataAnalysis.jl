@@ -1,0 +1,3 @@
+id,design,beta,n,r2,n_test,replicates,seed
+1,dense,leading,40,0.8,20,2,20262026
+2,sparse,smooth,40,0.5,20,2,20263026

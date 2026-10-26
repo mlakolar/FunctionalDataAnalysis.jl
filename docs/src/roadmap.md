@@ -114,5 +114,7 @@
   Penalized scalar-on-function regression (`PenalizedFunctionalRegression`,
   refund `pfr` with `lf()` terms) uses that solver with mgcv's thin plate
   regression spline basis and smoothing-parameter-corrected bands.
+  A simulation harness in `benchmark/regression/` compares FPC and
+  penalized scalar-on-function regression and their band coverage.
 - Milestone 8: depth, outliers, and clustering.
 - Milestone 9: registration.
