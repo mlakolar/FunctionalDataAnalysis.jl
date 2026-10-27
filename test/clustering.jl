@@ -123,6 +123,10 @@ end
     @test_throws ArgumentError StatsAPI.fit(FunctionalKMeans, fd; k=3, init=[1, 2, 40])
     @test_throws ArgumentError StatsAPI.fit(FunctionalKMeans, fd; k=3, init=seeds, nstart=2)
     @test_throws ArgumentError StatsAPI.fit(FunctionalKMeans, fd; k=3, init=:hartigan)
+    for bad in (3, "kmpp", [1.0, 2.0, 3.0], nothing)
+        @test_throws ArgumentError StatsAPI.fit(FunctionalKMeans, fd; k=3, init=bad)
+        @test_throws ArgumentError StatsAPI.fit(FunctionalKMeans, f; k=3, init=bad)
+    end
     @test_throws ArgumentError StatsAPI.fit(FunctionalKMeans, fd; k=3, nstart=0)
     @test_throws ArgumentError StatsAPI.fit(FunctionalKMeans, fd; k=3, maxiter=0)
     @test_throws ArgumentError StatsAPI.fit(FunctionalKMeans, fd; k=3, tol=0)
