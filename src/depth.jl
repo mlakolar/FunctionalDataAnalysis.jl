@@ -493,6 +493,17 @@ end
 
 # Tukey depth min(F(v), 1 - F(v-)) of the columns of xp among those of yp,
 # averaged over columns.
+# Row-by-row inner products: a curve's projection must be bitwise identical
+# whether it sits in the target or the reference matrix, or its self-comparison
+# breaks ties differently with BLAS blocking (seen on x86 CI).
+function _row_projections(x::AbstractMatrix, projector::AbstractMatrix)
+    out = Matrix{promote_type(eltype(x), eltype(projector))}(undef, size(x, 1), size(projector, 2))
+    for j in axes(projector, 2), i in axes(x, 1)
+        out[i, j] = dot(view(x, i, :), view(projector, :, j))
+    end
+    out
+end
+
 function _projection_tukey(xp::Matrix{T}, yp::Matrix{T}) where {T}
     n0 = size(yp, 1)
     w = fill(one(T) / size(xp, 2), size(xp, 2))
@@ -569,7 +580,7 @@ function _depth_values(method::RandomProjectionDepth, c, self)
     z = _depth_projections(method, c.grid)
     scale = method.scale === nothing ? false : method.scale
     projector = quadrature_weights(c.grid) .* transpose(z)
-    values = _projection_tukey(c.target * projector, c.reference * projector)
+    values = _projection_tukey(_row_projections(c.target, projector), _row_projections(c.reference, projector))
     scale && (values .*= 2)
     (values, (; nproj=size(z, 1), projections=z, generated=method.projections === nothing,
         scale, univariate=:tukey, inner_product=:trapezoidal))
@@ -629,7 +640,7 @@ function _depth_values(method::RandomProjectionDepth, components::Vector, self, 
     z = _depth_projections(method, grid)
     scale = method.scale === nothing ? true : method.scale
     projector = quadrature_weights(grid) .* transpose(z)
-    values = sum(_projection_tukey(c.target * projector, c.reference * projector) for c in components) ./
+    values = sum(_projection_tukey(_row_projections(c.target, projector), _row_projections(c.reference, projector)) for c in components) ./
         length(components)
     scale && (values .*= 2)
     (values, (; nproj=size(z, 1), projections=z, generated=method.projections === nothing,
