@@ -56,13 +56,39 @@ fdapace's score-scale R², `1 - sum(RSS_k)/sum(TSS_k)`. The response FPCA
 follows the covariate rules: `response_fpca` supplies a fit (copied; its
 stored scores are reused only for its own training data),
 `response_fpca_options` tunes a fresh one (fdapace's `optnsListY=list()`
-default is the FPCA defaults, including FVE(0.99)), and `response_ncomponents`
+default is the FPCA defaults, including FVE(0.99); the package's FACE default
+on complete grids is described below), and `response_ncomponents`
 fixes or truncates its count. Regression selection (`AIC`, `BIC`, `:loocv`)
 is not defined for functional responses and throws; fdapace FLM uses only
 FPCA selection.
 
 By default each covariate is fitted with its own `fit(FPCA, x_j)` defaults,
-including FVE(0.99), following fdapace 0.6.0 `FLM`. `fpca` can supply a fitted
+including FVE(0.99), following fdapace 0.6.0 `FLM`, with one departure: a
+complete common-grid covariate (`GridFunctionalData` without missing values)
+uses `method=:face` instead of the unsmoothed dense route. In the package's
+regression study, the dense route on noisy dense curves kept 40–63
+noise-dominated components under FVE(0.99), giving median relative β errors
+of 3.8–11.6 for leading and smooth coefficients (penalized regression:
+0.15–0.71). Masked grid and irregular
+covariates keep PACE and basis covariates keep the basis route. FACE's default
+35 equal knot intervals need more than `35 + p` grid points (`p=3` by
+default); on a shorter complete grid the default uses
+`knots = length(grid) - p - 1`, so every complete grid is smoothed, and grids
+of fewer than `p + 2` points throw. Naming any `method` in `fpca_options`
+overrides the default, and `face=(; knots=...)` overrides the short-grid knots;
+`fpca_options=(; method=:dense)` restores fdapace's dense route. Dense- or
+PACE-only options without a `method` throw instead of silently changing route.
+`settings.fpca_method` records each covariate's FPCA route,
+`settings.fpca_knots` a vector of FACE knot intervals (`nothing` for other
+routes) and
+`settings.fpca_method_source` the reason: `:regression_default` (FACE),
+`:short_grid_knots` (FACE with the reduced knots), `:fpca_default`,
+`:fpca_options` or `:supplied`.
+The same rule applies to the covariates of a functional response and to a
+freshly fitted response FPCA, for the same reason (noise components), recorded
+as `settings.response_fpca_method`, `response_fpca_knots` (a one-entry
+vector, so the settings type does not depend on the route) and
+`response_fpca_method_source`. `fpca` can supply a fitted
 FPCA or a tuple/vector with one fit (or `nothing`) per covariate.
 `fpca_options` is a named tuple shared by newly fitted covariates, or a
 corresponding tuple/vector of named tuples. Options for supplied fits throw.
@@ -73,17 +99,23 @@ stored training scores are used only when the covariate equals their copied
 training data; otherwise existing FPCA prediction scores are used.
 
 `selection=AIC()` or `BIC()` minimizes the Gaussian regression criterion over
-all positive leading-component counts, conditional on the fitted FPC bases.
+leading-component counts from 1 up to the count each covariate's FPCA selects
+with its own selector (FVE(0.99) by default, or `fpca_options.ncomponents`;
+for a supplied fit, its retained count), conditional on the fitted FPC bases.
+This cap is stored as `selection.cap` and shown. It departs from searching
+every retained component: in the regression study, searching up to `n-2`
+components let BIC choose about 70 components at `n=100`, with median
+relative β errors of 44.5–106 for leading and smooth coefficients.
 `selection=:loocv` minimizes held-out squared response error, refitting FPCA
 in every fold, as fda.usc 2.2.0 `fregre.pc.cv` does. It omits that source's
 extra residual scaling by `n-ck` to target ordinary prediction MSE.
 Its cost is `n` FPCA fits per covariate for every candidate count tuple, so it
-grows with `n` times the product of the counts searched; cap them with `max_k`.
+grows with `n` times the product of the counts searched (the caps above).
 Fold fits are not reused across counts because sparse (PACE) scores depend on
 the number of retained components. Supplied fits are unsupported
 for this selector: an external fitting procedure cannot be refitted faithfully.
-Regression selection cannot be combined with `ncomponents` or an FPCA option
-named `ncomponents`; use `max_k` in `fpca_options` to cap fresh fits. All candidates,
+Regression selection cannot be combined with the `ncomponents` keyword; set
+the cap through `fpca_options.ncomponents` or `max_k`. All candidates,
 criteria and failures are stored. Ties choose the first lexicographic count.
 Nonestimable candidates have infinite criterion and a recorded reason.
 
@@ -172,21 +204,67 @@ function _regression_fit_scores(c::AbstractFunctionalData{S}, f::FPCA{T})::Matri
     Matrix{promote_type(S,T)}(projected)
 end
 
-Base.@constprop :aggressive function _regression_fpca(x, supplied, options, rule, search;
-        name="fpca")
+# FPCA options after the regression's route default: complete common-grid
+# data use FACE unless the options name a method. This departs from fdapace
+# FLM (dense route); see the FPCRegression docstring. FACE's default 35 equal
+# intervals need more than 35 + p grid points; shorter grids use
+# knots = length(grid) - p - 1 (recorded as :short_grid_knots) unless the
+# options set face.knots.
+const _REGRESSION_FACE_KNOTS = 35
+function _regression_fpca_options(x, options, supplied; name="fpca")
+    options isa NamedTuple || throw(ArgumentError("$(name)_options entries must be named tuples"))
+    supplied === nothing || return options, :supplied
+    haskey(options, :method) && return options, :fpca_options
+    x isa GridFunctionalData && x.observed === nothing || return options, :fpca_default
+    incompatible = [k for k in (:grid,:presmooth,:covariance,:noise_variance,:mean_bandwidth,
+        :covariance_bandwidth,:diagonal_bandwidth,:kernel,:weighting,:binning) if haskey(options,k)]
+    isempty(incompatible) || throw(ArgumentError(
+        "FPCRegression fits complete grid data with method=:face by default, which does not " *
+        "accept $(name)_options $(join(incompatible, ", ")); name the route explicitly, for example " *
+        "$(name)_options=(; method=:dense, ...) or (; method=:pace, ...)"))
+    face = get(options, :face, (;))
+    # Invalid FACE settings are left to fit(FPCA) to report.
+    face isa NamedTuple || return merge((;method=:face), options), :regression_default
+    p = get(face, :p, 3)
+    J = length(x.grid)
+    if !haskey(face, :knots) && _integer_in(p, 0) && J <= _REGRESSION_FACE_KNOTS + p
+        J >= p + 2 || throw(ArgumentError(
+            "FPCRegression's default FACE fit needs at least p + 2 = $(p + 2) grid points, got $J; " *
+            "name the route explicitly, for example $(name)_options=(; method=:dense)"))
+        knots = Int(J - p - 1)
+        return merge((;method=:face), options, (;face=merge(face, (;knots)))), :short_grid_knots
+    end
+    merge((;method=:face), options), :regression_default
+end
+
+# FACE knot intervals of each fitted FPCA, or nothing for other routes. A
+# concrete vector keeps the settings type independent of the runtime route.
+_regression_face_knots(models) = Union{Nothing,Int}[
+    f.method === :face ? Int(f.settings.knots)::Int : nothing for f in models]
+
+Base.@constprop :aggressive function _regression_fpca(x, supplied, options, rule;
+        name="fpca", source=:fpca_options)
     options isa NamedTuple || throw(ArgumentError("$(name)_options entries must be named tuples"))
     for key in (:ncomponents,:max_k,:maxK)
         haskey(options,key) && options[key] isa Bool && throw(ArgumentError(
             "$(name)_options.$key cannot be Boolean"))
     end
     if supplied === nothing
-        search && haskey(options, :ncomponents) && throw(ArgumentError(
-            "regression selection uses all candidate components; cap them with fpca_options.max_k"))
+        # Under regression selection the FPCA keeps its own selector, whose
+        # count caps the searched leading counts.
         rule !== nothing && haskey(options, :ncomponents) && throw(ArgumentError(
             "ncomponents is specified both directly and in $(name)_options"))
-        effective = search ? merge(options, (;ncomponents=FVE(1))) :
-            rule === nothing ? options : merge(options, (;ncomponents=rule))
-        return fit(FPCA, x; effective...)
+        effective = rule === nothing ? options : merge(options, (;ncomponents=rule))
+        source in (:regression_default, :short_grid_knots) || return fit(FPCA, x; effective...)
+        # The user did not choose FACE, so name the default and its overrides.
+        try
+            return fit(FPCA, x; effective...)
+        catch err
+            err isa ArgumentError || rethrow()
+            throw(ArgumentError("FPCRegression's default FACE fit for complete grid data failed " *
+                "($(err.msg)); choose another route or knots, for example $(name)_options=(; method=:dense) " *
+                "or (; face=(; knots=...))"))
+        end
     end
     supplied isa FPCA || throw(ArgumentError("$name entries must be FPCA fits or nothing"))
     isempty(options) || throw(ArgumentError("$(name)_options cannot tune an already supplied FPCA"))
@@ -354,10 +432,13 @@ Base.@constprop :aggressive function fit(::Type{FPCRegression}, x, y::AbstractVe
     all(isfinite, y) || throw(ArgumentError("response must be finite"))
     search = selection !== :fpca
     search && any(!isnothing, rules) && throw(ArgumentError(
-        "ncomponents cannot be combined with regression selection; cap fresh FPCA fits using max_k"))
+        "ncomponents cannot be combined with regression selection; the searched counts are capped by each FPCA's own selection (set it via fpca_options.ncomponents or max_k)"))
     selection === :loocv && any(!isnothing, supplied) && throw(ArgumentError(
         "selection=:loocv requires fresh FPCA fits so each fitting procedure can be refitted in every fold"))
-    models = map((c,f,o,r) -> _regression_fpca(c,f,o,r,search), curves,supplied,options,rules)
+    models = map(curves,supplied,options,rules) do c,f,o,r
+        effective, source = _regression_fpca_options(c,o,f)
+        _regression_fpca(c,f,effective,r; source)
+    end
     projected = map(_regression_fit_scores,curves,models)
     scalar_covariates === nothing || scalar_covariates isa _RegressionScalars ||
         throw(ArgumentError("scalar_covariates must be a finite real vector or matrix"))
@@ -378,10 +459,13 @@ function _fit_regression_scores(curves,response::Vector{T},scalar_covariates,mod
     total = sum(abs2,response .- sum(response)/n)
     isfinite(total) && total > 0 || throw(ArgumentError("response must have finite positive variation for R squared"))
     z = _regression_scalars(scalar_covariates,n,T)
-    initial = [supplied[j] === nothing ? FunctionalDataAnalysis.ncomponents(models[j]) :
+    initial = Int[supplied[j] === nothing ? FunctionalDataAnalysis.ncomponents(models[j]) :
         _regression_count(rules[j],models[j]) for j in 1:p]
+    # Folds refit FPCA with the same route the full-data fit used.
+    fold_options = map((c,o,f) -> first(_regression_fpca_options(c,o,f)),curves,options,supplied)
     candidates = Vector{Int}[]
     if search
+        # Search leading counts up to each FPCA's own selected count (the cap).
         for c in Iterators.product((1:k for k in initial)...)
             push!(candidates,Int[c...])
         end
@@ -396,7 +480,7 @@ function _fit_regression_scores(curves,response::Vector{T},scalar_covariates,mod
         try
             design = _regression_design(z,projected,counts,T)
             candidate = _regression_estimate(design,response,fam)
-            values[i] = selection === :loocv ? _regression_cv(curves,response,z,options,Tuple(counts)) :
+            values[i] = selection === :loocv ? _regression_cv(curves,response,z,fold_options,Tuple(counts)) :
                 selection isa AIC ? _regression_information(candidate,response,fam,size(design,2),T(2)) :
                 selection isa BIC ? _regression_information(candidate,response,fam,size(design,2),log(T(n))) : zero(T)
             (isnan(values[i]) || values[i] == Inf) && throw(ArgumentError(
@@ -423,12 +507,14 @@ function _fit_regression_scores(curves,response::Vector{T},scalar_covariates,mod
     end
     criterion = selection === :fpca ? :fpca : selection isa AIC ? :AIC : selection isa BIC ? :BIC : :loocv
     tuning = (; rule=criterion, candidates=deepcopy(candidates), values=copy(values),
-        failures=copy(reasons), chosen, refit_fpca=selection === :loocv,
+        failures=copy(reasons), chosen, cap=copy(initial), refit_fpca=selection === :loocv,
         tie_rule=:lexicographic_first)
     least_squares = _glm_identity(fam)
     settings = (; fpca_source=map(f -> f === nothing ? :fitted : :supplied,supplied),
-        fpca_options=deepcopy(options), ncomponents=deepcopy(rules),
-        rank_tolerance=T(ols.tolerance), intercept=true,
+        fpca_options=deepcopy(options), fpca_method=map(f -> f.method,models),
+        fpca_method_source=map((c,o,f) -> last(_regression_fpca_options(c,o,f)),curves,options,supplied),
+        fpca_knots=_regression_face_knots(models),
+        ncomponents=deepcopy(rules), rank_tolerance=T(ols.tolerance), intercept=true,
         covariance=least_squares ? :conditional_OLS : :conditional_fisher_information,
         residual_variance=least_squares ? :RSS_over_residual_dof :
             _glm_scale_known(fam) ? :known_one : :pearson_over_residual_dof,
@@ -463,10 +549,15 @@ Base.@constprop :aggressive function fit(::Type{FPCRegression}, x, y::_Regressio
         "functional response must have the functional covariate subject count"))
     _validate_component_ids((curves..., y))
     response_ncomponents isa Bool && throw(ArgumentError("response_ncomponents cannot be Boolean"))
-    models = map((c,f,o,r) -> _regression_fpca(c,f,o,r,false), curves,supplied,options,rules)
+    models = map(curves,supplied,options,rules) do c,f,o,r
+        effective, source = _regression_fpca_options(c,o,f)
+        _regression_fpca(c,f,effective,r; source)
+    end
     projected = map(_regression_fit_scores,curves,models)
-    response_model = _regression_fpca(y, response_fpca, response_fpca_options,
-        response_ncomponents, false; name="response_fpca")
+    response_options, response_method_source = _regression_fpca_options(y, response_fpca_options,
+        response_fpca; name="response_fpca")
+    response_model = _regression_fpca(y, response_fpca, response_options,
+        response_ncomponents; name="response_fpca", source=response_method_source)
     response_count = response_fpca === nothing ? FunctionalDataAnalysis.ncomponents(response_model) :
         _regression_count(response_ncomponents, response_model)
     response_scores = _regression_fit_scores(y, response_model)
@@ -475,10 +566,10 @@ Base.@constprop :aggressive function fit(::Type{FPCRegression}, x, y::_Regressio
     scalar_type = scalar_covariates === nothing ? eltype(response_scores) :
         Base.nonmissingtype(eltype(scalar_covariates))
     T = _floattype(promote_type(eltype(response_scores),scalar_type,map(eltype,projected)...))
-    _fit_regression_functional(Matrix{T}(response_scores[:,1:response_count]),
+    _fit_regression_functional(curves,Matrix{T}(response_scores[:,1:response_count]),
         scalar_covariates,models,projected,supplied,options,rules,response_model,
         response_fpca === nothing ? :fitted : :supplied,response_fpca_options,
-        response_ncomponents)
+        response_ncomponents,response_method_source)
 end
 fit(::Type{FPCRegression},x,y;kwargs...) = throw(ArgumentError(
     "response must be a finite real vector or univariate functional data"))
@@ -501,9 +592,9 @@ function _regression_covariate_basis(f::FPCA, k, grid, ::Type{T}) where {T}
     Matrix{T}(basis_matrix(eigenfunctions(f),g)[:,1:k])
 end
 
-function _fit_regression_functional(response::Matrix{T},scalar_covariates,models,projected,
+function _fit_regression_functional(curves,response::Matrix{T},scalar_covariates,models,projected,
         supplied,options,rules,response_model,response_source,response_options,
-        response_rule) where {T}
+        response_rule,response_method_source) where {T}
     n, p = size(response,1), length(models)
     z = _regression_scalars(scalar_covariates,n,T)
     counts = Int[supplied[j] === nothing ? FunctionalDataAnalysis.ncomponents(models[j]) :
@@ -523,10 +614,15 @@ function _fit_regression_functional(response::Matrix{T},scalar_covariates,models
             values=phi*ols.b[starts[j]+1:starts[j+1],:]*transpose(psi))
     end
     tuning = (; rule=:fpca, candidates=[copy(counts)], values=[zero(T)],
-        failures=[""], chosen=1, refit_fpca=false, tie_rule=:lexicographic_first)
+        failures=[""], chosen=1, cap=copy(counts), refit_fpca=false, tie_rule=:lexicographic_first)
     settings = (; fpca_source=map(f -> f === nothing ? :fitted : :supplied,supplied),
-        fpca_options=deepcopy(options), ncomponents=deepcopy(rules),
+        fpca_options=deepcopy(options), fpca_method=map(f -> f.method,models),
+        fpca_method_source=map((c,o,f) -> last(_regression_fpca_options(c,o,f)),curves,options,supplied),
+        fpca_knots=_regression_face_knots(models),
+        ncomponents=deepcopy(rules),
         response_fpca_source=response_source, response_fpca_options=deepcopy(response_options),
+        response_fpca_method=response_model.method, response_fpca_method_source=response_method_source,
+        response_fpca_knots=_regression_face_knots((response_model,)),
         response_ncomponents=deepcopy(response_rule), response_count=k,
         rank_tolerance=T(ols.tolerance), intercept=true,
         covariance=:conditional_multivariate_OLS,

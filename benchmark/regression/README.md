@@ -25,8 +25,8 @@ sample in each replicate, recreated from the same seed:
 
 | Route | Call |
 |:--|:--|
-| `fpc` | `fit(FPCRegression, x, y)`: package defaults, marginal FPCA with `FVE(0.99)` (fdapace `FLM`) |
-| `fpc_bic` | `fit(FPCRegression, x, y; selection=BIC())`: leading-component count chosen by the regression BIC |
+| `fpc` | `fit(FPCRegression, x, y)`: package defaults, marginal FPCA with `FVE(0.99)` (fdapace `FLM`), FACE on dense curves and PACE on sparse curves |
+| `fpc_bic` | `fit(FPCRegression, x, y; selection=BIC())`: leading-component count chosen by the regression BIC, from 1 up to the marginal FPCA's `FVE(0.99)` count |
 | `pfr` | `fit(PenalizedFunctionalRegression, x, y)` on dense curves, plus `presmooth=:fpca` on sparse curves (PACE reconstruction, refund `lf(presmooth=)`); thin plate `k=10`, REML |
 
 No extra Julia dependencies are needed, and the Python scripts use only the

@@ -68,19 +68,36 @@ end
         y = GridFunctionalData(_m7b_input("m7b_fof_dense_response"), grid)
         golden = _m7b("fof_dense")
         f = StatsAPI.fit(FPCRegression, (x1, x2), y; scalar_covariates=z,
-            ncomponents=(3, 2), fpca_options=((; max_k=3), (; max_k=2)),
-            response_ncomponents=2, response_fpca_options=(; max_k=2))
+            ncomponents=(3, 2), fpca_options=((; method=:dense, max_k=3), (; method=:dense, max_k=2)),
+            response_ncomponents=2, response_fpca_options=(; method=:dense, max_k=2))
         fof_golden_checks(f, (new1, new2), golden; scalar_covariates=znew)
         # R orders scores as intercept, functional scores, scalar; Julia as
         # intercept, scalar, functional scores.
         permutation = [1, 7, 2, 3, 4, 5, 6]
         @test _m7b_relative(StatsAPI.coef(f), _m7b_matrix(golden, "score_coefficient")[permutation, :]) < 1e-8
         @test _m7b_relative(StatsAPI.coef(f)[2, :], _m7b_vector(golden, "scalar_coefficient")) < 1e-8
+        # FPCRegression's defaults fit FACE (here with short-grid knots) for the
+        # covariates and the response; the goldens above name the dense route.
         automatic = @inferred StatsAPI.fit(FPCRegression, (x1, x2), y; scalar_covariates=z)
-        @test automatic.counts == [3, 2]
-        @test size(StatsAPI.coef(automatic)) == (7, 2)
-        @test StatsAPI.fitted(automatic).values ≈ StatsAPI.fitted(f).values
-        @test automatic.settings.response_count == 2
+        knots = length(grid) - 4
+        @test automatic.settings.fpca_method == (:face, :face)
+        @test automatic.settings.fpca_method_source == (:short_grid_knots, :short_grid_knots)
+        @test automatic.settings.fpca_knots == [knots, knots]
+        @test automatic.settings.response_fpca_method === :face
+        @test automatic.settings.response_fpca_method_source === :short_grid_knots
+        @test automatic.settings.response_fpca_knots == [knots]
+        @test automatic.settings.response_fpca_options == (;)
+        face = (; method=:face, face=(; knots))
+        @test StatsAPI.coef(automatic) == StatsAPI.coef(StatsAPI.fit(FPCRegression, (x1, x2), y;
+            scalar_covariates=z, fpca_options=face, response_fpca_options=face))
+        @test occursin("response_fpca_method_source = :short_grid_knots", sprint(show, automatic))
+        dense_response = StatsAPI.fit(FPCRegression, (x1, x2), y; scalar_covariates=z,
+            response_fpca_options=(; method=:dense))
+        @test dense_response.response_fpca.method === :dense
+        @test dense_response.settings.response_fpca_method_source === :fpca_options
+        @test dense_response.settings.response_fpca_knots == [nothing]
+        @test_throws r"does not accept response_fpca_options mean_bandwidth" StatsAPI.fit(FPCRegression,
+            (x1, x2), y; scalar_covariates=z, response_fpca_options=(; mean_bandwidth=0.1))
         @test StatsAPI.nobs(f) == 24
         @test StatsAPI.dof(f) == 14
         @test size(StatsAPI.vcov(f)) == (14, 14)
@@ -140,7 +157,8 @@ end
         # A noise-free rank-one response: every resample refits the same surface.
         eta = 1.5a .- 0.75b
         y = GridFunctionalData(2 .+ eta * transpose(slope), grid)
-        f = StatsAPI.fit(FPCRegression, x, y; fpca_options=(; method=:dense))
+        f = StatsAPI.fit(FPCRegression, x, y; fpca_options=(; method=:dense),
+            response_fpca_options=(; method=:dense))
         @test f.counts == [2]
         @test size(StatsAPI.coef(f), 2) == 1
         expected = (1.5 .- 0.75slope) * transpose(slope)

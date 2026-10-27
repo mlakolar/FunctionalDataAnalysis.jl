@@ -94,7 +94,7 @@ end
         f = @inferred StatsAPI.fit(FPCRegression, x1, response; fpca)
         @test StatsAPI.predict(f, x1) ≈ response - error atol=2e-13
         fresh = StatsAPI.fit(FPCRegression, x1, response; ncomponents=2,
-            fpca_options=(; max_k=2))
+            fpca_options=(; method=:dense, max_k=2))
         @test StatsAPI.coef(f) ≈ StatsAPI.coef(fresh)
 
         # A supplied fit can project different curves; it must not reuse training scores.
@@ -257,11 +257,19 @@ end
     response = _m7_read("dense_response")
     y,z,ysingle = eachcol(response)
     znew = vec(_m7_read("dense_heldout_scalar"))
+    # fdapace FLM uses the dense route; FPCRegression's default is FACE, so the
+    # goldens name the reference route explicitly.
     multi = StatsAPI.fit(FPCRegression,(x1,x2),y;scalar_covariates=z,
-        ncomponents=(3,2),fpca_options=((;max_k=3),(;max_k=2)))
+        ncomponents=(3,2),fpca_options=((;method=:dense,max_k=3),(;method=:dense,max_k=2)))
+    # This grid is shorter than 35 + 3 points, so the default FACE fit uses
+    # length(grid) - p - 1 knot intervals.
+    @test length(grid) <= 38
     automatic = @inferred StatsAPI.fit(FPCRegression,(x1,x2),y;scalar_covariates=z)
-    @test automatic.counts == [3,2]
-    @test StatsAPI.fitted(automatic) ≈ StatsAPI.fitted(multi)
+    @test automatic.settings.fpca_method == (:face,:face)
+    @test automatic.settings.fpca_method_source == (:short_grid_knots,:short_grid_knots)
+    @test automatic.settings.fpca_knots == [length(grid)-4,length(grid)-4]
+    @test StatsAPI.coef(automatic) == StatsAPI.coef(StatsAPI.fit(FPCRegression,(x1,x2),y;
+        scalar_covariates=z,fpca_options=(;method=:face,face=(;knots=length(grid)-4))))
     golden = _m7_golden("fdapace_dense")
     regression_golden_checks(multi,(new1,new2),golden;scalar_covariates=znew)
     @test _m7_relative([StatsAPI.coef(multi)[2]],_m7_ref(golden,"scalar_coefficient")) < 1e-8
@@ -272,7 +280,7 @@ end
     rcov = reshape(_m7_ref(golden,"coefficient_covariance"),7,7)[permutation,permutation]
     @test _m7_relative(StatsAPI.coef(multi),rcoef) < 1e-8
     @test _m7_relative(StatsAPI.vcov(multi),rcov) < 1e-8
-    single = StatsAPI.fit(FPCRegression,x1,ysingle;ncomponents=3,fpca_options=(;max_k=3))
+    single = StatsAPI.fit(FPCRegression,x1,ysingle;ncomponents=3,fpca_options=(;method=:dense,max_k=3))
     regression_golden_checks(single,new1,_m7_golden("fdausc_dense"))
 
     read_m3(name) = readdlm(joinpath(@__DIR__,"data","m3_sparse_$name.csv"),',';comments=true)
@@ -289,8 +297,10 @@ end
 
     selection_ref = _m7_golden("selection")
     for (selector,q) in ((AIC(),"AIC"),(BIC(),"BIC"),(:loocv,"loocv"))
-        selected = StatsAPI.fit(FPCRegression,x1,ysingle;selection=selector,fpca_options=(;max_k=3))
+        selected = StatsAPI.fit(FPCRegression,x1,ysingle;selection=selector,
+            fpca_options=(;method=:dense,max_k=3))
         @test selected.selection.candidates == [[1],[2],[3]]
+        @test selected.selection.cap == [3]
         @test _m7_relative(selected.selection.values,_m7_ref(selection_ref,q)) < 1e-8
         @test only(ncomponents(selected)) == argmin(_m7_ref(selection_ref,q))
         @test all(isempty,selected.selection.failures)
@@ -313,7 +323,6 @@ end
     @test StatsAPI.fit(FPCRegression,x1,y;fpca_options=(;max_k=2)).settings.fpca_source == (:fitted,)
     for kw in ((;selection=:loocv,fpca=supplied),
             (;selection=AIC(),ncomponents=1),
-            (;selection=BIC(),fpca_options=(;ncomponents=1)),
             (;fpca=supplied,fpca_options=(;max_k=2)),
             (;fpca=42), (;fpca_options=42),
             (;fpca_options=(;ncomponents=true)), (;fpca_options=(;max_k=true)),
@@ -373,4 +382,154 @@ end
     tecator = load_dataset(:tecator;sample=true)
     example = StatsAPI.fit(FPCRegression,tecator.data,tecator.covariates.Fat;ncomponents=1)
     @test all(isfinite,predict(example,tecator.data;interval=:prediction).lower)
+end
+
+# Smooth deterministic curves with rough deterministic noise on a grid long
+# enough for FACE's default 35-interval cubic basis.
+function regression_noisy_dense(n=24, m=51)
+    grid = collect(range(0.0, 1.0; length=m))
+    a, b, c = cos.(2pi .* (1:n) ./ n), sin.(4pi .* (1:n) ./ n), cos.(6pi .* (1:n) ./ n .+ 0.3)
+    noise = 0.3 .* ((sin.(12.9898 .* (1:n) .+ 78.233 .* transpose(1:m)) .* 43758.5453) .% 1)
+    x = GridFunctionalData(1 .+ 2a .* transpose(sqrt(2) .* sinpi.(grid)) .+
+        b .* transpose(sqrt(2) .* cospi.(2grid)) .+ 0.5c .* transpose(sqrt(2) .* sinpi.(3grid)) .+ noise, grid)
+    y = 1 .+ 2a .- b .+ 0.3c .+ 0.1 .* sin.(7.0 .* (1:n))
+    (; x, y, grid)
+end
+
+@testset "FPC regression FACE default and selection cap" begin
+    (; x, y) = regression_noisy_dense()
+    automatic = @inferred StatsAPI.fit(FPCRegression, x, y)
+    face = StatsAPI.fit(FPCRegression, x, y; fpca_options=(; method=:face))
+    dense = StatsAPI.fit(FPCRegression, x, y; fpca_options=(; method=:dense))
+    @test automatic.settings.fpca_method == (:face,)
+    @test automatic.settings.fpca_method_source == (:regression_default,)
+    @test automatic.settings.fpca_options == ((;),)
+    @test only(automatic.fpca).method === :face
+    @test StatsAPI.coef(automatic) == StatsAPI.coef(face)
+    @test automatic.counts == face.counts
+    @test face.settings.fpca_method_source == (:fpca_options,)
+    # The documented override restores the previous dense route exactly.
+    @test dense.settings.fpca_method == (:dense,)
+    @test StatsAPI.coef(dense) == StatsAPI.coef(StatsAPI.fit(FPCRegression, x, y;
+        fpca=StatsAPI.fit(FPCA, x; method=:dense)))
+    @test occursin("fpca_method = (:face,)", sprint(show, automatic))
+    # Options for other routes without a method name throw instead of switching route.
+    @test_throws r"method=:face by default.*presmooth" StatsAPI.fit(FPCRegression, x, y;
+        fpca_options=(; presmooth=LocalPolynomial(; bandwidth=0.1)))
+    @test_throws r"method=:face by default.*mean_bandwidth" StatsAPI.fit(FPCRegression, x, y;
+        fpca_options=(; mean_bandwidth=0.1))
+    @test StatsAPI.fit(FPCRegression, x, y; fpca_options=(; method=:pace, mean_bandwidth=0.2,
+        covariance_bandwidth=0.2)).settings.fpca_method == (:pace,)
+    # A grid too short for FACE's default 35 knot intervals uses
+    # length(grid) - p - 1 intervals; explicit knots, p or a method win.
+    short = GridFunctionalData(x.values[:, 1:2:end], x.grid[1:2:end])
+    @test length(short.grid) == 26
+    reduced = @inferred StatsAPI.fit(FPCRegression, short, y)
+    @test reduced.settings.fpca_method == (:face,)
+    @test reduced.settings.fpca_method_source == (:short_grid_knots,)
+    @test reduced.settings.fpca_knots == [22]
+    @test only(reduced.fpca).settings.knots == 22
+    @test reduced.settings.fpca_options == ((;),)
+    @test StatsAPI.coef(reduced) == StatsAPI.coef(StatsAPI.fit(FPCRegression, short, y;
+        fpca_options=(; method=:face, face=(; knots=22))))
+    shown = sprint(show, reduced)
+    @test occursin("fpca_method_source = (:short_grid_knots,)", shown)
+    @test occursin("fpca_knots = $(repr(Union{Nothing,Int}[22]))", shown)
+    small_face = StatsAPI.fit(FPCRegression, short, y; fpca_options=(; face=(; knots=10)))
+    @test small_face.settings.fpca_knots == [10]
+    @test small_face.settings.fpca_method_source == (:regression_default,)
+    quadratic = StatsAPI.fit(FPCRegression, short, y; fpca_options=(; face=(; p=2)))
+    @test quadratic.settings.fpca_knots == [23]
+    @test quadratic.settings.fpca_method_source == (:short_grid_knots,)
+    @test StatsAPI.fit(FPCRegression, short, y; fpca_options=(; method=:face, face=(; knots=10))
+        ).settings.fpca_method_source == (:fpca_options,)
+    @test StatsAPI.fit(FPCRegression, short, y; fpca_options=(; method=:dense)).settings.fpca_knots == [nothing]
+    # The boundary: 38 points use 34 intervals, 39 points FACE's default 35.
+    for (J, knots, source) in ((38, 34, :short_grid_knots), (39, 35, :regression_default))
+        g = collect(range(0.0, 1.0; length=J))
+        boundary = StatsAPI.fit(FPCRegression, GridFunctionalData(x.values[:, 1:J], g), y)
+        @test boundary.settings.fpca_knots == [knots]
+        @test boundary.settings.fpca_method_source == (source,)
+    end
+    # The smallest smoothable grid has p + 2 points (one knot interval).
+    tiny = GridFunctionalData(x.values[:, 1:5], collect(range(0.0, 1.0; length=5)))
+    @test StatsAPI.fit(FPCRegression, tiny, y).settings.fpca_knots == [1]
+    @test_throws r"needs at least p \+ 2 = 5 grid points, got 4.*method=:dense" StatsAPI.fit(
+        FPCRegression, GridFunctionalData(x.values[:, 1:4], tiny.grid[1:4]), y)
+    @test StatsAPI.fit(FPCRegression, GridFunctionalData(x.values[:, 1:4], tiny.grid[1:4]), y;
+        fpca_options=(; method=:dense)).settings.fpca_method == (:dense,)
+    # A FACE failure on a default fit names the default and its overrides.
+    clustered = GridFunctionalData(x.values, x.grid .^ 3)
+    @test_throws r"default FACE fit for complete grid data failed.*rank deficient.*method=:dense" StatsAPI.fit(
+        FPCRegression, clustered, y)
+    # Masked grids and irregular curves keep PACE; basis curves keep the basis route.
+    masked_values = Matrix{Union{Missing,Float64}}(x.values)
+    masked_values[1, 2] = missing
+    masked = GridFunctionalData(masked_values, x.grid)
+    @test sampling_design(masked) != :regular
+    masked_fit = StatsAPI.fit(FPCRegression, masked, y; ncomponents=2)
+    @test masked_fit.settings.fpca_method == (:pace,)
+    @test masked_fit.settings.fpca_method_source == (:fpca_default,)
+    irregular_fit = StatsAPI.fit(FPCRegression, to_irregular(x), y; ncomponents=2)
+    @test irregular_fit.settings.fpca_method == (:pace,)
+    @test irregular_fit.settings.fpca_method_source == (:fpca_default,)
+    basis = to_basis(x, BSplineBasis(4, (0.0, 1.0), 8))
+    @test StatsAPI.fit(FPCRegression, basis, y; ncomponents=2).settings.fpca_method == (:basis,)
+    supplied = StatsAPI.fit(FPCA, x; method=:dense, ncomponents=3)
+    supplied_fit = StatsAPI.fit(FPCRegression, x, y; fpca=supplied)
+    @test supplied_fit.settings.fpca_method == (:dense,)
+    @test supplied_fit.settings.fpca_method_source == (:supplied,)
+
+    # Regression selection searches up to each FPCA's own selection.
+    own = ncomponents(StatsAPI.fit(FPCA, x; method=:face))
+    for selector in (AIC(), BIC())
+        chosen = @inferred StatsAPI.fit(FPCRegression, x, y; selection=selector)
+        @test chosen.selection.cap == [own]
+        @test chosen.selection.candidates == [[k] for k in 1:own]
+        @test only(chosen.counts) <= own
+        @test occursin("cap = [$own]", sprint(show, chosen))
+    end
+    capped = StatsAPI.fit(FPCRegression, x, y; selection=BIC(), fpca_options=(; ncomponents=2))
+    @test capped.selection.cap == [2]
+    @test capped.selection.candidates == [[1], [2]]
+    @test StatsAPI.fit(FPCRegression, x, y; selection=AIC(),
+        fpca_options=(; ncomponents=FVE(0.5))).selection.cap ==
+        [ncomponents(StatsAPI.fit(FPCA, x; method=:face, ncomponents=FVE(0.5)))]
+    @test StatsAPI.fit(FPCRegression, x, y; selection=AIC(), fpca=supplied).selection.cap == [3]
+    # The dense route keeps far more components; its own FVE(0.99) count caps it.
+    dense_bic = StatsAPI.fit(FPCRegression, x, y; selection=BIC(), fpca_options=(; method=:dense))
+    @test dense_bic.selection.cap == [ncomponents(StatsAPI.fit(FPCA, x; method=:dense))]
+    @test only(dense_bic.selection.cap) > own
+    @test_throws r"capped by each FPCA's own selection" StatsAPI.fit(FPCRegression, x, y;
+        selection=BIC(), ncomponents=2)
+    # LOOCV folds refit with the full-data route (FACE here), not the FPCA default.
+    small = (; x=x[1:12], y=y[1:12])
+    loocv = StatsAPI.fit(FPCRegression, small.x, small.y; selection=:loocv,
+        fpca_options=(; ncomponents=2))
+    explicit = StatsAPI.fit(FPCRegression, small.x, small.y; selection=:loocv,
+        fpca_options=(; method=:face, ncomponents=2))
+    @test loocv.selection.values == explicit.selection.values
+    @test loocv.selection.values != StatsAPI.fit(FPCRegression, small.x, small.y;
+        selection=:loocv, fpca_options=(; method=:dense, ncomponents=2)).selection.values
+end
+
+@testset "Functional-response FPC regression uses the FACE covariate default" begin
+    (; x, y, grid) = regression_noisy_dense()
+    response = GridFunctionalData(y .* transpose(sqrt(2) .* sinpi.(grid)) .+
+        0.5 .* sin.(3.0 .* (1:length(y))) .* transpose(sqrt(2) .* cospi.(grid)), grid)
+    f = @inferred StatsAPI.fit(FPCRegression, x, response)
+    @test f.settings.fpca_method == (:face,)
+    @test f.settings.fpca_method_source == (:regression_default,)
+    @test f.selection.cap == f.counts
+    # The response FPCA defaults to FACE on complete grids as well.
+    @test f.response_fpca.method === :face
+    @test f.settings.response_fpca_method === :face
+    @test f.settings.response_fpca_method_source === :regression_default
+    @test f.settings.response_fpca_knots == [35]
+    explicit = StatsAPI.fit(FPCRegression, x, response; fpca_options=(; method=:face))
+    @test StatsAPI.coef(f) == StatsAPI.coef(explicit)
+    dense = StatsAPI.fit(FPCRegression, x, response; fpca_options=(; method=:dense))
+    @test dense.settings.fpca_method == (:dense,)
+    @test StatsAPI.coef(dense) == StatsAPI.coef(StatsAPI.fit(FPCRegression, x, response;
+        fpca=StatsAPI.fit(FPCA, x; method=:dense)))
 end

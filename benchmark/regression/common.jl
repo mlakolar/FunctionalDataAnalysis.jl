@@ -138,7 +138,10 @@ end
 function tuning(f::FPCRegression)
     m = only(f.fpca)
     s = m.settings
-    settings = String["ncomponents=$(only(f.counts))", "selection=$(f.selection.rule)", "fpca_method=$(m.method)",
+    settings = String["ncomponents=$(only(f.counts))", "selection=$(f.selection.rule)",
+        "selection_cap=$(only(f.selection.cap))", "fpca_method=$(m.method)",
+        "fpca_method_source=$(only(f.settings.fpca_method_source))",
+        "fpca_knots=$(something(only(f.settings.fpca_knots), "none"))",
         "fpca_design=$(m.design)", "covariance=$(f.settings.covariance)"]
     for key in (:ncomponents, :maxK, :mean_bandwidth, :covariance_bandwidth, :raw_noise_variance,
         :noise_floor_applied)

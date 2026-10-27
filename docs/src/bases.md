@@ -36,7 +36,7 @@ basis integrates products of `D³φ + (2π/domain_width)² Dφ`, the default
 operator for [smoothed FPCA](fpca.md#Smoothed-FPCA). Monomials use the original time coordinate.
 [`ThinPlateRegressionBasis`](@ref), mgcv's one-dimensional thin plate
 regression spline basis (refund's default for penalized regression), is
-documented on the [Regression](regression.md#Penalized-scalar-on-function-regression)
+documented on the [Regression](penalized_regression.md#Penalized-scalar-on-function-regression)
 page.
 
 `PSplineBasis` is mgcv's P-spline basis (`bs="ps"`): B-splines with simple,
