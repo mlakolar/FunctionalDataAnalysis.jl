@@ -211,7 +211,7 @@ end
 # knots = length(grid) - p - 1 (recorded as :short_grid_knots) unless the
 # options set face.knots.
 const _REGRESSION_FACE_KNOTS = 35
-function _regression_fpca_options(x, options, supplied; name="fpca")
+function _regression_fpca_options(x, options, supplied; name="fpca", model="FPCRegression")
     options isa NamedTuple || throw(ArgumentError("$(name)_options entries must be named tuples"))
     supplied === nothing || return options, :supplied
     haskey(options, :method) && return options, :fpca_options
@@ -219,7 +219,7 @@ function _regression_fpca_options(x, options, supplied; name="fpca")
     incompatible = [k for k in (:grid,:presmooth,:covariance,:noise_variance,:mean_bandwidth,
         :covariance_bandwidth,:diagonal_bandwidth,:kernel,:weighting,:binning) if haskey(options,k)]
     isempty(incompatible) || throw(ArgumentError(
-        "FPCRegression fits complete grid data with method=:face by default, which does not " *
+        "$model fits complete grid data with method=:face by default, which does not " *
         "accept $(name)_options $(join(incompatible, ", ")); name the route explicitly, for example " *
         "$(name)_options=(; method=:dense, ...) or (; method=:pace, ...)"))
     face = get(options, :face, (;))
@@ -229,7 +229,7 @@ function _regression_fpca_options(x, options, supplied; name="fpca")
     J = length(x.grid)
     if !haskey(face, :knots) && _integer_in(p, 0) && J <= _REGRESSION_FACE_KNOTS + p
         J >= p + 2 || throw(ArgumentError(
-            "FPCRegression's default FACE fit needs at least p + 2 = $(p + 2) grid points, got $J; " *
+            "$model's default FACE fit needs at least p + 2 = $(p + 2) grid points, got $J; " *
             "name the route explicitly, for example $(name)_options=(; method=:dense)"))
         knots = Int(J - p - 1)
         return merge((;method=:face), options, (;face=merge(face, (;knots)))), :short_grid_knots
@@ -243,7 +243,7 @@ _regression_face_knots(models) = Union{Nothing,Int}[
     f.method === :face ? Int(f.settings.knots)::Int : nothing for f in models]
 
 Base.@constprop :aggressive function _regression_fpca(x, supplied, options, rule;
-        name="fpca", source=:fpca_options)
+        name="fpca", source=:fpca_options, model="FPCRegression")
     options isa NamedTuple || throw(ArgumentError("$(name)_options entries must be named tuples"))
     for key in (:ncomponents,:max_k,:maxK)
         haskey(options,key) && options[key] isa Bool && throw(ArgumentError(
@@ -261,7 +261,7 @@ Base.@constprop :aggressive function _regression_fpca(x, supplied, options, rule
             return fit(FPCA, x; effective...)
         catch err
             err isa ArgumentError || rethrow()
-            throw(ArgumentError("FPCRegression's default FACE fit for complete grid data failed " *
+            throw(ArgumentError("$model's default FACE fit for complete grid data failed " *
                 "($(err.msg)); choose another route or knots, for example $(name)_options=(; method=:dense) " *
                 "or (; face=(; knots=...))"))
         end
