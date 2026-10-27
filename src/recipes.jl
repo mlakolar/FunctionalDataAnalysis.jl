@@ -239,6 +239,139 @@ band_plot(b; kwargs...) =
 band_plot(b::MeanBands; coverage=b.coverage, kwargs...) =
     RecipesBase.plot(_FDAPlot{:band}(band_data(b; coverage)); kwargs...)
 
+"""
+    outlier_plot(result; kwargs...)
+
+Plot a [`functional_boxplot`](@ref), [`outliergram`](@ref) or
+[`magnitude_shape`](@ref) result from [`boxplot_data`](@ref),
+[`outliergram_data`](@ref) or [`magnitude_shape_data`](@ref). The boxplot
+shows the central region, median, whiskers and outlying curves (one panel per
+component for multivariate data); the outliergram shows `(MEI, MBD)` with the
+parabola and the flagging boundary; the magnitude–shape plot shows `(MO, VO)`
+(`‖MO‖` for multivariate data) with the cutoff ellipse for univariate data.
+Outliers are drawn distinctly. `plot(result)` works the same. Load Plots.jl
+first; `kwargs` override plot attributes.
+"""
+outlier_plot(b::FunctionalBoxplot; kwargs...) =
+    RecipesBase.plot(_plot_payload(Val(:boxplot), boxplot_data(b)); kwargs...)
+outlier_plot(o::Outliergram; kwargs...) = RecipesBase.plot(_FDAPlot{:outliergram}(outliergram_data(o)); kwargs...)
+outlier_plot(s::MagnitudeShape; kwargs...) =
+    RecipesBase.plot(_FDAPlot{:magnitude_shape}(magnitude_shape_data(s)); kwargs...)
+
+@recipe f(b::FunctionalBoxplot) = _plot_payload(Val(:boxplot), boxplot_data(b))
+@recipe f(o::Outliergram) = _FDAPlot{:outliergram}(outliergram_data(o))
+@recipe f(s::MagnitudeShape) = _FDAPlot{:magnitude_shape}(magnitude_shape_data(s))
+
+@recipe function f(p::_FDAPlot{:boxplot})
+    d = p.data
+    xlabel --> "Time"
+    ylabel --> "Value"
+    title --> _plot_title(p, "Functional boxplot (factor=$(round(d.factor; sigdigits=4)))")
+    @series begin
+        seriestype := :path
+        fillrange := d.central_lower
+        fillalpha --> 0.4
+        linewidth --> 2
+        label --> "Central region"
+        d.grid, d.central_upper
+    end
+    @series begin
+        seriestype := :path
+        linewidth --> 2
+        label --> "Central region"
+        primary := false
+        d.grid, d.central_lower
+    end
+    @series begin
+        seriestype := :path
+        linewidth --> 3
+        label --> "Median (curve $(d.median))"
+        d.grid, d.values[d.median, :]
+    end
+    for (j, whisker) in enumerate((d.whisker_upper, d.whisker_lower))
+        @series begin
+            seriestype := :path
+            linewidth --> 2
+            label --> "Whiskers"
+            primary := j == 1
+            d.grid, whisker
+        end
+    end
+    for i in d.outliers
+        @series begin
+            seriestype := :path
+            linestyle --> :dash
+            label --> "Outlier $i"
+            d.grid, d.values[i, :]
+        end
+    end
+    nothing
+end
+
+@recipe function f(p::_FDAPlot{:outliergram})
+    d = p.data
+    xlabel --> "MEI"
+    ylabel --> "MBD"
+    title --> "Outliergram"
+    typical = setdiff(eachindex(d.mei), d.outliers)
+    @series begin
+        seriestype := :scatter
+        label --> "Curves"
+        d.mei[typical], d.mbd[typical]
+    end
+    if !isempty(d.outliers)
+        @series begin
+            seriestype := :scatter
+            markershape --> :diamond
+            label --> "Shape outliers"
+            d.mei[d.outliers], d.mbd[d.outliers]
+        end
+    end
+    @series begin
+        seriestype := :path
+        linestyle --> :dash
+        label --> "Parabola"
+        d.parabola.mei, d.parabola.mbd
+    end
+    @series begin
+        seriestype := :path
+        linestyle --> :dot
+        label --> "Boundary"
+        d.boundary.mei, d.boundary.mbd
+    end
+    nothing
+end
+
+@recipe function f(p::_FDAPlot{:magnitude_shape})
+    d = p.data
+    xlabel --> (d.multivariate ? "‖MO‖" : "MO")
+    ylabel --> "VO"
+    title --> "Magnitude–shape plot"
+    typical = setdiff(eachindex(d.magnitude), d.outliers)
+    @series begin
+        seriestype := :scatter
+        label --> "Curves"
+        d.magnitude[typical], d.variation[typical]
+    end
+    if !isempty(d.outliers)
+        @series begin
+            seriestype := :scatter
+            markershape --> :cross
+            label --> "Outliers"
+            d.magnitude[d.outliers], d.variation[d.outliers]
+        end
+    end
+    if d.ellipse !== nothing
+        @series begin
+            seriestype := :path
+            linestyle --> :dash
+            label --> "Cutoff"
+            d.ellipse.magnitude, d.ellipse.variation
+        end
+    end
+    nothing
+end
+
 @recipe function f(p::_FDAPlot{:band})
     d = p.data
     xlabel --> "Time"

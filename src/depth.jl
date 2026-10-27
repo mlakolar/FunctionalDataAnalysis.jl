@@ -716,6 +716,13 @@ function depth(fd, reference, method::_DepthMethod; weights=nothing, grid=nothin
 end
 
 # Modified epigraph (count >= x) and hypograph (count <= x) indices.
+function _graph_part(x, y, w, kind)
+    n0 = size(y, 1)
+    _depth_rank_sum(x, y, w) do column, v
+        kind === :epigraph ? (n0 - _depth_below(column, v)) / n0 : searchsortedlast(column, v) / n0
+    end
+end
+
 function _graph_index(fd, reference, kind, integration, grid, weights)
     _depth_integration(integration)
     prepared = _depth_prepare(fd, reference, grid, (;), false)
@@ -724,10 +731,7 @@ function _graph_index(fd, reference, kind, integration, grid, weights)
         weights === nothing ? [1.0] : throw(ArgumentError("component weights apply only to multivariate data"))
     total = nothing
     for (j, c) in enumerate(components)
-        n0 = size(c.reference, 1)
-        part = _depth_rank_sum(c.target, c.reference, _depth_weights(c.grid, integration)) do column, v
-            kind === :epigraph ? (n0 - _depth_below(column, v)) / n0 : searchsortedlast(column, v) / n0
-        end
+        part = _graph_part(c.target, c.reference, _depth_weights(c.grid, integration), kind)
         total = total === nothing ? w[j] .* part : total .+ w[j] .* part
     end
     total
