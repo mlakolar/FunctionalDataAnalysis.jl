@@ -129,5 +129,5 @@
   curves or FPC scores, k-centres functional clustering (kCFC) for dense and
   sparse data, and Gaussian mixtures on FPC scores are available, validated
   against fdapace 0.6.0, fda.usc 2.2.0 and EMCluster 0.2-18. See
-  [Clustering and classification](clustering.md).
+  [Clustering](clustering.md).
 - Milestone 9: registration.

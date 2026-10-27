@@ -19,7 +19,7 @@ makedocs(;
         "FPCA" => "fpca.md",
         "Regression" => "regression.md",
         "Penalized regression" => "penalized_regression.md",
-        "Clustering and classification" => "clustering.md",
+        "Clustering" => "clustering.md",
         "Functional CCA" => "cca.md",
         "Multivariate FPCA (MFPCA)" => "mfpca.md",
         "Cross-structure" => "cross_structure.md",
