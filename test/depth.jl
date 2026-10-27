@@ -204,6 +204,12 @@ end
     @test md.fpca[1] === nothing && md.fpca[2] isa FPCA
     @test md.median_curve isa MultivariateFunctionalData
     @test md.values ≈ (depth(fd, ModifiedBandDepth()).values .+ d.values) ./ 2
+    @test occursin("FunctionalDepth", sprint(show, md))
+    # Basis target and basis reference share the explicit evaluation grid.
+    bfd2 = BasisFunctionalData(randn(rng, 6, 3), basis)
+    @test depth(bfd2, bfd, ModifiedBandDepth(); grid).values ≈
+        depth(GridFunctionalData(evaluate(bfd2, grid), grid),
+            GridFunctionalData(evaluate(bfd, grid), grid), ModifiedBandDepth()).values
 end
 
 @testset "depth settings and display" begin
@@ -231,6 +237,9 @@ end
     root2 = FunctionalDataAnalysis._projection_root(2 .* uneven)
     @test root2 * root2' ≈ [exp(-abs(s - t) / 0.4) for s in 2 .* uneven, t in 2 .* uneven] atol=1e-12
     @test occursin("generated", sprint(show, rp1.method))
+    @test sprint(show, MIME"text/plain"(), rp1) == sprint(show, rp1)
+    @test occursin("BandDepth(definition=", sprint(show, BandDepth()))
+    @test occursin("ModifiedBandDepth(ties=", sprint(show, ModifiedBandDepth()))
     ids_fd = GridFunctionalData(values, grid; ids=string.('a':'h'))
     @test depth(ids_fd, ModifiedBandDepth()).ids == string.('a':'h')
 end

@@ -243,7 +243,6 @@ _depth_show_value(x) = x
 _depth_complete(fd::GridFunctionalData) = fd.observed === nothing
 _depth_complete(::BasisFunctionalData) = true
 _depth_complete(::IrregularFunctionalData) = false
-_depth_complete(::FPCA) = true
 
 _depth_input(x) = throw(ArgumentError(
     "depth needs GridFunctionalData, IrregularFunctionalData, BasisFunctionalData or an FPCA fit"))
