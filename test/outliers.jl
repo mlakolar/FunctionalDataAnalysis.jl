@@ -413,4 +413,10 @@ end
     @test sprint(show, MIME"text/plain"(), o) == sprint(show, o)
     s = magnitude_shape(fd)
     @test sprint(show, MIME"text/plain"(), s) == sprint(show, s)
+    # A zero-width central envelope in the first column: curve 4 leaves it and
+    # needs an infinite factor, curve 3 sits on it and flags only through the
+    # second column (threshold 1), which the 0.3 rate selects.
+    x = [0.0 1.0; 0.0 2.0; 0.0 3.0; 1.0 2.0]
+    trial = FunctionalDataAnalysis._boxplot_trial_factor(x, [0.9, 0.8, 0.7, 0.1], [1, 2, 3, 4], 0.5, :first, 0.3)
+    @test trial == 1.0
 end
