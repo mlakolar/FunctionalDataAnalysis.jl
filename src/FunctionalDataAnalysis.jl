@@ -2,8 +2,11 @@ module FunctionalDataAnalysis
 
 using LinearAlgebra
 import StatsAPI: nobs, fit, predict, reconstruct, reconstruct!, fitted, residuals, coef
-import StatsAPI: vcov, dof, dof_residual, r2, stderror
+import StatsAPI: vcov, dof, dof_residual, r2, stderror, loglikelihood, aic, bic
 import KernelSmoothing
+import Clustering
+import Clustering: assignments, nclusters, randindex
+import GaussianMixtures
 import SpecialFunctions
 import BSplineKit
 import Tables
@@ -46,6 +49,8 @@ export ConcurrentRegression, FunctionOnScalarRegression
 export ThinPlateRegressionBasis, PenalizedFunctionalRegression, PenalizedFunctionOnFunctionRegression
 export depth, FunctionalDepth, FraimanMuniz, BandDepth, ModifiedBandDepth, RandomProjectionDepth,
     ModalDepth, modified_epigraph_index, modified_hypograph_index
+export FunctionalKMeans, KCFC, FunctionalGaussianMixture, posterior_probabilities,
+    assignments, nclusters, randindex, loglikelihood, aic, bic
 
 include("interface.jl")
 include("quadrature.jl")
@@ -87,6 +92,7 @@ include("function_on_scalar.jl")
 include("pfr.jl")
 include("pffr.jl")
 include("depth.jl")
+include("clustering.jl")
 include("plot_data.jl")
 include("recipes.jl")
 include("compat_naming.jl")

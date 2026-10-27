@@ -4,14 +4,16 @@ version = "0.1.0"
 authors = ["Mladen Kolar <mkolar@usc.edu>"]
 
 [deps]
-SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 Artifacts = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
-LazyArtifacts = "4af54fe1-eca0-43a8-85a7-787d91b784e3"
-KernelSmoothing = "724a8e84-0a16-41a9-ba90-78f60180b487"
 BSplineKit = "093aae92-e908-43d7-9660-e50ee39d5a0a"
+Clustering = "aaaa29a8-35af-508c-8bc3-b662a17a0fe5"
+GaussianMixtures = "cc18c42c-b769-54ff-9e2a-b28141a64aae"
+KernelSmoothing = "724a8e84-0a16-41a9-ba90-78f60180b487"
+LazyArtifacts = "4af54fe1-eca0-43a8-85a7-787d91b784e3"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 RecipesBase = "3cdcf5f2-1ef4-517c-9805-6587b60abb01"
+SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 StatsAPI = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
 Tables = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
 
@@ -19,24 +21,26 @@ Tables = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
 KernelSmoothing = {path = "../KernelSmoothing.jl"}
 
 [compat]
-SpecialFunctions = "2"
-Artifacts = "1"
-LazyArtifacts = "1"
-DelimitedFiles = "1"
-KernelSmoothing = "0.1"
 Aqua = "0.8"
+Artifacts = "1"
 BSplineKit = "0.19.3"
+Clustering = "0.15.8"
+DelimitedFiles = "1"
+GaussianMixtures = "0.3.14"
+KernelSmoothing = "0.1"
+LazyArtifacts = "1"
 LinearAlgebra = "1"
 Random = "1"
 RecipesBase = "1"
+SpecialFunctions = "2"
 StatsAPI = "1.8"
 Tables = "1"
 Test = "1"
 julia = "1.10"
 
 [extras]
-DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
