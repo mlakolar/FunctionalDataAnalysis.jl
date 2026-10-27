@@ -24,6 +24,7 @@ makedocs(;
         "Multivariate FPCA (MFPCA)" => "mfpca.md",
         "Cross-structure" => "cross_structure.md",
         "Depth and outliers" => "depth.md",
+        "Classification" => "classification.md",
         "Plotting" => "plotting.md",
         "Uncertainty" => "uncertainty.md",
         "Datasets" => "datasets.md",

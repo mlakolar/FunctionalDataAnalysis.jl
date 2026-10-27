@@ -53,6 +53,7 @@ export FunctionalKMeans, KCFC, FunctionalGaussianMixture, posterior_probabilitie
     assignments, nclusters, randindex, loglikelihood, aic, bic
 export FunctionalBoxplot, AdjustedFactor, functional_boxplot, Outliergram, outliergram, MagnitudeShape,
     magnitude_shape, boxplot_data, outliergram_data, magnitude_shape_data, outlier_plot
+export FunctionalKNN, DepthClassifier, DDClassifier, FunctionalDiscriminant, FunctionalLDA, FunctionalQDA
 
 include("interface.jl")
 include("quadrature.jl")
@@ -96,6 +97,7 @@ include("pffr.jl")
 include("depth.jl")
 include("clustering.jl")
 include("outliers.jl")
+include("classification.jl")
 include("plot_data.jl")
 include("recipes.jl")
 include("compat_naming.jl")
