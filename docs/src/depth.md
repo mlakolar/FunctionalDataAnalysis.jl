@@ -181,6 +181,67 @@ with the most extreme magnitude; Prince Rupert has the next largest distance.
 With precipitation as a second component, the wet maritime stations and
 Resolute stand out.
 
+### [Choosing a method](@id outlier-method-choice)
+
+The three displays answer different questions, as the Canadian example shows:
+
+- The functional boxplot flags a curve that leaves the fences anywhere. It
+  finds magnitude outliers, isolated or persistent, but a curve of unusual
+  shape that stays inside the band of typical curves is not flagged.
+- The outliergram flags curves that cross many others, that is, shape
+  outliers. A curve that is merely shifted crosses few others and is not a
+  shape outlier; the shift check re-examines curves at the top or bottom of
+  the sample for unusual shape that their position hides.
+- The magnitude–shape plot combines both: `MO` measures magnitude and `VO`
+  shape, and one robust distance flags either.
+
+For sparse curves all three work on PACE reconstructions, which keep the
+leading modes of variation and smooth away short isolated features.
+
+The [outlier and clustering study](https://github.com/mlakolar/FunctionalDataAnalysis.jl/tree/master/benchmark/outlier_study)
+runs the three displays with their defaults on the nine simulation models of
+fdaoutlier 0.2.1 (`simulation_model1` … `simulation_model9`) at their
+default parameters, so that the rates are comparable with published studies
+that use these generators. By outlier type the models are:
+
+| Type | fdaoutlier models |
+|:--|:--|
+| shift (constant offset) | 1 |
+| magnitude (isolated or partial) | 2, 3 |
+| shape | 4 (reversed peak), 5 (rougher covariance), 7 and 8 (phase) |
+| mixed (offset with a shape feature) | 6 |
+| amplitude | 9 |
+
+Each model runs at 5% and 10% contamination, on dense (fdaoutlier's 50-point
+grid) and sparse (5–10 points per curve) designs, with `n ∈ {100, 500}` and
+200 replicates per cell. The study records true and false positive rates,
+the number of curves flagged, time and failures.
+
+Results from the MBZUAI Titan cluster (Julia 1.13.3; 72 outlier cells,
+14,400 runs per display, no failures) are in
+[`benchmark/outlier_study/results`](https://github.com/mlakolar/FunctionalDataAnalysis.jl/tree/master/benchmark/outlier_study/results).
+Mean true positive rates, as a range over models of that type, `n` and
+contamination (dense / sparse):
+
+| Type | Functional boxplot | Outliergram | Magnitude–shape |
+|:--|:--|:--|:--|
+| shift | 1.00 / 1.00 | 0.00 / 0.00 | 1.00 / 1.00 |
+| magnitude | 0.24–0.90 / 0.08–0.75 | 0.07–0.48 / 0.22–0.45 | 1.00 / 0.39–0.95 |
+| shape | 0.00–0.54 / 0.00–0.29 | 0.75–1.00 / 0.12–0.97 | 1.00 / 0.24–1.00 |
+| mixed | 0.00–0.04 / 0.00–0.04 | 0.81–0.87 / 0.56–0.61 | 1.00 / 0.83–0.90 |
+| amplitude | 0.00 / 0.00–0.01 | 0.32–0.57 / 0.17–0.35 | 0.91–1.00 / 0.91–0.99 |
+
+The magnitude–shape plot detects almost every outlier type on dense curves,
+but flags 4–13% of the clean curves on dense data and 10–25% on sparse data,
+above the nominal level of its cutoff. The functional boxplot almost never
+flags a clean curve (false positive rate at most 0.5%) but finds only shift
+and part of the magnitude outliers. The outliergram finds shape and mixed
+outliers with false positive rates of 1–8%, and by design not shift outliers.
+Sparse designs lower every rate, because PACE reconstructions smooth away
+short features. On dense curves the displays take a few milliseconds
+(boxplot) to about 0.1 s (magnitude–shape) per sample; on sparse curves the
+PACE fit dominates, at about 1.2 s for every display.
+
 ## Reference audit
 
 The implementations follow the sources of roahd 1.4.3 and fda.usc 2.2.0
@@ -291,6 +352,25 @@ MASS's `lqs.c`.
   (its F quantile matches fdaoutlier's deterministic part) and accepts a
   numeric `cutoff` for fdaoutlier's value.
 
+The outlier study's designs follow fdaoutlier 0.2.1's
+`R/simulation_models.R` (`covfunexp`, `determine` and the exported
+`simulation_model1` … `simulation_model9`), read in full.
+
+- Every model draws its process on `seq(0, 1, length.out = p)` through the
+  Cholesky factor of `α exp(-β|s - t|^ν)`. Model 4 uses `α = 0.3`,
+  `β = 1/0.3`; model 5's outliers use `α = 5`, `β = 2`, `ν = 0.5`; all others
+  `α = β = ν = 1`.
+- The default `outlier_rate` is 0.05, except 0.1 for model 6. With the
+  default `deterministic = TRUE` exactly `round(n·outlier_rate)` curves are
+  outlying, chosen at random.
+- Model 9's sines and cosines take `seq(0, 2π, length.out = p)`, so its
+  curves are `a₁ sin 2πt + a₂ cos 2πt`; the two coefficients of a curve are
+  drawn independently. The file also keeps an older, commented-out model 9
+  (an added `0.5 sin 40πt` oscillation), which is not exported.
+- Model 2's outlying interval has length `l = 0.05`, about 2.5 steps of the
+  default 50-point grid; model 8's `2 sin 15πt` has about 6.5 grid points
+  per period.
+
 ## Validation
 
 `test/reference/depth_m8.R` generates small fixtures (12 curves on 15 grid
@@ -331,6 +411,13 @@ relative error below `1e-8` and with exact flagged indices:
   and one adjusted-factor trial on a stored simulated sample: roahd's
   `uniroot` root lies within its reported precision of the exact factor, and
   both flag the same curves.
+
+The outlier study's generators are checked outside the test suite:
+`benchmark/outlier_study/reference/fdaoutlier_models.R` (R 4.5.1,
+fdaoutlier 0.2.1) writes the deterministic part of every model, with the
+process switched off and each curve's random parameters recovered from
+fdaoutlier's RNG stream, and the three covariances; the study's
+`check.jl` reproduces them at relative error below `1e-8`.
 
 ```@docs
 depth

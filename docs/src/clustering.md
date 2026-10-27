@@ -71,6 +71,51 @@ cluster mean scores) can be evaluated and plotted like any other data, for
 example with `curve_data`. `predict` assigns new curves; for the score-based
 methods it projects them with [`project_scores`](@ref) of the stored FPCA.
 
+## [Choosing a method](@id clustering-method-choice)
+
+- k-means, of curves or of FPC scores, assigns each curve to the nearest
+  centre. It separates groups that differ in their means, and cannot
+  separate groups that share a mean but differ in covariance. k-means of
+  curves needs complete curves; for sparse curves cluster the FPC scores.
+- kCFC assigns each curve to the cluster whose FPCA (mean and leading modes)
+  reconstructs it best. It separates groups whose modes of variation
+  differ. When groups differ only in their means, a cluster's leading mode
+  can span the direction of the mean difference and then reconstruct curves
+  of the other groups as well as its own.
+- The Gaussian mixture models a mean and a full covariance per cluster in
+  the score space, so it uses both kinds of difference. It needs clusters
+  large enough to estimate a `K × K` covariance each.
+
+The [outlier and clustering study](https://github.com/mlakolar/FunctionalDataAnalysis.jl/tree/master/benchmark/outlier_study)
+runs the four methods with their defaults and the true number of groups on
+two and three balanced groups that differ in mean or in covariance, on dense
+(50-point grid) and sparse (5–10 points per curve) designs with
+`n ∈ {100, 500}` and 200 replicates per cell. It records the adjusted Rand
+index against the true groups, time, failures and non-converged fits.
+
+Results from the MBZUAI Titan cluster (16 clustering cells, 200 replicates
+each) are in
+[`benchmark/outlier_study/results`](https://github.com/mlakolar/FunctionalDataAnalysis.jl/tree/master/benchmark/outlier_study/results).
+Mean adjusted Rand index, as a range over `n` and the number of groups:
+
+| Groups differ in | Design | k-means of curves | k-means of scores | kCFC | Gaussian mixture |
+|:--|:--|:--|:--|:--|:--|
+| mean | dense | 0.60–0.63 | 0.61–0.63 | 0.00–0.02 | 0.28–0.56 |
+| mean | sparse | — | 0.59–0.61 | 0.00–0.05 | 0.29–0.53 |
+| covariance | dense | 0.03–0.07 | 0.03–0.07 | 0.01–0.26 | 0.44–0.55 |
+| covariance | sparse | — | 0.02–0.06 | 0.03–0.22 | 0.33–0.51 |
+
+k-means is the method for groups that differ in their means, and the
+Gaussian mixture the only one of the four that separates groups differing in
+covariance reliably. kCFC does poorly on both designs here: with mean
+differences its clusters' leading modes absorb the mean difference (see
+above), and with covariance differences it recovers only part of the
+grouping. It is also the slowest method on sparse data (about 40 s per fit at
+n = 500, against about 1.2 s for the others, which the PACE fit dominates) and
+the only one with failures: 17 of 3,200 fits stopped because the initial
+clustering left a cluster of three or fewer curves, and 101 stopped before
+convergence, mostly at n = 100.
+
 ## Defaults and their sources
 
 | Choice | Default and source |

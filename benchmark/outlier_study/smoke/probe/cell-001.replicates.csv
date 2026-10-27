@@ -1,0 +1,7 @@
+"replicate","seed","route","status","wall_seconds","allocated_bytes","process_peak_rss_bytes","true_positive_rate","false_positive_rate","flagged","adjusted_rand_index","positives","settings"
+"1","20262027","boxplot","success","0.000296292","148576","1248673792","1.0","0.011111111111111112","11","","10","factor=1.5;central=0.5;central_curves=50;representation=grid;fpca_components=none"
+"2","20262028","boxplot","success","0.000269458","147280","1249116160","1.0","0.0","10","","10","factor=1.5;central=0.5;central_curves=50;representation=grid;fpca_components=none"
+"1","20262027","outliergram","success","0.000972167","1179520","1284390912","0.0","0.044444444444444446","4","","10","threshold=0.0971712544015751;first_stage=4;shift_check=0;representation=grid;fpca_components=none"
+"2","20262028","outliergram","success","0.000965292","1272096","1284390912","0.0","0.06666666666666667","6","","10","threshold=0.08273314149407403;first_stage=6;shift_check=0;representation=grid;fpca_components=none"
+"1","20262027","msplot","success","0.0148715","75731896","1346846720","1.0","0.07777777777777778","17","","10","cutoff=67.56290945518926;cutoff_rule=hardin_rocke;mcd_subsets=1500;mcd_exact=false;representation=grid;fpca_components=none"
+"2","20262028","msplot","success","0.02659425","75730216","1357578240","1.0","0.044444444444444446","14","","10","cutoff=67.56290945518926;cutoff_rule=hardin_rocke;mcd_subsets=1500;mcd_exact=false;representation=grid;fpca_components=none"
