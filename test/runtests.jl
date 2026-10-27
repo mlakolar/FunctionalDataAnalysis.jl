@@ -50,6 +50,7 @@ using .GoldenTestHelpers
     include("depth.jl")
     include("clustering.jl")
     include("outliers.jl")
+    include("classification.jl")
     include("kernelsmoothing_agreement.jl")
     include("validation.jl")
     include("shared_helpers.jl")

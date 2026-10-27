@@ -1,4 +1,4 @@
-# Clustering and classification
+# Clustering
 
 Three clustering methods partition a sample of curves:
 
