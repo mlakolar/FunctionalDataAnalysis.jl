@@ -44,6 +44,8 @@ export datasets, load_dataset
 export FPCRegression, coefficient_functions, coefficient_bands, pointwise_r2
 export ConcurrentRegression, FunctionOnScalarRegression
 export ThinPlateRegressionBasis, PenalizedFunctionalRegression, PenalizedFunctionOnFunctionRegression
+export depth, FunctionalDepth, FraimanMuniz, BandDepth, ModifiedBandDepth, RandomProjectionDepth,
+    ModalDepth, modified_epigraph_index, modified_hypograph_index
 
 include("interface.jl")
 include("quadrature.jl")
@@ -84,6 +86,7 @@ include("concurrent_regression.jl")
 include("function_on_scalar.jl")
 include("pfr.jl")
 include("pffr.jl")
+include("depth.jl")
 include("plot_data.jl")
 include("recipes.jl")
 include("compat_naming.jl")
