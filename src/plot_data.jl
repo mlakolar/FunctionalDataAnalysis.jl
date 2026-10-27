@@ -368,3 +368,68 @@ function band_data(b::NamedTuple{(:grid,:estimate,:se,:lower,:upper,:alpha,:crit
         upper=permutedims(b.upper), curves=[1], types=[:interval], alpha=b.alpha,
         target=:coefficient, ncomponents=nothing, settings=b.settings)
 end
+
+"""
+    boxplot_data(b::FunctionalBoxplot)
+
+Return copied plotting coordinates of a [`functional_boxplot`](@ref) as
+`(; grid, values, central, outliers, median, central_lower, central_upper,
+fence_lower, fence_upper, whisker_lower, whisker_upper, factor)`. `values` is
+the curve-by-grid matrix the boxplot was computed on. Multivariate results
+return `(; nodes)`, one payload per component, sharing the flagged indices.
+Nothing is recomputed.
+"""
+function boxplot_data(b::FunctionalBoxplot)
+    nodes = [(; grid=copy(r.grid), values=copy(r.values), central=copy(b.central), outliers=copy(b.outliers),
+        median=b.median, central_lower=copy(r.central_lower), central_upper=copy(r.central_upper),
+        fence_lower=copy(r.fence_lower), fence_upper=copy(r.fence_upper),
+        whisker_lower=copy(r.whisker_lower), whisker_upper=copy(r.whisker_upper), factor=b.factor)
+        for r in b.regions]
+    length(nodes) == 1 ? only(nodes) : (; nodes)
+end
+
+"""
+    outliergram_data(o::Outliergram)
+
+Return copied coordinates of an [`outliergram`](@ref) as `(; mei, mbd,
+outliers, parabola, boundary, threshold, coefficients)`. `parabola` and
+`boundary` are `(; mei, mbd)` curves on 101 equally spaced MEI values in
+`[0, 1]` (a package display choice): the parabola `a0 + a1·MEI + a2·MEI²` and
+the same parabola lowered by the threshold, below which curves are flagged
+in the first stage, as roahd 1.4.3 draws them.
+"""
+function outliergram_data(o::Outliergram)
+    x = collect(range(zero(eltype(o.mei)), one(eltype(o.mei)); length=101))
+    parabola = _outliergram_parabola.(Ref(o.coefficients), x)
+    (; mei=copy(o.mei), mbd=copy(o.mbd), outliers=copy(o.outliers),
+        parabola=(; mei=x, mbd=parabola), boundary=(; mei=copy(x), mbd=parabola .- o.threshold),
+        threshold=o.threshold, coefficients=o.coefficients)
+end
+
+"""
+    magnitude_shape_data(s::MagnitudeShape)
+
+Return copied coordinates of a [`magnitude_shape`](@ref) result as
+`(; magnitude, variation, outliers, median, cutoff, ellipse, multivariate)`.
+`magnitude` is `MO` for univariate data and `‖MO‖` for multivariate data,
+as fdaoutlier 0.2.1 plots it; `variation` is `VO`. For univariate data
+`ellipse` is the `(; magnitude, variation)` boundary of the region of squared
+robust distance at most `cutoff`, on 101 points (a package display choice,
+following Dai and Genton's figures); it is `nothing` for multivariate data,
+whose region lives in more than two dimensions.
+"""
+function magnitude_shape_data(s::MagnitudeShape)
+    mo = s.mean_outlyingness
+    multivariate = size(mo, 2) > 1
+    magnitude = multivariate ? sqrt.(vec(sum(abs2, mo; dims=2))) : mo[:, 1]
+    ellipse = if multivariate
+        nothing
+    else
+        root = cholesky(Symmetric(s.covariance)).L
+        angles = range(0, 2pi; length=101)
+        points = s.center .+ sqrt(s.cutoff) .* (root * vcat(cos.(angles)', sin.(angles)'))
+        (; magnitude=points[1, :], variation=points[2, :])
+    end
+    (; magnitude, variation=copy(s.variation_outlyingness), outliers=copy(s.outliers), median=s.median,
+        cutoff=s.cutoff, ellipse, multivariate)
+end

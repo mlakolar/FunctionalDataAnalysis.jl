@@ -49,6 +49,7 @@ using .GoldenTestHelpers
     include("glm.jl")
     include("depth.jl")
     include("clustering.jl")
+    include("outliers.jl")
     include("kernelsmoothing_agreement.jl")
     include("validation.jl")
     include("shared_helpers.jl")

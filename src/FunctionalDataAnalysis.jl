@@ -51,6 +51,8 @@ export depth, FunctionalDepth, FraimanMuniz, BandDepth, ModifiedBandDepth, Rando
     ModalDepth, modified_epigraph_index, modified_hypograph_index
 export FunctionalKMeans, KCFC, FunctionalGaussianMixture, posterior_probabilities,
     assignments, nclusters, randindex, loglikelihood, aic, bic
+export FunctionalBoxplot, AdjustedFactor, functional_boxplot, Outliergram, outliergram, MagnitudeShape,
+    magnitude_shape, boxplot_data, outliergram_data, magnitude_shape_data, outlier_plot
 
 include("interface.jl")
 include("quadrature.jl")
@@ -93,6 +95,7 @@ include("pfr.jl")
 include("pffr.jl")
 include("depth.jl")
 include("clustering.jl")
+include("outliers.jl")
 include("plot_data.jl")
 include("recipes.jl")
 include("compat_naming.jl")

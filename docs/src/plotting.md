@@ -201,6 +201,11 @@ for the covered targets and assumptions. Plotting bands never runs a new fit
 or bootstrap. Multivariate fitted bands use node panels, and `coverage` on
 mean-band plots selects among the types already computed.
 
+Functional boxplots, outliergrams and magnitude–shape plots have
+[`boxplot_data`](@ref), [`outliergram_data`](@ref),
+[`magnitude_shape_data`](@ref) and [`outlier_plot`](@ref); see
+[Depth and outliers](depth.md#Outlier-displays).
+
 ```@docs
 curve_data
 mean_data

@@ -95,6 +95,92 @@ projection on shared directions (fda.usc `depth.RPp`); both need components
 on one grid. `ModalDepth` uses the distance `sqrt(Σ_c ‖x_c - y_c‖²)`
 (fda.usc `depth.modep`).
 
+## Outlier displays
+
+Three displays flag outlying curves and return plain numbers for plotting.
+Each result has a data function in the plot-data layer and a RecipesBase
+recipe: `plot(result)` or [`outlier_plot`](@ref) with Plots.jl loaded.
+
+| Display | Flags | Data | Defaults and source |
+|:--|:--|:--|:--|
+| [`functional_boxplot`](@ref) | magnitude outliers outside the fences | [`boxplot_data`](@ref) | MBD, factor 1.5, central 50% (fda `fbplot`, roahd `fbplot`) |
+| [`outliergram`](@ref) | shape outliers far below the MEI–MBD parabola | [`outliergram_data`](@ref) | factor 1.5, `p_check = 0.05`, shift check on (roahd `outliergram`) |
+| [`magnitude_shape`](@ref) | curves with large robust distance of `(MO, VO)` | [`magnitude_shape_data`](@ref) | MCD of MASS `cov.rob`, Hardin–Rocke cutoff at 0.993, 200 directions (fdaoutlier `msplot`) |
+
+```@example depth
+b = functional_boxplot(fd)
+(b.outliers, b.median, length(b.central))
+```
+
+The functional boxplot (Sun and Genton, 2011) orders curves by a depth
+(any method of [`depth`](@ref)), takes the band of the deepest half as the
+central region and inflates it by 1.5 times its pointwise range for the
+fences. `factor=AdjustedFactor()` replaces 1.5 by the adjusted factor of Sun
+and Genton (2012), calibrated by simulating Gaussian curves with a robust
+covariance estimate so that about 0.7% of typical curves are flagged.
+Multivariate data are ordered by the multivariate depth and flagged when they
+leave the fences of any component.
+
+```@example depth
+shape = copy(values)
+shape[7, :] .= 1.2 .* cos.(4pi .* grid)        # a curve of unusual shape
+o = outliergram(GridFunctionalData(shape, grid))
+(o.outliers, round(o.threshold; digits=4))
+```
+
+The outliergram (Arribas-Gil and Romo, 2014) plots MEI against MBD. A curve
+that crosses no other curve lies on the parabola
+`a0 + a1·MEI + n²a0·MEI²`; the distance below it grows with the number of
+crossings, and distances beyond `Q3 + 1.5 IQR` flag shape outliers. Curves
+at the top or bottom of the sample are checked again after a vertical shift,
+since a shape outlier that lies entirely above or below the others crosses
+none of them.
+
+```@example depth
+s = magnitude_shape(GridFunctionalData(shape, grid))
+(s.outliers, argmax(s.variation_outlyingness), round(s.cutoff; digits=1))
+```
+
+The magnitude–shape plot (Dai and Genton, 2018) summarizes each curve by the
+mean `MO` and variation `VO` of its directional outlyingness: `MO` measures
+how far the curve sits from the pointwise median, `VO` how much its
+outlyingness changes along the curve. Squared robust Mahalanobis distances of
+`(MO, VO)` from the minimum covariance determinant estimate are compared with
+the Hardin–Rocke cutoff; above, the shifted curve 20 (large `MO`) and the
+shape outlier 7 (largest `VO`) are flagged. For multivariate data the
+outlyingness is the Stahel–Donoho outlyingness over random projection
+directions, and `‖MO‖` is plotted. The Hardin–Rocke cutoff is conservative
+in small samples, where its F approximation has few denominator degrees of
+freedom.
+
+### Worked example: Canadian temperatures
+
+The full Canadian weather data (35 stations, daily temperatures; downloaded
+on first use, see the Datasets page) show the three displays side by side.
+
+```julia
+weather = load_dataset(:canadian_weather).data
+temperature = component(weather, 1)
+stations = ids(temperature)
+stations[functional_boxplot(temperature).outliers]
+# Scheffervll, Churchill, Yellowknife, Iqaluit, Inuvik, Resolute
+stations[outliergram(temperature).outliers]
+# St. Johns, Pr. Rupert
+stations[magnitude_shape(temperature).outliers]
+# Iqaluit, Inuvik, Resolute
+using Random
+stations[magnitude_shape(weather; rng=Xoshiro(1)).outliers]   # temperature and precipitation
+# St. Johns, Sydney, Pr. Rupert, Resolute
+```
+
+The boxplot flags the cold northern stations, whose winters leave the fences.
+The outliergram flags the two maritime stations, St. John's and Prince
+Rupert, whose seasonal cycle is much flatter than the rest: their curves
+cross many others. The magnitude–shape plot flags the three Arctic stations
+with the most extreme magnitude; Prince Rupert has the next largest distance.
+With precipitation as a second component, the wet maritime stations and
+Resolute stand out.
+
 ## Reference audit
 
 The implementations follow the sources of roahd 1.4.3 and fda.usc 2.2.0
@@ -135,6 +221,76 @@ The implementations follow the sources of roahd 1.4.3 and fda.usc 2.2.0
 - roahd's `multiMBD` requires `sum(weights) == 1` exactly; this package accepts
   sums within `sqrt(eps())` of one and does not renormalize.
 
+The outlier displays follow roahd 1.4.3, fda 6.3.0, fdaoutlier 0.2.1 (current
+CRAN), MASS 7.3-65 and robustbase 0.99-7, read in full for the functions
+named in `test/reference/outliers_m8.R`, including fdaoutlier's C++ and
+MASS's `lqs.c`.
+
+- Central region. roahd `fbplot` takes every curve whose depth is at least
+  the median depth, which with ties can be more than half the curves; fda
+  `fbplot` takes exactly `⌈n/2⌉` curves in depth order, as Sun and Genton
+  define it. `central_ties=:first` (default) follows the definition,
+  `central_ties=:all` roahd.
+- Fences and median. roahd flags curves strictly outside a fence; fda also
+  flags curves touching it, which matters only on exact equality. fda's
+  median curve averages tied deepest curves; roahd and this package take the
+  first. Both draw whiskers as the envelope of the curves not flagged.
+- Depth. roahd's `fbplot` uses `MBD(manage_ties=TRUE)`, but inside its
+  adjusted-factor search the simulated samples use `MBD` with average ranks;
+  fda uses average ranks. Both weight grid points equally. This package uses
+  one `method` throughout, by default the exact-tie trapezoidal MBD.
+- Adjusted factor. roahd estimates the covariance with robustbase
+  `covOGK(sigmamu=s_Qn)`, whose pairwise covariances use the τ-scale (the Qn
+  scale is not passed on to `covGK`), and returns the raw, not the
+  reweighted, OGK matrix. Each trial's factor comes from `uniroot` on
+  `[0.5, 5]` with tolerance `1e-3`, although the flagged proportion is a step
+  function of the factor; this package computes the factor exactly from the
+  simulated curves' thresholds and needs no bracket. roahd does not adjust
+  multivariate boxplots.
+- robustbase `Qn` truncates candidate differences to single precision during
+  its search (`(float)(y[i] - y[n - jh])` in `qn_sn.c`) and returns the
+  truncated value when the search ends early, so it can differ from the
+  exact order statistic by about `1e-8` relative (in the fixture,
+  `1.4236938223` against `1.4236938612`). This package computes the exact
+  order statistic with robustbase's constants.
+- Outliergram. roahd's `outliergram` computes MBD with average ranks and
+  equal weights, flags distances `>= Q3 + 1.5 IQR` (quantile type 7), and
+  shifts candidates by the smallest gap to the second-lowest (or
+  second-highest) curve where they are extreme. Two defects: when the first
+  stage flags no curve, `MEI_data[-ID_shape_outlier]` is empty and the shift
+  check is skipped; and candidates are matched with `grep(ID, ID_to_check)`,
+  a regular-expression match that confuses, for example, curves 1 and 16.
+  This package always runs the check (`shift=false` reproduces roahd in the
+  first case) and matches indices exactly.
+- Directional outlyingness. fdaoutlier's univariate `dir_out` uses R's
+  `median` and `mad`, the mean over grid points and, for `VO`, the sample
+  variance (divisor `m - 1`); the multivariate version divides by `m`. Its
+  multivariate projection depth (C++ `projectionDepth`) takes the one-sided
+  maximum of `(u'x - med)/MAD` over directions, with the upper median and an
+  unscaled MAD, instead of the absolute value in Zuo's projection depth; its
+  directions are uniform in the cube `[-1, 1]^d` and normalized, regenerated
+  from the same seed at every grid point. `definition=:fdaoutlier` reproduces
+  all of this; the default uses the two-sided outlyingness, quadrature
+  weights and the population variance.
+- MCD. MASS `cov.rob(method="mcd")` divides each column by its IQR,
+  enumerates all `(p + 1)`-subsets when there are fewer than 5000 (otherwise
+  samples `min(500(p + 1), 3000)`), runs up to four concentration steps per
+  subset, stopping when the log determinant falls by less than 0.1%, and
+  reweights with a `(1 + 15/(n - p))²` inflation and a 97.5% χ² cut. This
+  package ports that search exactly. fdaoutlier measures distances from the
+  reweighted estimate; Dai and Genton apply the Hardin–Rocke cutoff to the
+  raw MCD estimate (the subset's mean and covariance), which is the default
+  here.
+- Hardin–Rocke cutoff. fdaoutlier's `hardin_factor_numeric` reads a table of
+  simulated factors for `n < 1000` and `q ≤ 3`, and otherwise computes
+  Croux–Haesbroeck factors with `c` estimated by Monte Carlo from
+  `rchisq(10000, q, h/n)`, which passes `h/n` as the noncentrality rather than
+  using the `h/n` quantile; the resulting `c` is about twice Hardin and
+  Rocke's `P(χ²_{q+2} < χ²_{q,h/n})/(h/n)`. Its cutoff is therefore random
+  and differs from the formula. This package evaluates the formula exactly
+  (its F quantile matches fdaoutlier's deterministic part) and accepts a
+  numeric `cutoff` for fdaoutlier's value.
+
 ## Validation
 
 `test/reference/depth_m8.R` generates small fixtures (12 curves on 15 grid
@@ -150,6 +306,32 @@ for samples and for new curves, at relative error below `1e-8`, using the
 options above that reproduce each reference. The band depth by definition is
 compared with a direct pairwise count in the same script.
 
+`test/reference/outliers_m8.R` writes `test/data/m8_outliers_input.csv` and
+`test/data/m8_outliers_golden.csv` with R 4.5.1, roahd 1.4.3, fda 6.3.0,
+fdaoutlier 0.2.1, MASS 7.3-65 and robustbase 0.99-7; recreate them with
+`Rscript test/reference/outliers_m8.R`. The fixtures are 24 curves on 20
+points with magnitude and shape outliers, a variant with tied depths at the
+median, and a two-component sample of 20 curves. The tests compare, at
+relative error below `1e-8` and with exact flagged indices:
+
+- roahd `fbplot` depths, central envelopes, fences and outliers for
+  univariate, tied and multivariate data (`method=ModifiedBandDepth(integration=:uniform)`,
+  `central_ties=:all`), and fda `fbplot` depths, outliers and median
+  (`method=ModifiedBandDepth(ties=:average, integration=:uniform)`);
+- roahd `outliergram` MEI, MBD, distances, quartiles, first-stage and final
+  outliers (`method=ModifiedBandDepth(ties=:average, integration=:uniform)`),
+  on data where the shift check adds a curve;
+- fdaoutlier `msplot` and `dir_out` `MO`, `VO`, distances, MCD subset,
+  center, covariance, outliers and median for univariate and bivariate data
+  (`definition=:fdaoutlier`, fdaoutlier's directions and tabulated cutoff),
+  and the raw MCD estimate and rescaled `VO` of the default definition;
+- the F quantile of fdaoutlier's `croux_hesbroeck_asymptotic` and the exact
+  Hardin–Rocke `c`;
+- robustbase `covOGK` with the exact Qn (and `Qn` itself where it is exact),
+  and one adjusted-factor trial on a stored simulated sample: roahd's
+  `uniroot` root lies within its reported precision of the exact factor, and
+  both flag the same curves.
+
 ```@docs
 depth
 FunctionalDepth
@@ -160,4 +342,15 @@ RandomProjectionDepth
 ModalDepth
 modified_epigraph_index
 modified_hypograph_index
+functional_boxplot
+FunctionalBoxplot
+AdjustedFactor
+outliergram
+Outliergram
+magnitude_shape
+MagnitudeShape
+boxplot_data
+outliergram_data
+magnitude_shape_data
+outlier_plot
 ```
