@@ -1,0 +1,7 @@
+"replicate","seed","route","status","wall_seconds","allocated_bytes","process_peak_rss_bytes","true_positive_rate","false_positive_rate","flagged","adjusted_rand_index","positives","settings"
+"1","20268027","kmeans_scores","success","0.131112584","6299216","1409843200","","","","0.1616999297789488","","space=fpc_scores;iterations=8;converged=true;fpca_components=3"
+"2","20268028","kmeans_scores","success","0.131478041","6307808","1409843200","","","","0.04912587687358875","","space=fpc_scores;iterations=6;converged=true;fpca_components=3"
+"1","20268027","kcfc","success","2.907779666","343946944","1285177344","","","","0.35647818058831054","","status=converged;iterations=20;fpca_method=pace;fpca_components=3;cluster_components=1/1/1"
+"2","20268028","kcfc","success","1.987282083","217438656","1285177344","","","","0.3328701583742559","","status=converged;iterations=12;fpca_method=pace;fpca_components=3;cluster_components=2/1/1"
+"1","20268027","mixture","success","0.134735334","35694192","1331970048","","","","0.35388885503288037","","status=converged;iterations=6;fpca_method=pace;fpca_components=3"
+"2","20268028","mixture","success","0.138890708","36077280","1332494336","","","","0.3093659449734619","","status=converged;iterations=9;fpca_method=pace;fpca_components=3"

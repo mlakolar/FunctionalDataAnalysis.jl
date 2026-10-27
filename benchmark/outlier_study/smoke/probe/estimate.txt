@@ -1,0 +1,50 @@
+Work units: 272; estimated CPU time 8.11 hours (29179 s), of which worker startup 1.15 hours
+Per-worker startup (process, packages, warmup): 15.2 s; longest unit 2747 s
+
+Per-replicate overhead outside the fit (simulation, garbage collection), seconds:
+  clustering dense  n=100     0.035
+  clustering dense  n=500     0.039
+  clustering sparse n=100     0.037
+  clustering sparse n=500     0.036
+  outlier    dense  n=100     0.037
+  outlier    dense  n=500     0.035
+  outlier    sparse n=100     0.036
+  outlier    sparse n=500     0.036
+
+Mean fit seconds from the probe:
+  clustering dense  n=100  kcfc              0.003
+  clustering dense  n=100  kmeans_curves     0.000
+  clustering dense  n=100  kmeans_scores     0.000
+  clustering dense  n=100  mixture           0.008
+  clustering dense  n=500  kcfc              0.018
+  clustering dense  n=500  kmeans_curves     0.001
+  clustering dense  n=500  kmeans_scores     0.000
+  clustering dense  n=500  mixture           0.030
+  clustering sparse n=100  kcfc              2.448
+  clustering sparse n=100  kmeans_scores     0.131
+  clustering sparse n=100  mixture           0.137
+  clustering sparse n=500  kcfc             13.625
+  clustering sparse n=500  kmeans_scores     0.655
+  clustering sparse n=500  mixture           0.654
+  outlier    dense  n=100  boxplot           0.000
+  outlier    dense  n=100  msplot            0.021
+  outlier    dense  n=100  outliergram       0.001
+  outlier    dense  n=500  boxplot           0.001
+  outlier    dense  n=500  msplot            0.077
+  outlier    dense  n=500  outliergram       0.007
+  outlier    sparse n=100  boxplot           0.127
+  outlier    sparse n=100  msplot            0.141
+  outlier    sparse n=100  outliergram       0.127
+  outlier    sparse n=500  boxplot           0.649
+  outlier    sparse n=500  msplot            0.693
+  outlier    sparse n=500  outliergram       0.632
+
+Estimated CPU hours by study, design and n:
+  clustering dense  n=100     0.10
+  clustering dense  n=500     0.11
+  clustering sparse n=100     0.68
+  clustering sparse n=500     3.39
+  outlier    dense  n=100     0.36
+  outlier    dense  n=500     0.42
+  outlier    sparse n=100     0.73
+  outlier    sparse n=500     2.31

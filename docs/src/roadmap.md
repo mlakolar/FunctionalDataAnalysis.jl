@@ -130,4 +130,7 @@
   sparse data, and Gaussian mixtures on FPC scores are available, validated
   against fdapace 0.6.0, fda.usc 2.2.0 and EMCluster 0.2-18. See
   [Clustering](clustering.md).
+  A simulation harness in `benchmark/outlier_study/` measures outlier
+  detection rates of the three outlier displays and the clustering accuracy
+  of the four clustering methods.
 - Milestone 9: registration.

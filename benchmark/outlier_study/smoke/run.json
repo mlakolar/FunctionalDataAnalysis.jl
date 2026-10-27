@@ -1,0 +1,60 @@
+{
+  "run_id": "20261027-outlier-study-local-smoke",
+  "purpose": "Validate the outlier-detection and clustering study harness on two tiny cells, and time one full-size cell per study, design and n for the cost estimate; no study evidence or method recommendation.",
+  "kind": "development",
+  "status": "validated_local_smoke",
+  "source": {
+    "base_revision": "c1af267ec534df5a9c4a8b3265b0685598f37ed0",
+    "changes": "The accompanying task diff supplies the harness and docs notes. The loop controller assigns the final source commit."
+  },
+  "environment": {
+    "julia": "1.13.3",
+    "platform": "aarch64-apple-darwin",
+    "FunctionalDataAnalysis": "0.1.0",
+    "KernelSmoothing": "0.1.0",
+    "KernelSmoothing_source": "https://github.com/mlakolar/KernelSmoothing.jl",
+    "KernelSmoothing_ref": "master",
+    "julia_threads": 1,
+    "blas_threads": 1
+  },
+  "configuration": "benchmark/outlier_study/smoke/configurations.csv",
+  "probe_configuration": "benchmark/outlier_study/smoke/probe/configurations.csv",
+  "recreation": {
+    "working_directory": "repository root",
+    "command": [
+      "julia --project=. benchmark/outlier_study/check.jl",
+      "julia benchmark/outlier_study/configs.jl /tmp/outlier-smoke.csv --smoke",
+      "julia --project=. benchmark/outlier_study/run.jl /tmp/outlier-smoke.csv 1 /tmp/outlier-smoke/cell-001.csv",
+      "julia --project=. benchmark/outlier_study/run.jl /tmp/outlier-smoke.csv 2 /tmp/outlier-smoke/cell-002.csv",
+      "julia --project=. benchmark/outlier_study/summarize.jl /tmp/outlier-smoke.csv /tmp/outlier-smoke /tmp/outlier-smoke-summary",
+      "julia benchmark/outlier_study/configs.jl /tmp/outlier-probe.csv --probe",
+      "julia --project=. benchmark/outlier_study/run.jl /tmp/outlier-probe.csv INDEX /tmp/outlier-probe/cell-00INDEX.csv  # INDEX = 1, ..., 8",
+      "julia --project=. benchmark/outlier_study/estimate.jl benchmark/outlier_study/configurations.csv /tmp/outlier-probe.csv /tmp/outlier-probe"
+    ]
+  },
+  "outputs": [
+    "cell-001.csv",
+    "cell-001.replicates.csv",
+    "cell-001.failures.csv",
+    "cell-002.csv",
+    "cell-002.replicates.csv",
+    "cell-002.failures.csv",
+    "summary.csv",
+    "summary.md",
+    "probe/cell-00[1-8].csv with .replicates.csv and .failures.csv companions",
+    "probe/estimate.txt"
+  ],
+  "validation": {
+    "harness_checks": "check.jl: all testsets pass; no study runs",
+    "smoke": "2 cells, 2 replicates per cell, 7 routes; 14 successes, 0 failures",
+    "summary": "7 route rows; aggregates, seeds, versions and complete coverage validated",
+    "probe": "8 full-size cells (outlier model 1 at 10%, three-group covariance clustering; dense and sparse; n = 100 and 500), 2 replicates per route, 0 failures; every clustering fit recorded status converged",
+    "cost_estimate": "estimate.txt: 272 work units of 200 replicates, about 8.1 CPU-hours on this machine (15 s startup per unit; sparse clustering at n = 500 takes 3.4 hours; longest unit about 46 minutes)",
+    "configuration_grid": "Generated CSV exactly recreated; 88 cells, 54400 production fits",
+    "full_package_suite": "Not run; controller responsibility",
+    "docs_build": "Not run; controller responsibility",
+    "Discovery": "Not submitted; full study runs on Discovery"
+  },
+  "jobs": [],
+  "retention": "Keep these small smoke and probe outputs and the recreation recipe."
+}

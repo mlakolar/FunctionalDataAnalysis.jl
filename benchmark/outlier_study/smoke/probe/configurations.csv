@@ -1,0 +1,9 @@
+id,study,scenario,design,n,contamination,groups,replicates,seed
+1,outlier,model1,dense,100,0.1,,2,20262027
+2,outlier,model1,dense,500,0.1,,2,20263027
+3,outlier,model1,sparse,100,0.1,,2,20264027
+4,outlier,model1,sparse,500,0.1,,2,20265027
+5,clustering,covariance,dense,100,,3,2,20266027
+6,clustering,covariance,dense,500,,3,2,20267027
+7,clustering,covariance,sparse,100,,3,2,20268027
+8,clustering,covariance,sparse,500,,3,2,20269027

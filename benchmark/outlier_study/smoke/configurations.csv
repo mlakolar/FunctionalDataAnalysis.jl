@@ -1,0 +1,3 @@
+id,study,scenario,design,n,contamination,groups,replicates,seed
+1,outlier,model6,sparse,40,0.1,,2,20262027
+2,clustering,covariance,dense,40,,2,2,20263027
