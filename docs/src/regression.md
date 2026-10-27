@@ -871,33 +871,39 @@ cap ([FPC defaults that depart from fdapace](@ref regression-fpc-departures)).
 `ncomponents=FVE(1)` to those options with `selection=BIC()` reproduces the
 uncapped "FPC with BIC" column.
 
-Results from USC Discovery (Julia 1.13.2, 14,400 fits, no failures) are in
-[`benchmark/regression/results`](https://github.com/mlakolar/FunctionalDataAnalysis.jl/tree/master/benchmark/regression/results).
-Median relative errors of `β̂`:
+Results from USC Discovery (Julia 1.13.2, 14,400 fits per run, no failures)
+are in [`benchmark/regression/results`](https://github.com/mlakolar/FunctionalDataAnalysis.jl/tree/master/benchmark/regression/results).
+The table gives median relative errors of `β̂` with the current defaults, and,
+in brackets, with the earlier defaults (unsmoothed dense FPCA, uncapped
+criterion search):
 
 | Covariates | `β` | n | FPC default | FPC with BIC | Penalized |
 |:--|:--|---:|---:|---:|---:|
-| Dense | leading | 100 | 6.0–11.6 | 51–106 | 0.49–0.54 |
-| Dense | leading | 500 | 4.3–8.5 | 0.06–0.08 | 0.15–0.49 |
-| Dense | smooth | 100 | 5.1–10.5 | 44–89 | 0.34–0.71 |
-| Dense | smooth | 500 | 3.8–7.6 | 0.20–0.44 | 0.21–0.32 |
-| Dense | trailing | 500 | 0.68–1.25 | 0.13–0.15 | 1.0 |
+| Dense | leading | 100 | 0.58–1.1 (6.0–11.6) | 0.15–0.19 (51–106) | 0.49–0.54 |
+| Dense | leading | 500 | 0.23–0.49 (4.3–8.5) | 0.06–0.08 (same) | 0.15–0.49 |
+| Dense | smooth | 100 | 0.46–0.99 (5.1–10.5) | 0.42–0.50 (44–89) | 0.33–0.71 |
+| Dense | smooth | 500 | 0.21–0.43 (3.8–7.6) | 0.20–0.44 (same) | 0.21–0.31 |
+| Dense | trailing | 100–500 | 0.92–0.99 (0.68–1.7) | 1.0 (0.13–15) | 1.0 |
 | Sparse | leading | 100–500 | 0.27–0.95 | 0.15–0.44 | 0.55–0.65 |
-| Sparse | smooth | 100–500 | 0.42–0.92 | 0.46–0.61 | 0.45–0.84 |
+| Sparse | smooth | 100–500 | 0.42–0.92 | 0.45–0.61 | 0.45–0.84 |
 | Sparse | trailing | 100–500 | 1.0 | 1.0 | 1.0 |
 
-Ranges span the two noise levels. On noisy dense curves with the defaults,
-penalized regression is the safe choice: the default FPC fit keeps 40–63
-noise-dominated components. BIC selection fixes that at n=500, where it is the
-most accurate. At n=100, though, BIC chooses around 70 components out of
-fewer than 100 and fails badly. Penalized regression shrinks a coefficient
-equal to a high-frequency eigenfunction to zero (error 1), and no method
-recovers it from sparse curves. Prediction error differs much less than
-coefficient error. Pointwise coverage of the 95% bands is close to nominal
-only for the default FPC fit, whose bands are very wide. Coverage is 27–95%
-for BIC-selected FPC and for penalized fits on smooth or leading
-coefficients, and under 8% where the penalty shrinks a trailing
-coefficient, because the bands do not include smoothing bias.
+Ranges span the two noise levels; sparse covariates use PACE in both runs, so
+their numbers are unchanged. With the current defaults, FPC regression
+smooths dense curves with FACE (about eight components instead of 40–63
+noise-dominated ones) and searches criterion counts only up to the FPCA's own
+selection. BIC-selected FPC regression is then the most accurate for
+coefficients in the leading modes, and penalized regression is close or
+better for smooth coefficients. The cost is the trailing case: a coefficient
+equal to a high-frequency eigenfunction is smoothed away by FACE, as it is by
+the penalty (error about 1), whereas the earlier unsmoothed BIC fit
+recovered it at n=500. Pass `fpca_options=(; method=:dense)` when such
+structure is expected and n is large. No method recovers it from sparse
+curves. Prediction error differs much less than coefficient error.
+Pointwise coverage of the 95% bands is 69–96% for the default FPC fit, 26–86%
+for BIC-selected FPC and 43–95% for penalized fits on leading or smooth
+coefficients, and at most 32% on trailing coefficients, because the bands do
+not include smoothing bias.
 
 ### refund and mgcv source audit
 
