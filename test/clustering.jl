@@ -183,6 +183,14 @@ end
     tiny_start[[2, 3, 14, 26]] .= 4
     tiny = @test_logs (:warn, r"at most max") StatsAPI.fit(KCFC, fd; k=4, initial=tiny_start)
     @test tiny.status === :tiny_cluster && minimum(tiny.counts) <= 3 && tiny.iterations == 0
+    # Each group lies exactly in its mean plus two components, so a fourth cluster
+    # of mixed curves reconstructs no curve best and is lost at once.
+    sep, sep_truth = _m8_separated()
+    mixed = copy(sep_truth)
+    mixed[[1, 2, 41, 42]] .= 4
+    lost = @test_logs (:warn, r"lost a cluster") StatsAPI.fit(KCFC, sep; k=4, initial=mixed,
+        cluster_fpca_options=(; ncomponents=2))
+    @test lost.status === :lost_cluster && lost.counts == [20, 20, 20, 0] && lost.iterations == 0
 
     # Errors.
     @test_throws ArgumentError StatsAPI.fit(KCFC, fd; k=1)
@@ -264,6 +272,9 @@ end
     @test toolarge.selection.values[2:3] == [Inf, Inf]
     @test_throws "only 60 curves" StatsAPI.fit(FunctionalGaussianMixture, fitted.fpca; k=31)
     @test FunctionalDataAnalysis._gmm_emem(fitted.fpca.scores, 30, Random.Xoshiro(12), 200, 0.01) isa String
+    # A failed initialization is retried until the restarts run out.
+    @test_throws ArgumentError StatsAPI.fit(FunctionalGaussianMixture, fitted.fpca; k=30, restarts=2,
+        rng=Random.Xoshiro(12))
 
     # Errors.
     @test_throws ArgumentError StatsAPI.fit(FunctionalGaussianMixture, f; k=2:3, init=initial)
@@ -292,4 +303,25 @@ end
     em = (; maxiter=10, tol=1e-6, parameter_tol=nothing, short=false)
     @test FunctionalDataAnalysis._gmm_em!(collapsed(), X; em..., strict=false).status === :degenerate
     @test_throws ArgumentError FunctionalDataAnalysis._gmm_em!(collapsed(), X; em..., strict=true)
+
+    # Collinear points make the first covariance singular in the M-step (the far
+    # points have zero posterior weight): strict runs throw, others restore the
+    # parameters and report :degenerate.
+    Y = [0.0 0.0; 1.0 0.0; 2.0 0.0; 3.0 0.0; 100.0 1.0; 101.0 -1.0; 102.0 2.0; 100.0 0.5]
+    flat() = G.GMM([0.5, 0.5], [1.5 0.0; 101.0 0.6],
+        [UpperTriangular(Matrix(1.0I, 2, 2)), UpperTriangular(Matrix(1.0I, 2, 2))], G.History[], 8)
+    singular = flat()
+    result = FunctionalDataAnalysis._gmm_em!(singular, Y; em..., strict=false)
+    @test result.status === :degenerate && result.iterations == 0
+    @test singular.μ == [1.5 0.0; 101.0 0.6] && singular.w == [0.5, 0.5]
+    @test_throws "became singular" FunctionalDataAnalysis._gmm_em!(flat(), Y; em..., strict=true)
+
+    # Weights summing to more than one inflate the starting log likelihood, so the
+    # first EM step lowers it: the step is reverted and the run stops.
+    inflated = G.GMM([0.5, 0.5], reshape([0.2, 0.7], 2, 1),
+        [UpperTriangular(fill(1 / 0.15, 1, 1)), UpperTriangular(fill(1 / 0.15, 1, 1))], G.History[], 10)
+    inflated.w = [5.0, 5.0]
+    result = FunctionalDataAnalysis._gmm_em!(inflated, X; em..., strict=false)
+    @test result.status === :likelihood_decrease && result.iterations == 0
+    @test inflated.w == [5.0, 5.0] && inflated.μ == reshape([0.2, 0.7], 2, 1)
 end

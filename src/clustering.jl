@@ -116,7 +116,6 @@ fit(::Type{FunctionalKMeans}, fd::AbstractFunctionalData; kwargs...) = throw(Arg
 
 _init_setting(init::Symbol) = init
 _init_setting(init::AbstractVector{<:Integer}) = collect(Int, init)
-_init_setting(init) = init
 
 function _kmeans_points(fd::GridFunctionalData)
     fd.observed === nothing || throw(ArgumentError(
