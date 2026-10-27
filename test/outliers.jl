@@ -399,4 +399,18 @@ end
     @test_throws ArgumentError magnitude_shape(MultivariateFunctionalData([fd, fd]))  # collinear MO
     coarse = GridFunctionalData(randn(rng, 12, 3), [0.0, 0.5, 1.0])
     @test_throws ArgumentError magnitude_shape(MultivariateFunctionalData([fd, coarse]))
+    # Exhaustive MCD subsets: small problems enumerate all, large ones refuse.
+    @test FunctionalDataAnalysis._mcd_nsamp(:exact, 10, 3) == (true, binomial(10, 3))
+    @test_throws ArgumentError FunctionalDataAnalysis._mcd_nsamp(:exact, 200, 6)
+end
+
+@testset "outlier displays: show methods" begin
+    grid = collect(range(0, 1; length=15))
+    rng = Random.Xoshiro(86)
+    fd = GridFunctionalData([a + b * sin(2pi * t) for (a, b) in zip(randn(rng, 20), randn(rng, 20)), t in grid], grid)
+    @test occursin("AdjustedFactor(ntrials=", sprint(show, AdjustedFactor()))
+    o = outliergram(fd)
+    @test sprint(show, MIME"text/plain"(), o) == sprint(show, o)
+    s = magnitude_shape(fd)
+    @test sprint(show, MIME"text/plain"(), s) == sprint(show, s)
 end
